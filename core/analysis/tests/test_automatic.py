@@ -254,8 +254,12 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
             )
 
         with (
-            patch("core.evidence.views.retain_uploaded_originals", lose_confirmation),
-            patch("phone.views.retain_uploaded_originals", lose_confirmation),
+            patch(
+                "core.evidence.retention.retain_uploaded_originals", lose_confirmation
+            ),
+            patch(
+                "phone.call_attachments.retain_uploaded_originals", lose_confirmation
+            ),
         ):
             document_error = upload_document()
             attachment_error = upload_attachment()
@@ -416,8 +420,16 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(DBTaskResult.objects.count(), len(first))
         with self.assertRaises(ValidationError):
             self.start(self.text(), submission_id=submission_id)
-        with self.assertRaises(ValidationError):
-            self.start(item, role="editor", submission_id=submission_id)
+        editor_runs, created = self.start(
+            item, role="editor", submission_id=submission_id
+        )
+        self.assertTrue(created)
+        self.assertTrue(
+            {run.pk for run in first}.isdisjoint(run.pk for run in editor_runs)
+        )
+        self.assertTrue(
+            all(run.requested_by == self.users["editor"] for run in editor_runs)
+        )
 
     def test_roles_cross_case_and_revocation_are_enforced(self):
         item = self.text()

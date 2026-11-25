@@ -109,6 +109,21 @@ def start_added_evidence_analysis(
     )
 
 
+def start_call_history_analysis(actor, batch):
+    """Queue bounded checks for the newly published calls with confirmed people."""
+    from core.analysis.bulk import start_case_analysis
+    from core.analysis.reprocessing import analysis_scope
+
+    kinds = sorted(CALL_KINDS)
+    return start_case_analysis(
+        actor,
+        batch.case_id,
+        submission_id=uuid5(NAMESPACE_URL, f"pandect:call-history-analysis:{batch.pk}"),
+        scope={"type": "call-history", "id": str(batch.pk), "kinds": kinds}
+        | analysis_scope(batch.case, kinds),
+    )
+
+
 @transaction.atomic
 def start_evidence_reprocessing(actor, case_id, kind, evidence_id, *, submission_id):
     """Queue the broad analysis suite for one explicitly selected original."""
@@ -119,7 +134,7 @@ def start_evidence_reprocessing(actor, case_id, kind, evidence_id, *, submission
     original = get_evidence(case, kind, evidence_id)
     scope = {"type": "added", "kind": kind, "id": str(original.pk), "reprocess": True}
     existing = CaseAnalysisBatch.objects.filter(
-        pk=submission_id,
+        submission_id=submission_id,
         case=case,
         requested_by=actor,
         scope__contains=scope,
@@ -147,12 +162,12 @@ def start_evidence_analysis(
         batch_id = UUID(str(submission_id))
     except ValueError, TypeError, AttributeError:
         raise ValidationError("Choose a valid analysis submission.") from None
-    existing = AnalysisRun.objects.filter(submission_id=batch_id).first()
+    existing = AnalysisRun.objects.filter(
+        case=case, requested_by=actor, submission_id=batch_id
+    ).first()
     if existing:
         if (
-            existing.case_id != case.pk
-            or existing.requested_by_id != actor.pk
-            or existing.batch_id != getattr(batch, "pk", None)
+            existing.batch_id != getattr(batch, "pk", None)
             or existing.parameters.get("automatic_batch") != str(batch_id)
             or not existing.inputs
             or any(

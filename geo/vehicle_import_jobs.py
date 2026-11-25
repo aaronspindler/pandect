@@ -13,13 +13,20 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from cases.permissions import get_case
+from core.storage import file_integrity, retain_uploaded_originals, staged_file_upload
 from document.models import DocumentEvidence
 from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
     VehicleLocationImportRow,
 )
-from geo.vehicle_imports import MAX_GROUPS, SUPPORTED_PARSER_VERSIONS, iter_import
+from geo.vehicle_imports import (
+    MAX_BYTES,
+    MAX_GROUPS,
+    PARSER_VERSION,
+    SUPPORTED_PARSER_VERSIONS,
+    iter_import,
+)
 from vehicle.models import Vehicle
 
 CHUNK_SIZE = 500
@@ -63,6 +70,62 @@ class ImportJobError(Exception):
 
 class SupersededImport(Exception):
     pass
+
+
+class ImportSubmissionConflict(ValidationError):
+    pass
+
+
+def retain_import(
+    actor, case_id, *, submission_id, original, timezone, vehicle, source
+):
+    """Retain a CSV and queue its review as one recoverable operation."""
+    with (
+        staged_file_upload(original, limit=MAX_BYTES),
+        retain_uploaded_originals() as originals,
+    ):
+        case = get_case(actor, case_id, edit=True, lock=True)
+        batch = (
+            VehicleLocationImport.objects.filter(
+                case=case, uploaded_by=actor, submission_id=submission_id
+            )
+            .select_related("document")
+            .first()
+        )
+        if batch is not None:
+            digest = file_integrity(DocumentEvidence(file=original).file)
+            if (
+                batch.document.case_id != case.pk
+                or batch.document.uploaded_by_id != actor.pk
+                or batch.document.sha256 != digest["sha256"]
+                or batch.timezone != timezone
+                or batch.selected_vehicle_id != getattr(vehicle, "pk", None)
+            ):
+                raise ImportSubmissionConflict(
+                    "This submission cannot be reused. Start a new import."
+                )
+            return batch, False
+        document = DocumentEvidence(
+            case=case,
+            uploaded_by=actor,
+            title=f"Asset Location CSV: {original.name}"[:255],
+            source=source,
+            file=original,
+        )
+        document.full_clean()
+        document.save()
+        originals.append(document.file)
+        batch = VehicleLocationImport.objects.create(
+            submission_id=submission_id,
+            case=case,
+            uploaded_by=actor,
+            document=document,
+            timezone=timezone,
+            parser_version=PARSER_VERSION,
+            selected_vehicle=vehicle,
+        )
+        enqueue_preparation(actor, case.pk, batch.pk)
+        return batch, True
 
 
 def _locked_batch(actor, case_id, import_id):

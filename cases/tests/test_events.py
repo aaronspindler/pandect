@@ -136,3 +136,19 @@ class CaseEventTests(EvidenceViewTestMixin, TransactionTestCase):
         another = await self.open_stream()
         await another.send_input({"type": "http.disconnect"})
         await another.wait()
+
+    async def test_role_change_closes_an_authorized_stream(self):
+        self.service.listening = True
+        stream = await self.open_stream("editor")
+        await CaseMembership.objects.filter(
+            case=self.case, user=self.users["editor"]
+        ).aupdate(role="viewer")
+        for wake in self.service.subscribers[str(self.case.pk)]:
+            wake.set()
+        self.assertEqual(
+            (await stream.receive_output())["body"], b"event: access-lost\ndata: {}\n\n"
+        )
+        await stream.wait()
+        replacement = await self.open_stream("editor")
+        await replacement.send_input({"type": "http.disconnect"})
+        await replacement.wait()

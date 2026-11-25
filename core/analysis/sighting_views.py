@@ -5,8 +5,7 @@ from uuid import UUID, uuid4
 from django import forms
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Q, Value
+from django.db.models import CharField, Exists, OuterRef, Value
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -24,27 +23,26 @@ from core.analysis.important import has_available_citations, retained_finding_ur
 from core.analysis.navigation import finding_url
 from core.analysis.services import (
     SourceResolutionCache,
-    start_run,
     validate_current_sighting,
 )
 from core.analysis.sightings import (
+    ANCHOR_KINDS,
     MAX_CANDIDATES,
     MAX_SELECTION,
     REVIEW_DECISIONS,
     candidate_links,
-    prepare_proposal,
     review_outcome,
+    review_sighting,
     saved_group,
     sighting_reviews,
+    sighting_runs,
+    start_sighting,
 )
 from core.evidence.queries import get_evidence, scoped_evidence
-from core.evidence.types import KIND_LABELS, LOCATION_KINDS
+from core.evidence.types import KIND_LABELS
 from core.important.navigation import return_params
 from core.important.reader import reader_context
-from core.models import AnalysisFindingSource, AnalysisReview, AnalysisRun
-
-OPERATION = "sighting_group"
-ANCHOR_KINDS = ("image", *LOCATION_KINDS)
+from core.models import AnalysisFindingSource, AnalysisRun
 
 
 class SightingForm(forms.Form):
@@ -66,12 +64,6 @@ class SightingForm(forms.Form):
 class ReviewForm(forms.Form):
     revision = forms.UUIDField(required=False)
     decision = forms.ChoiceField(choices=REVIEW_DECISIONS)
-
-
-def _runs(case):
-    return AnalysisRun.objects.filter(case=case, operation=OPERATION).filter(
-        Q(previous_run__isnull=True) | Q(previous_run__case=case)
-    )
 
 
 def _source_choice(case, token, kinds):
@@ -172,7 +164,7 @@ def _display_links(case, links, selected=()):
 @require_safe
 def index(request, case_id):
     case = get_case(request.user, case_id)
-    page = Paginator(_runs(case).select_related("result"), 25).get_page(
+    page = Paginator(sighting_runs(case).select_related("result"), 25).get_page(
         request.GET.get("page")
     )
     rows = _group_rows(case, page)
@@ -181,27 +173,6 @@ def index(request, case_id):
         "core/analysis/sighting_groups.html",
         case_context(case, request.user) | {"page": page, "rows": rows},
     )
-
-
-def _save_proposal(request, case, anchor, links, selection, submission_id):
-    with transaction.atomic():
-        case = get_case(request.user, case.pk, edit=True, lock=True)
-        choices, parameters = prepare_proposal(
-            case,
-            anchor,
-            links,
-            [token for token, role in selection.items() if role == "supporting"],
-            [token for token, role in selection.items() if role == "contrary"],
-        )
-        run, _ = start_run(
-            request.user,
-            case.pk,
-            OPERATION,
-            choices,
-            parameters=parameters,
-            submission_id=submission_id,
-        )
-    return redirect("core:analysis:sighting_detail", case.pk, run.pk)
 
 
 @product_login_required
@@ -233,14 +204,15 @@ def create(request, case_id):
         try:
             selected = _context_selection(data)
             if form.is_valid() and browse_context is None:
-                return _save_proposal(
-                    request,
-                    case,
+                run = start_sighting(
+                    request.user,
+                    case.pk,
                     anchor_token,
                     form.cleaned_data["links"],
                     selected,
-                    form.cleaned_data["submission_id"],
+                    submission_id=form.cleaned_data["submission_id"],
                 )
+                return redirect("core:analysis:sighting_detail", case.pk, run.pk)
         except ValidationError as error:
             form.add_error(None, error)
         except AnalysisError, Http404:
@@ -313,7 +285,7 @@ def _alternative_page(case, run, values, number):
         evidence_id__in=endpoint_ids,
     )
     alternatives = (
-        _runs(case)
+        sighting_runs(case)
         .exclude(equivalence_key=run.equivalence_key)
         .filter(
             Exists(original_matches),
@@ -395,44 +367,29 @@ def _saved_detail(request, case, run, result, values, sources):
 @require_safe
 def detail(request, case_id, run_id):
     case = get_case(request.user, case_id)
-    return _detail(request, case, get_object_or_404(_runs(case), pk=run_id))
+    return _detail(request, case, get_object_or_404(sighting_runs(case), pk=run_id))
 
 
 @product_login_required
 @require_POST
 def review(request, case_id, run_id):
     form = ReviewForm(request.POST)
-    with transaction.atomic():
-        case = get_case(request.user, case_id, edit=True, lock=True)
-        run = get_object_or_404(_runs(case), pk=run_id, result__case=case)
-        result = run.result
-        latest = sighting_reviews(case, result).first()
-        if not form.is_valid():
-            issue, status = "Choose a valid review decision.", 400
-        elif form.cleaned_data["revision"] != (latest.pk if latest else None):
-            issue, status = (
-                "Someone reviewed this proposal. Check the latest decision.",
-                409,
-            )
-        else:
-            try:
-                _, _, sources = saved_group(case, run)
-                validate_current_sighting(run, case, sources)
-            except AnalysisError:
-                issue, status = (
-                    "A source is no longer current. Review the retained history.",
-                    409,
-                )
-            else:
-                AnalysisReview.objects.create(
-                    case=case,
-                    result=result,
-                    reviewed_by=request.user,
-                    decision=form.cleaned_data["decision"],
-                )
-                return redirect(
-                    retained_finding_url(
-                        case.pk, run, 0, history=return_params(request.GET)
-                    )
-                )
+    case, run, issue_code = review_sighting(
+        request.user, case_id, run_id, **(form.cleaned_data if form.is_valid() else {})
+    )
+    if not issue_code:
+        return redirect(
+            retained_finding_url(case.pk, run, 0, history=return_params(request.GET))
+        )
+    issue, status = {
+        "invalid_decision": ("Choose a valid review decision.", 400),
+        "review_changed": (
+            "Someone reviewed this proposal. Check the latest decision.",
+            409,
+        ),
+        "source_changed": (
+            "A source is no longer current. Review the retained history.",
+            409,
+        ),
+    }[issue_code]
     return _detail(request, case, run, issue=issue, status=status)

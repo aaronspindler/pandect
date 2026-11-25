@@ -4,21 +4,24 @@ import hashlib
 import json
 import time
 from datetime import UTC, datetime, timedelta
-from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import NAMESPACE_URL, uuid5
 
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
+from django.core.files.storage import InMemoryStorage
 from django.core.management.base import BaseCommand, CommandError
 
 from audio.analysis.ai import transcription
+from audio.models import AudioEvidence
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import snapshot_execution
 from core.analysis.local import LocalClient
 from core.analysis.operations import get_operation
 from core.analysis.sources import Source
 from core.parsers import run_parser
+from core.storage import original_upload_path
 
 MAX_AUDIO_BYTES = 16 * 1024 * 1024
 
@@ -232,19 +235,17 @@ class Command(BaseCommand):
             raise AnalysisError("qualification_audio_unsupported")
         if metadata["frames"] / metadata["sample_rate"] > 90:
             raise AnalysisError("qualification_audio_duration_limit")
-        # Reuse the ordinary checksum/parser/chunk/interval workflow against
-        # read-only in-memory storage, without a database or evidence upload.
-        original = SimpleNamespace(
-            name="synthetic-qualification.wav",
-            storage=SimpleNamespace(open=lambda *args: BytesIO(content)),
-        )
-        item = SimpleNamespace(
+        # Use the normal case storage key and reader for this unsaved fixture.
+        item = AudioEvidence(
             pk=_id("audio"),
             case_id=_id("case"),
             title="Operator-supplied synthetic/sanitized qualification recording",
-            file=original,
+            original_filename="synthetic-qualification.wav",
             byte_size=len(content),
             sha256=hashlib.sha256(content).hexdigest(),
         )
+        item.file = original_upload_path(item, item.original_filename)
+        item.file.storage = InMemoryStorage()
+        item.file.storage.save(item.file.name, ContentFile(content))
         source = Source(str(_id("audio-source")), "audio", item)
         return transcription([source], {"language": "en"}, client=client)

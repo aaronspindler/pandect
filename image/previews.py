@@ -5,12 +5,13 @@ import hashlib
 
 from core.analysis.errors import AnalysisError
 from core.parsers import MAX_BYTES, run_parser
+from core.storage import open_private_file
 
 
 def image_preview(item, *, thumbnail=False):
     if item.byte_size > MAX_BYTES:
         raise AnalysisError("input_limit")
-    with item.file.storage.open(item.file.name, "rb") as original:
+    with open_private_file(item, item.case_id) as original:
         content = original.read(MAX_BYTES + 1)
     if (
         len(content) != item.byte_size

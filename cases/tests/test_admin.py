@@ -8,6 +8,8 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
+from geo.models import PointOfInterest
+from people.models import Person
 
 
 class CaseAdminTests(TestCase):
@@ -533,6 +535,46 @@ class CaseAdminTests(TestCase):
         self.assertTrue(response.context["protected"])
         self.assertTrue(get_user_model().objects.filter(pk=self.owner.pk).exists())
         self.assertTrue(Case.objects.filter(pk=self.case.pk).exists())
+
+    def test_account_delete_keeps_protected_case_labels_within_current_access(self):
+        person = Person.objects.create(case=self.case, first_name="Private person")
+        poi = PointOfInterest.objects.create(
+            person=person,
+            kind="custom",
+            custom_label="Private placement",
+            created_by=self.editor,
+            latitude=1,
+            longitude=2,
+        )
+        self.client.force_login(self.superuser)
+        url = reverse("admin:accounts_user_delete", args=[self.editor.pk])
+        for response in (self.client.get(url), self.client.post(url, {"post": "yes"})):
+            self.assertContains(
+                response, "This account is required by retained case records."
+            )
+            self.assertNotContains(response, str(poi))
+        self.assertTrue(get_user_model().objects.filter(pk=self.editor.pk).exists())
+        self.assertTrue(PointOfInterest.objects.filter(pk=poi.pk).exists())
+
+        CaseMembership.objects.create(case=self.case, user=self.superuser)
+        self.assertContains(self.client.get(url), str(poi))
+
+    def test_account_delete_summarizes_only_the_account_and_removes_memberships(self):
+        self.client.force_login(self.superuser)
+        url = reverse("admin:accounts_user_delete", args=[self.editor.pk])
+        response = self.client.get(url)
+        self.assertContains(response, self.editor.username)
+        self.assertEqual(response.context["deleted_objects"], [self.editor.username])
+        self.assertEqual(dict(response.context["model_count"]), {"users": 1})
+        self.assertNotContains(response, str(self.editor_membership))
+        self.assertNotContains(response, str(self.foreign_membership))
+
+        response = self.client.post(url, {"post": "yes"})
+        self.assertRedirects(response, reverse("admin:accounts_user_changelist"))
+        self.assertFalse(get_user_model().objects.filter(pk=self.editor.pk).exists())
+        self.assertFalse(CaseMembership.objects.filter(user_id=self.editor.pk).exists())
+        self.assertTrue(Case.objects.filter(pk=self.case.pk).exists())
+        self.assertTrue(Case.objects.filter(pk=self.other_case.pk).exists())
 
     def test_memberships_have_no_standalone_admin(self):
         self.assertFalse(admin.site.is_registered(CaseMembership))

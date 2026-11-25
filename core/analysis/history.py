@@ -77,7 +77,11 @@ def communication_selection(
     anchor_chars=0,
 ):
     count = min(settings.PANDECT_ANALYSIS_MAX_SOURCES, count or 500)
-    timed = [item for item in originals if item.occurred_at is not None]
+    timed = [
+        item
+        for item in originals
+        if item.occurred_at is not None and item.sender_id and item.recipient_id
+    ]
     peer_limit = min(MAX_HISTORY, count - len(choices))
     if not timed or peer_limit <= 0:
         return choices

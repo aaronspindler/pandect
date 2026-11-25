@@ -1,9 +1,7 @@
-const pandectCasesUrl = document.currentScript.dataset.casesUrl;
 window.PandectPage((signal) => {
   "use strict";
   const results = document.querySelector("[data-collection-kind]");
   if (!results) return;
-  const casesUrl = pandectCasesUrl;
   const summary = document.querySelector("[data-collection-summary]");
   const form = document.querySelector("[data-collection-form]");
   const input = form?.elements.q;
@@ -12,7 +10,7 @@ window.PandectPage((signal) => {
   status.setAttribute("role", "status");
   results.before(status);
   let timer, request, pending = null, generation = 0;
-  let accessLost = Boolean(document.querySelector("[data-live-access]:not([hidden]), [data-activity-access]:not([hidden])"));
+  let accessLost = false;
 
   function supersede() {
     clearTimeout(timer);
@@ -84,19 +82,11 @@ window.PandectPage((signal) => {
       });
       if (revision !== generation || stale() || controller.signal.aborted) return;
       if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-        // The case activity controller handles shared recovery when present.
-        if (!accessLost && document.dispatchEvent(new Event("pandect:access-lost", {cancelable: true}))) {
-          status.className = "muted";
-          status.textContent = "Updates stopped. Your session or access may have changed.";
-          const recovery = document.createElement("a");
-          recovery.className = "record-link";
-          recovery.href = casesUrl;
-          recovery.textContent = "All cases";
-          status.after(" ", recovery);
-        }
+        window.PandectPrivateSession.clearPrivatePage();
         return;
       }
       if (!response.ok || response.headers.get("X-Pandect-Live") !== "collection") throw Error("unavailable");
+      if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
       const fragment = new DOMParser().parseFromString(await response.text(), "text/html");
       const fresh = fragment.querySelector("[data-collection-kind]");
       const freshSummary = fragment.querySelector("[data-collection-summary]");

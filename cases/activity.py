@@ -7,12 +7,14 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_safe
 
 from cases.models import Case
-from cases.permissions import get_case
+from cases.permissions import get_case, get_case_with_role
 from config.access import product_login_required
 from core.analysis.processing import (
+    ACTIVE_CALL_IMPORTS,
     ACTIVE_IMPORTS,
     ACTIVE_RUNS,
     ACTIVE_TRIPS,
+    case_call_imports,
     case_imports,
     case_trip_generations,
 )
@@ -33,7 +35,7 @@ def stream_unavailable(request, case_id):
 @product_login_required
 @require_safe
 def status(request, case_id):
-    case = get_case(request.user, case_id)
+    case, role = get_case_with_role(request.user, case_id)
     runs = (
         AnalysisRun.objects.filter(case=case, status__in=ACTIVE_RUNS)
         .values("status")
@@ -51,6 +53,7 @@ def status(request, case_id):
                 )
             )
             | Exists(case_imports(case).filter(status__in=ACTIVE_IMPORTS))
+            | Exists(case_call_imports(case).filter(status__in=ACTIVE_CALL_IMPORTS))
             | Exists(case_trip_generations(case).filter(ACTIVE_TRIPS))
             | Exists(
                 InstagramCheck.objects.filter(monitor__case=case, status="running")
@@ -66,6 +69,7 @@ def status(request, case_id):
             )
         active = Case.objects.filter(pending, pk=case.pk).exists()
     snapshot = {
+        "role": role,
         "queued": counts.get("queued", 0),
         "running": counts.get("running", 0),
         "active": active,

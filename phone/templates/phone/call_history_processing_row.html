@@ -1,0 +1,7 @@
+<a class="record-row analysis-history-row" href="{% url 'phone:call_history_review' case.pk item.pk %}">
+  <div>
+    <strong>{% if item.document.is_archived %}Archived CSV{% else %}{{ item.document.title }}{% endif %}</strong>
+    <p>{{ item.source_label }} · {{ item.created_at|date:'j M Y, H:i T' }}</p>
+  </div>
+  <span class="badge">{% if item.status == 'preparing' or item.status == 'publishing' %}{% if item.is_running %}{{ item.get_status_display }}{% else %}Queued{% endif %}{% else %}{{ item.get_status_display }}{% endif %}</span>
+</a>

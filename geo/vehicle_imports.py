@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
+from core.storage import private_file
+
 HEADERS = (
     "Asset",
     "Serial Number",
@@ -27,8 +29,8 @@ HEADERS = (
 MAX_ROWS = 100_000
 MAX_BYTES = 100 * 1024 * 1024
 MAX_GROUPS = 100
-PARSER_VERSION = "asset-location.v2"
-SUPPORTED_PARSER_VERSIONS = {"asset-location.v1", PARSER_VERSION}
+PARSER_VERSION = "asset-location.v3"
+SUPPORTED_PARSER_VERSIONS = {"asset-location.v1", "asset-location.v2", PARSER_VERSION}
 
 
 @dataclass
@@ -61,11 +63,21 @@ def row_fingerprint(raw):
     ).hexdigest()
 
 
-def parse_timestamp(value, timezone_name):
-    try:
-        local = datetime.strptime(value.strip(), "%Y-%m-%d, %I:%M:%S %p")
-    except ValueError:
-        raise ValueError("Use a timestamp such as 2026-09-16, 2:57:22 PM.") from None
+def parse_timestamp(value, timezone_name, *, parser_version):
+    formats = ("%Y-%m-%d, %I:%M:%S %p",)
+    examples = "2026-09-16, 2:57:22 PM"
+    if parser_version not in ("asset-location.v1", "asset-location.v2"):
+        formats += ("%Y-%m-%d %H:%M:%S",)
+        examples += " or 2026-09-16 14:57:22"
+    value = value.strip()
+    for timestamp_format in formats:
+        try:
+            local = datetime.strptime(value, timestamp_format)
+            break
+        except ValueError:
+            continue
+    else:
+        raise ValueError(f"Use a timestamp such as {examples}.")
     zone = ZoneInfo(timezone_name)
     # A round trip distinguishes both repeated autumn times and missing spring times.
     candidates = {
@@ -139,7 +151,7 @@ def iter_csv(
     """Yield one interpreted record at a time; verify retained bytes at EOF."""
     if parser_version not in SUPPORTED_PARSER_VERSIONS:
         raise ValidationError("This import uses an unsupported parser version.")
-    missing_speeds = ("", "-") if parser_version == "asset-location.v2" else ("",)
+    missing_speeds = ("",) if parser_version == "asset-location.v1" else ("", "-")
     bounded = BoundedReader(original)
     with io.TextIOWrapper(
         io.BufferedReader(bounded), encoding="utf-8-sig", newline=""
@@ -194,7 +206,9 @@ def iter_csv(
                         continue
                     try:
                         row.values[name] = parse_timestamp(
-                            row.raw[column], timezone_name
+                            row.raw[column],
+                            timezone_name,
+                            parser_version=parser_version,
                         )
                     except ValueError as error:
                         row.errors.append(f"{column}: {error}")
@@ -242,7 +256,7 @@ def iter_csv(
 
 
 def iter_import(batch):
-    with batch.document.file.open("rb") as original:
+    with private_file(batch.document, batch.case_id).open("rb") as original:
         yield from iter_csv(
             original,
             batch.timezone,

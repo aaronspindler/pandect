@@ -2,13 +2,40 @@
 <section aria-labelledby="communication-heading">
   <h3 id="communication-heading">Reported communication</h3>
   <dl class="metadata-grid">
-    <div><dt>Sender</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.sender_id %}">{{ item.sender }}</a></dd></div>
-    <div><dt>Recipient</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.recipient_id %}">{{ item.recipient }}</a></dd></div>
+    <div><dt>Sender</dt><dd>{% if item.sender_id %}<a href="{% url 'people:detail' case_id=case.pk person_id=item.sender_id %}">{{ item.sender }}</a>{% if call_import_row %} <span class="muted">(investigator link)</span>{% endif %}{% else %}{{ reported_sender }}{% endif %}</dd></div>
+    <div><dt>Recipient</dt><dd>{% if item.recipient_id %}<a href="{% url 'people:detail' case_id=case.pk person_id=item.recipient_id %}">{{ item.recipient }}</a>{% if call_import_row %} <span class="muted">(investigator link)</span>{% endif %}{% else %}{{ reported_recipient }}{% endif %}</dd></div>
     <div><dt>{% if is_call %}Call started at{% else %}Sent at{% endif %}</dt><dd>{% if item.occurred_at %}{{ item.occurred_at|date:"d M Y, H:i:s T" }}{% else %}Not recorded{% endif %}</dd></div>
     {% if is_call %}<div><dt>Reported duration</dt><dd>{{ item.duration|default_if_none:"Not recorded" }}</dd></div>{% endif %}
   </dl>
+  {% if call_import_row and can_edit and not item.is_archived %}
+  {% if not item.sender_id or not item.recipient_id %}
+  <p><a data-collection-context class="button button-secondary" href="{% url 'phone:link_imported_person' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Link a person</a></p>
+  {% endif %}
+  {% endif %}
   {% if not is_call %}<div class="section-header"><h3>Original message</h3>{% if conversation_url %}<a data-workspace-link class="record-link" href="{{ conversation_url }}">View in conversation</a>{% endif %}</div><div class="original-text">{{ item.body }}</div>{% endif %}
 </section>
+{% if call_import_row %}
+<section aria-labelledby="call-export-heading">
+  <h3 id="call-export-heading">Call history source</h3>
+  <p><a href="{% url 'core:evidence:detail' case_id=case.pk kind='document' evidence_id=call_import_row.batch.document_id %}">View retained CSV</a> · <a href="{% url 'phone:call_history_review' case.pk call_import_row.batch_id %}?view=rows&amp;row={{ call_import_row.number }}#call-review-choices">Inspect source row {{ call_import_row.number }}</a></p>
+  <dl class="metadata-grid">
+    <div><dt>Source line or account</dt><dd>{{ call_import_row.batch.source_label }}</dd></div>
+    <div><dt>Export timezone</dt><dd>{{ call_import_row.batch.timezone }}</dd></div>
+    <div><dt>Import parser</dt><dd>{{ call_import_row.batch.parser_version }}</dd></div>
+    {% for name, value in call_import_row.raw.items %}
+    <div><dt>{{ name }} as supplied</dt><dd>{{ value|default:"Not recorded" }}</dd></div>
+    {% endfor %}
+  </dl>
+  {% if call_person_links %}
+  <h4>Investigator links</h4>
+  <ul>
+    {% for link in call_person_links %}
+    <li>{{ link.get_role_display }} · {{ link.person }} · {{ link.linked_by }} · {{ link.created_at|date:"d M Y, H:i:s T" }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
 {% if is_call %}
 <section aria-labelledby="call-content-heading">
   <div class="section-header"><h3 id="call-content-heading">Recordings and transcripts</h3>{% if can_edit and not item.is_archived %}<a data-collection-context class="button button-secondary" href="{% url 'phone:add_attachment' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Add transcript or audio</a>{% endif %}</div>

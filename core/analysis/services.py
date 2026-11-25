@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+from copy import copy
 from itertools import batched
 from uuid import UUID, uuid4
 
@@ -46,6 +47,7 @@ from core.models import (
     AnalysisRun,
     ExtractedPassage,
 )
+from core.storage import private_file
 from geo.analysis.deterministic.locations import coordinate
 from geo.analysis.external.geocoding import GeocodingError
 from phone.models import CallEvidenceAttachment
@@ -256,17 +258,41 @@ def resolve_snapshots(
         checksum = attachment.sha256 if attachment else item.sha256
         if checksum != stored_checksum:
             raise AnalysisError("source_changed")
+        if "call_person_ids" in selected:
+            participants = selected["call_person_ids"]
+            if (
+                selected["kind"] not in CALL_KINDS
+                or not item.import_row_id
+                or not isinstance(participants, list)
+                or len(participants) != 2
+            ):
+                raise AnalysisError("source_changed")
+            current = [item.sender_id, item.recipient_id]
+            if any(
+                pinned is not None and pinned != str(person)
+                for pinned, person in zip(participants, current, strict=True)
+            ):
+                raise AnalysisError("source_changed")
+            # A later link must not change a previously selected source's people.
+            if any(
+                pinned is None and person is not None
+                for pinned, person in zip(participants, current, strict=True)
+            ):
+                item = copy(item)
+                if participants[0] is None:
+                    item.sender_id = None
+                if participants[1] is None:
+                    item.recipient_id = None
         identity = (
             selected["kind"],
             selected["evidence_id"],
             selected.get("attachment_id"),
         )
         if identity not in validated_originals:
-            original_file = (
-                attachment.file if attachment else getattr(item, "file", None)
-            )
-            if original_file:
+            record = attachment or item
+            if getattr(record, "file", None):
                 try:
+                    original_file = private_file(record, case.pk)
                     available = original_file.storage.exists(original_file.name)
                 except OSError:
                     available = False
@@ -569,11 +595,10 @@ def _source_snapshots(case, selections, *, allowed_kinds=None, active_only=True)
                 "This evidence type is not supported by the selected analysis."
             )
         try:
-            item = (
-                scoped_evidence(case, kind)
-                .only("pk", "is_archived", "sha256")
-                .get(pk=_uuid(choice["id"]))
-            )
+            fields = ("pk", "is_archived", "sha256")
+            if kind in CALL_KINDS:
+                fields += ("import_row_id", "sender_id", "recipient_id")
+            item = scoped_evidence(case, kind).only(*fields).get(pk=_uuid(choice["id"]))
         except KINDS[kind].DoesNotExist:
             raise Http404("Evidence not found.") from None
         if active_only and item.is_archived:
@@ -635,6 +660,16 @@ def _source_snapshots(case, selections, *, allowed_kinds=None, active_only=True)
                 "result_id": result_id,
                 "review_id": review_id,
                 "sha256": attachment.sha256 if attachment else item.sha256,
+                **(
+                    {
+                        "call_person_ids": [
+                            str(person) if person is not None else None
+                            for person in (item.sender_id, item.recipient_id)
+                        ]
+                    }
+                    if kind in CALL_KINDS and item.import_row_id
+                    else {}
+                ),
             }
         )
     return snapshots
@@ -659,6 +694,17 @@ def snapshot_sources(case, selections, *, allowed_kinds=None):
         case, selections, allowed_kinds=allowed_kinds, active_only=False
     )
     return snapshots
+
+
+def case_run(case, run_id):
+    try:
+        return (
+            AnalysisRun.objects.select_related("requested_by", "previous_run")
+            .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
+            .get(case=case, pk=run_id)
+        )
+    except AnalysisRun.DoesNotExist:
+        raise Http404("Processing not found.") from None
 
 
 @transaction.atomic
@@ -735,16 +781,17 @@ def start_run(
     ):
         raise AnalysisError("source_changed")
     submission_id = UUID(_uuid(submission_id or uuid4()))
-    existing = AnalysisRun.objects.filter(submission_id=submission_id).first()
+    submissions = AnalysisRun.objects.filter(
+        case=case, requested_by=actor, submission_id=submission_id
+    )
+    existing = submissions.first()
     if existing:
 
         def comparable(values):
             return [{k: v for k, v in x.items() if k != "id"} for x in values]
 
         if (
-            existing.case_id != case.pk
-            or existing.requested_by_id != actor.pk
-            or existing.operation != operation
+            existing.operation != operation
             or {
                 key: value
                 for key, value in existing.parameters.items()
@@ -812,8 +859,7 @@ def start_run(
         with transaction.atomic():
             run.save()
     except IntegrityError:
-        # Distinct case locks do not serialize a shared submission UUID.
-        if AnalysisRun.objects.filter(submission_id=submission_id).exists():
+        if submissions.exists():
             raise ValidationError(
                 "This submission was already used for different analysis settings."
             ) from None

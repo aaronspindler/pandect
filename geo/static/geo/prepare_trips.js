@@ -15,6 +15,7 @@ window.PandectPage((signal) => {
           headers: { Accept: "application/json" }, body: new FormData(form),
         });
         if (!response.ok) throw new Error("unavailable");
+        if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
         status.textContent = "Trip preparation requested. Follow progress in Processing.";
         document.dispatchEvent(new Event("pandect:refresh"));
       } catch {

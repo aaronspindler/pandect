@@ -244,6 +244,46 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(generation.status, "superseded")
         self.drain(replacement)
 
+    def test_preparation_and_invalidation_scope_generations_to_the_vehicle_and_case(
+        self,
+    ):
+        self.observations(2)
+        generation = self.prepare()
+        other_vehicle = Vehicle.objects.create(case=self.other_case, model="Other van")
+        unrelated = VehicleTripGeneration.objects.create(
+            case=self.other_case,
+            vehicle=other_vehicle,
+            state=generation.state,
+            revision=generation.revision,
+            method_version=generation.method_version,
+            requested_by=self.users["outsider"],
+        )
+        self.assertEqual(self.prepare().pk, generation.pk)
+        newest = invalidate_vehicle_trips(
+            self.users["editor"], self.case, [self.vehicle.pk]
+        )[0]
+        self.assertEqual(newest.pk, generation.pk)
+        unrelated.refresh_from_db()
+        self.assertEqual(unrelated.status, "queued")
+        self.assertEqual(unrelated.requested_by_id, self.users["outsider"].pk)
+        self.assertEqual(unrelated.revision, 0)
+
+    def test_resume_stops_before_publishing_when_checkpoint_source_cannot_be_verified(
+        self,
+    ):
+        self.observations(2)
+        generation = self.prepare()
+        self.assertEqual(process_trips(generation.pk, generation.token), "queued")
+        generation.refresh_from_db()
+        carry = generation.carry
+        carry["anchor"]["address"] = "Unverified checkpoint address"
+        VehicleTripGeneration.objects.filter(pk=generation.pk).update(carry=carry)
+        self.assertEqual(process_trips(generation.pk, generation.token), "failed")
+        generation.refresh_from_db()
+        self.assertEqual(generation.processed_sources, 2)
+        self.assertEqual(generation.inputs.count(), 2)
+        self.assertFalse(saved_trips(self.case).exists())
+
     def test_changes_before_first_claim_reuse_the_pending_delivery(self):
         self.observations(2)
         generation = self.prepare()
@@ -477,6 +517,27 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
             [len(call.args[2]) for call in queue.call_args_list], [25, 25, 11]
         )
         self.assertEqual(generation.geocode_cursor, 61)
+
+    def test_address_preparation_uses_the_verified_current_original(self):
+        originals = self.observations(2)
+        with patch("geo.map_geocoding.local_geocoder_ready", return_value=True):
+            generation = self.drain(self.prepare())
+        source = generation.inputs.first()
+        generation.inputs.filter(pk=source.pk).update(
+            snapshot=source.snapshot | {"address": "Unverified snapshot address"}
+        )
+        with (
+            patch("geo.map_geocoding.local_geocoder_ready", return_value=True),
+            patch("geo.map_geocoding.address_estimates"),
+            patch("geo.map_geocoding.queue_addresses") as queue,
+        ):
+            self.assertEqual(
+                prepare_addresses(generation.pk, generation.token), "complete"
+            )
+        self.assertEqual(
+            [row["address"] for row in queue.call_args.args[2]],
+            [original.address for original in originals],
+        )
 
     @override_settings(**LOCAL_GEOCODER)
     def test_automatic_local_lookup_runs_are_bounded_and_terminal_results_reused(self):

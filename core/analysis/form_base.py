@@ -387,18 +387,6 @@ def source_choices(
     )[0]
 
 
-def selection(value):
-    parts = value.split(":")
-    data = {"kind": parts[0], "id": parts[1]}
-    if len(parts) > 2 and parts[2] != "-":
-        data["attachment_id"] = parts[2]
-    if len(parts) > 3:
-        data["result_id"] = parts[3]
-    if len(parts) > 4:
-        data["geocode_candidate"] = int(parts[4])
-    return data
-
-
 class BaseAnalysisForm(forms.Form):
     operation = forms.ChoiceField(
         choices=[(key, value.label) for key, value in OPERATIONS.items()],

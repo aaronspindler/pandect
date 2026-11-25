@@ -417,7 +417,11 @@ def interaction_patterns(sources, parameters):
 
 
 def cross_channel_links(sources, parameters):
-    rows = _ordered(sources)
+    rows = [
+        source
+        for source in _ordered(sources)
+        if source.item.sender_id and source.item.recipient_id
+    ]
     window = _number(
         parameters,
         "window_minutes",

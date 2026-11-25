@@ -90,7 +90,11 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
             with self.subTest(role=role):
                 payload = self.selection(role, evidence_types=["text"])
                 response = self.client.post(self.reprocess_url(), payload)
-                batch = CaseAnalysisBatch.objects.get(pk=payload["submission_id"])
+                batch = CaseAnalysisBatch.objects.get(
+                    case=self.case,
+                    requested_by=self.users[role],
+                    submission_id=payload["submission_id"],
+                )
                 self.assertEqual(batch.case, self.case)
                 self.assertEqual(batch.requested_by, self.users[role])
                 self.assertEqual(batch.scope["kinds"], ["text"])
@@ -119,7 +123,11 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
             payload | {"mode": "external", "external_processing": "on"},
         )
         self.assertEqual(accepted.status_code, 302)
-        first = CaseAnalysisBatch.objects.get(pk=payload["submission_id"])
+        first = CaseAnalysisBatch.objects.get(
+            case=self.case,
+            requested_by=self.users["owner"],
+            submission_id=payload["submission_id"],
+        )
         self.assertNotIn("content_events:gateway", first.scope["executions"])
         first.status = CaseAnalysisBatch.Status.COMPLETE
         first.save(update_fields=["status"])
@@ -128,7 +136,11 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         next_payload = self.selection("editor", evidence_types=["text"])
         second = self.client.post(self.reprocess_url(), next_payload)
         self.assertEqual(second.status_code, 302)
-        second_batch = CaseAnalysisBatch.objects.get(pk=next_payload["submission_id"])
+        second_batch = CaseAnalysisBatch.objects.get(
+            case=self.case,
+            requested_by=self.users["editor"],
+            submission_id=next_payload["submission_id"],
+        )
         self.assertNotIn("content_events:gateway", second_batch.scope["executions"])
 
         self.case.ai_backend = Case.AIBackend.GATEWAY
@@ -137,7 +149,11 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             self.client.post(self.reprocess_url(), external_payload).status_code, 302
         )
-        batch = CaseAnalysisBatch.objects.get(pk=external_payload["submission_id"])
+        batch = CaseAnalysisBatch.objects.get(
+            case=self.case,
+            requested_by=self.users["editor"],
+            submission_id=external_payload["submission_id"],
+        )
         self.assertEqual(
             batch.scope["executions"]["content_events:gateway"],
             approval["approved_execution"],

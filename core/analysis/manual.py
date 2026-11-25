@@ -75,13 +75,11 @@ def start_selected_analysis(
         "sources": sources,
         "parameters": parameters,
     }
-    existing = CaseAnalysisBatch.objects.filter(pk=submission_id).first()
+    existing = CaseAnalysisBatch.objects.filter(
+        case=case, requested_by=actor, submission_id=submission_id
+    ).first()
     if existing is not None:
-        if (
-            existing.case_id != case.pk
-            or existing.requested_by_id != actor.pk
-            or existing.scope != scope
-        ):
+        if existing.scope != scope:
             raise ValidationError(
                 "This submission was already used for another analysis."
             )
@@ -106,7 +104,7 @@ def start_selected_analysis(
     try:
         with transaction.atomic():
             batch = CaseAnalysisBatch.objects.create(
-                pk=submission_id,
+                submission_id=submission_id,
                 case=case,
                 requested_by=actor,
                 scope=scope,

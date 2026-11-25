@@ -1,0 +1,4 @@
+{% load static %}
+{% if private_session %}
+<script src="{% static 'ui/private-session.js' %}" data-session="{{ private_session }}"{% if case_role %} data-case-role="{{ case_role }}"{% endif %} data-request-method="{{ request.method }}" data-cases-url="{% url 'cases:case_list' %}" defer></script>
+{% endif %}

@@ -228,10 +228,29 @@ def attach_clock_details(case, rows):
     _vehicle_clocks(case, by_kind.get("vehicle-location", {}))
     for kind in CALL_KINDS:
         calls = by_kind.get(kind, {})
-        for pk, duration in (
+        for call in (
             scoped_evidence(case, kind)
             .filter(pk__in=calls)
-            .values_list("pk", "duration")
+            .select_related("import_row__batch")
+            .only(
+                "duration",
+                "import_row__number",
+                "import_row__raw",
+                "import_row__batch__document_id",
+                "import_row__batch__timezone",
+                "import_row__batch__parser_version",
+            )
         ):
-            row = calls[pk]
-            set_call_interval(row, row["event_at"], duration)
+            row = calls[call.pk]
+            set_call_interval(row, row["event_at"], call.duration)
+            if call.import_row_id:
+                source = call.import_row
+                row["clock_fields"] = [("Call date as supplied", source.raw["Date"])]
+                _export(
+                    row,
+                    case,
+                    source.batch.document_id,
+                    source.number,
+                    source.batch.timezone,
+                    source.batch.parser_version,
+                )

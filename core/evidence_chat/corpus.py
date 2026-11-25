@@ -26,14 +26,17 @@ from core.evidence.types import (
     KIND_LABELS,
     KINDS,
 )
+from core.storage import private_file
 from phone.conversations import conversation_url
 from phone.models import CallEvidenceAttachment
+from phone.presentation import call_party_labels
 from text.analysis.synthesis import finding_text
 
 MAX_WINDOW = 8192
 EXTRACTIONS = ("native_text", "ocr", "plate_ocr", "transcription")
 RELATIONS = {
     **dict.fromkeys(COMMUNICATION_KINDS, ("sender", "recipient")),
+    **dict.fromkeys(CALL_KINDS, ("sender", "recipient", "import_row__batch")),
     "text-message": ("sender", "recipient", "communication_context__source_document"),
     "person-location": ("person",),
     "vehicle-location": ("vehicle", "import_batch__document"),
@@ -70,6 +73,10 @@ def rows(case, surface, kind, include_archived, through=None, *, retained=False)
             qs = originals.defer("description", "source_description")
             if related := RELATIONS.get(kind):
                 qs = qs.select_related(*related)
+            if kind in CALL_KINDS:
+                qs = qs.defer(
+                    "import_row__batch__selection", "import_row__overlap_candidates"
+                )
         date_field = "created_at"
     else:
         if surface == "passage":
@@ -184,15 +191,33 @@ def original_metadata(item, kind, *, value_ranges=None):
     deps = [dependency(kind, item.pk)]
     detail = ""
     if kind in COMMUNICATION_KINDS:
+        sender, recipient = (
+            call_party_labels(item, reported_only=True)
+            if kind in CALL_KINDS
+            else (str(item.sender), str(item.recipient))
+        )
         fields.extend(
             (
-                ("Reported sender", str(item.sender)),
-                ("Reported recipient", str(item.recipient)),
+                ("Reported sender", sender),
+                ("Reported recipient", recipient),
                 ("Occurred", item.occurred_at),
             )
         )
         if kind in CALL_KINDS:
             fields.append(("Reported duration", item.duration))
+            if item.import_row_id:
+                row = item.import_row
+                detail = f"Export row {row.number}"
+                fields.extend(
+                    (
+                        ("Export row", row.number),
+                        ("Reported contact in export", row.raw.get("Contact")),
+                        ("Reported service in export", row.raw.get("Service")),
+                        ("Export timestamp", row.raw.get("Date")),
+                        ("Export timezone", row.batch.timezone),
+                    )
+                )
+                deps.append(dependency("document", row.batch.document_id))
         else:
             context = getattr(item, "communication_context", None)
             if (
@@ -259,10 +284,12 @@ def original_metadata(item, kind, *, value_ranges=None):
     return lines(fields, value_ranges=value_ranges), detail, deps
 
 
-def available_file(item):
-    file = getattr(item, "file", None)
+def available_file(case, item):
+    if not getattr(item, "file", None):
+        return True
     try:
-        return not file or file.storage.exists(file.name)
+        file = private_file(item, case.pk)
+        return file.storage.exists(file.name)
     except OSError:
         return False
 
@@ -364,7 +391,7 @@ def _original_material(
         )
         heading = "Supplied transcript" if item.body_length else "Recording"
         label = f"{heading} · {original.title}"
-    if not available_file(item):
+    if not available_file(case, item):
         gap = "Original file is unavailable."
         if size:
             return None

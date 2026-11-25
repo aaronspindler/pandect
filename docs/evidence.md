@@ -60,7 +60,8 @@ Owners/editors open **Add evidence** to jump directly to uploads, manual records
 or CSV imports. **Upload files** accepts documents, images, and audio together.
 **Add a record** offers Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime. **Import records** offers vehicle
-locations and message CSVs from iMessage and WhatsApp. Message import retains
+locations, [call history CSVs](#call-history-csv-import), and message CSVs from
+iMessage and WhatsApp. Message import retains
 its CSV, prepares background review, and requires confirmed people and timezone
 before publishing valid messages.
 New evidence queues built-in checks and eligible checks using the
@@ -177,8 +178,8 @@ own originals.
   JSON. They establish integrity, not authenticity.
 - Archive attribution records the latest real transition, not a complete journal.
   Creation time is fixed; ordinary saves update edit time.
-- Unique immutable submission IDs make product uploads idempotent; existing records/
-  trusted maintenance may omit them.
+- Immutable submission IDs make product uploads idempotent within the case and
+  uploading account. Trusted maintenance may omit them.
 - At upload, Pandect retains the original filename's basename and computes the
   byte size and checksum. Its generated storage key is independent of the
   filename. Declared content type and technical metadata remain separate from
@@ -191,8 +192,8 @@ own imported originals.
 
 ## Communications and retained call material
 
-**Text message**, **Phone call**, and **FaceTime** require existing same-case sender/
-recipient, possibly the same person; add people first if needed. Messages capture
+Manually added **Text message**, **Phone call**, and **FaceTime** records require
+existing same-case sender and recipient, possibly the same person. Messages capture
 one original, not a thread. Optional **Sent at/Call started at** records reported
 event time separately from collection/upload. Calls accept optional duration such
 as `00:01:30`: zero is valid, blank unknown. Time, duration, and identity are not inferred.
@@ -205,6 +206,40 @@ follow current person records; retained UUIDs preserve original, unverified
 associations. Product/admin forms and normal validation/saves enforce same-case
 participants. Either link protects individual person deletion, including archived
 evidence; whole-case deletion removes both.
+
+### Call history CSV import
+
+From **Add evidence → Import records**, choose **Import call history CSV**.
+Upload a CSV or choose an active CSV Document from the case. Choose or add a
+source line or account and confirm the export timezone. The source is a case
+record that identifies which exports came from the same line or account. Linking
+it to a case person is optional.
+
+Use a UTF-8 CSV with the fields `Call type`, `Date`, `Duration`, `Number`,
+`Contact`, `Location`, and `Service`. The supported export reports
+`Incoming` or `Outgoing`, a timestamp such as `2026-11-25 07:00:00`,
+and a duration such as `00:01:30`. The import recognizes Phone, FaceTime
+Audio, and FaceTime Video. It keeps source wording, including service
+suffixes. The import accepts up to 20,000 rows and 16 MiB, subject to the
+configured upload limit. Zero duration is retained as zero. The export supplies
+no separate call outcome, and contact labels and numbers are reported information.
+
+Background preparation retains the exact original and builds a paginated
+review. You can link case people in bulk by reported identifier or make an
+exception for a specific row. Matching never creates a person. The review
+flags possible repeats in distinct exports from the same source. Inspect both
+sides, then keep or skip the flagged rows with individual exceptions. Both
+originals and the skipped rows remain available for review. Rows with ambiguous
+or nonexistent times stay in review with the original clock and reason while
+ready calls publish.
+
+Each published call appears in **Evidence** and **Chronology** and links to its
+source row. Calls can appear with either or both people unlinked. Evidence
+shows the source line or account and the reported identifier or **Unknown
+caller** where applicable. A case owner or editor can choose **Link a person**
+from the call's reader. The link records the investigator and time separately
+from the source row and checksum. Case person filters use these explicit links.
+Pair-based analysis requires two linked people.
 
 ### Reading conversations
 
@@ -299,7 +334,8 @@ population. Native IDs/multiple reply matches remain unverified references.
 
 Calls may contain no content, transcript, one audio file, or both, saved atomically.
 Owners/editors later **Add transcript or audio** as a new `CallEvidenceAttachment`:
-case, UUID, uploader, creation time, unique submission ID, checksum, exactly one
+case, UUID, uploader, creation time, case- and uploader-scoped submission ID,
+checksum, exactly one
 phone-call/FaceTime parent, and transcript/audio/both. Attachments cannot be edited,
 replaced, archived, or deleted individually. Corrections append material; earlier
 content remains. Archived calls retain their additions. Restore the call before
@@ -385,7 +421,7 @@ runs disappear entirely; unrelated originals, people, vehicles, and analysis rem
 The inventory includes evidence chat turns that used a deleted source or
 derived result, later follow-ups in that conversation, match rows, and related
 Important marks and notes. Removing its first turn also removes the chat.
-Source-document deletion also removes imported observations/messages, batches,
+Source-document deletion also removes imported observations, messages, calls, batches,
 staged rows, and context, including archived derivatives. Retained-run references
 to removed prior runs are cleared and inventoried as updates.
 
@@ -507,22 +543,27 @@ backends without a filesystem `.path`. See
 database and storage requirements.
 
 Product upload/detail/download/archive/delete recheck current access and parent
-case. Attachments use `application/octet-stream`, `nosniff`, and no-store, returning
-exact saved UTF-8 for text. Admin exposes no storage URLs; public media routes
-are absent. Never expose media directories/buckets. WhiteNoise serves assets only.
+case. Private readers also validate the stored key against its record's case and
+file namespace before opening it. Attachments use `application/octet-stream`,
+`nosniff`, and no-store, returning exact saved UTF-8 for text. Admin omits
+storage URLs. Serve public static assets through WhiteNoise and keep media
+directories and buckets private.
 Exports/jobs must check access themselves; `uploaded_by` is attribution, not
 permission, and ORM is a trusted backend boundary.
 
 Trusted ORM deletion removes rows, while ordinary users have no individual path;
 superusers use confirmed workflows. Case deletion cascades active/archived evidence.
 File apps register `post_delete` through `core.storage.schedule_original_deletion`.
-The deletion transaction records each pending storage key, including for queryset
-and cascade deletion. After commit, storage cleanup removes the file and closes
-the pending record. Rollback retains rows and files.
+The deletion transaction checks the key and records it with its case, including
+for queryset and cascade deletion. After commit, storage cleanup removes the
+verified file and closes the pending record. Rollback retains rows and files.
 
 Restore storage access before retrying pending cleanup. The command processes a
 bounded number of committed keys and reports how many remain. Run it with the
 same default storage configuration used when deleting the records.
+Entries without verified case ownership, including pending entries from before
+the case field was added, remain pending for operator reconciliation. Confirm
+ownership and check for retained database references before removing any file.
 
 ```sh
 docker compose exec web python manage.py retry_file_cleanup --dry-run

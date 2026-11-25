@@ -13,7 +13,7 @@ from django.utils import timezone
 from gunicorn.config import Config
 
 from accounts.adapter import PandectAccountAdapter
-from cases.models import Case, CaseInvitation
+from cases.models import Case, CaseInvitation, CaseMembership
 from config.privacy import (
     PrivateAccessLogger,
     PrivatePageMiddleware,
@@ -142,7 +142,12 @@ class ProductAccessTests(TestCase):
         self.assertNotIn("pending_invitation_path", self.client.session)
 
     def test_private_pages_have_no_store_and_same_origin_referrers(self):
-        for path in ("/cases/", "/accounts/", "/invitations/synthetic-token/"):
+        for path in (
+            "/cases/",
+            "/accounts/",
+            "/invitations/synthetic-token/",
+            "/admin/",
+        ):
             for prefix in ("", "/pandect"):
                 with self.subTest(path=path, prefix=prefix):
                     request = RequestFactory().get(path, SCRIPT_NAME=prefix)
@@ -153,6 +158,36 @@ class ProductAccessTests(TestCase):
                     self.assertIn("private", response["Cache-Control"])
                     self.assertEqual(response["Referrer-Policy"], "same-origin")
                     self.assertEqual(response["X-Robots-Tag"], "noindex")
+
+    def test_private_page_markers_change_when_the_same_user_signs_in_again(self):
+        EmailAddress.objects.create(
+            user=self.user, email=self.user.email, verified=True
+        )
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.client.force_login(self.user)
+        page = self.client.get(reverse("cases:case_list"))
+        marker = page["X-Pandect-Session"]
+        self.assertContains(page, f'data-session="{marker}"')
+        self.assertNotContains(page, self.client.session.session_key)
+        admin = self.client.get(reverse("admin:index"))
+        self.assertIn("no-store", admin["Cache-Control"])
+        admin_marker = admin["X-Pandect-Session"]
+        self.assertContains(admin, f'data-session="{admin_marker}"')
+        unrelated_owner = get_user_model().objects.create_user(username="other-owner")
+        case = Case.objects.create(owner=unrelated_owner, name="Synthetic shared case")
+        CaseMembership.objects.create(case=case, user=self.user, role="viewer")
+        next_admin = self.client.get(reverse("admin:index"))
+        self.assertNotEqual(admin_marker, next_admin["X-Pandect-Session"])
+        self.assertEqual(
+            marker, self.client.get(reverse("cases:case_list"))["X-Pandect-Session"]
+        )
+        self.client.logout()
+        self.assertNotIn("X-Pandect-Session", self.client.get(reverse("account_login")))
+        self.client.force_login(self.user)
+        self.assertNotEqual(
+            marker, self.client.get(reverse("cases:case_list"))["X-Pandect-Session"]
+        )
 
 
 class PrivateLoggingTests(SimpleTestCase):

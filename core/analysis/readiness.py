@@ -11,6 +11,7 @@ from core.analysis.execution import (
     requires_inference,
 )
 from core.analysis.operations import get_operation
+from core.analysis.sources import selection
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, LOCATION_KINDS
 from core.models import AnalysisRun, ExtractedPassage
@@ -148,8 +149,6 @@ def _prepare_url(case, operation, value):
 
 
 def source_readiness(case, operation, choices):
-    from core.analysis.form_base import selection
-
     selected = {value: selection(value) for value, _ in choices}
     records = {}
     for kind in {x["kind"] for x in selected.values()}:

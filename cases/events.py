@@ -14,9 +14,10 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import DisallowedHost
 from django.core.handlers.asgi import ASGIRequest
 from django.db import DatabaseError, close_old_connections, connections
+from django.http import Http404
 from django.urls import Resolver404, resolve
 
-from cases.permissions import accessible_cases
+from cases.permissions import get_case_with_role
 
 HEARTBEAT_SECONDS = 15
 MAX_STREAMS = 64
@@ -27,19 +28,24 @@ PRIVATE_HEADERS = [
 ]
 
 
-def can_subscribe(request, case_id):
+def subscription_scope(request, case_id):
     # A fresh session object also catches logout, expiry or a changed password
     # on an already open stream. Never retain an ORM connection while waiting.
     close_old_connections()
     try:
         SessionMiddleware(lambda request: None).process_request(request)
         user = get_user(request)
-        return (
+        if (
             user.is_authenticated
             and user.is_active
             and EmailAddress.objects.filter(user=user, verified=True).exists()
-            and accessible_cases(user).filter(pk=case_id).exists()
-        )
+        ):
+            try:
+                _, role = get_case_with_role(user, case_id)
+            except Http404:
+                return None
+            return user.pk, role
+        return None
     finally:
         close_old_connections()
 
@@ -62,9 +68,9 @@ class CaseEvents:
         self.slots = asyncio.Semaphore(MAX_STREAMS)
         self.authorizers = asyncio.Semaphore(8)
 
-    async def authorized(self, request, case_id):
+    async def scope(self, request, case_id):
         async with self.authorizers:
-            return await asyncio.to_thread(can_subscribe, request, case_id)
+            return await asyncio.to_thread(subscription_scope, request, case_id)
 
     async def listen(self):
         params = connections["default"].get_connection_params()
@@ -103,7 +109,7 @@ class CaseEvents:
                 await listener
         await send({"type": "lifespan.shutdown.complete"})
 
-    async def stream(self, request, case_id, receive, send):
+    async def stream(self, request, case_id, subscribed_scope, receive, send):
         wake = asyncio.Event()
         group = self.subscribers[str(case_id)]
         group.add(wake)
@@ -141,12 +147,12 @@ class CaseEvents:
                 if disconnected.done() or not self.listening:
                     break
                 try:
-                    allowed = await self.authorized(request, case_id)
+                    current_scope = await self.scope(request, case_id)
                 except DatabaseError:
                     # The browser reconciles from its authorized snapshot
                     # when the database is reachable again.
                     break
-                if not allowed:
+                if current_scope != subscribed_scope:
                     await send(
                         {
                             "type": "http.response.body",
@@ -211,12 +217,12 @@ class CaseEvents:
             return await respond(send, 503)
         async with self.slots:
             try:
-                allowed = await self.authorized(request, case_id)
+                subscribed_scope = await self.scope(request, case_id)
             except DatabaseError:
                 return await respond(send, 503)
-            if not allowed:
+            if subscribed_scope is None:
                 return await respond(send, 404)
-            await self.stream(request, case_id, receive, send)
+            await self.stream(request, case_id, subscribed_scope, receive, send)
 
 
 application = CaseEvents()

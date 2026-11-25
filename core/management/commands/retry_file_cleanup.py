@@ -19,11 +19,17 @@ class Command(BaseCommand):
         pending = PendingFileDeletion.objects.order_by(
             F("last_attempted_at").asc(nulls_first=True), "created_at", "pk"
         )
+        unscoped = pending.filter(case_id__isnull=True).count()
+        if unscoped:
+            self.stdout.write(
+                f"{unscoped} pending deletions without a recorded case require review."
+            )
         if dry_run:
             self.stdout.write(f"{pending.count()} pending private-file deletions.")
             return
         completed = sum(
-            complete_file_deletion(item, DEFAULT_DB_ALIAS) for item in pending[:limit]
+            complete_file_deletion(item, DEFAULT_DB_ALIAS)
+            for item in pending.filter(case_id__isnull=False)[:limit]
         )
         remaining = PendingFileDeletion.objects.count()
         self.stdout.write(f"Completed {completed} deletions. {remaining} pending.")

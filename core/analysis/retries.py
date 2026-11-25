@@ -1,6 +1,6 @@
 """Queue new attempts for retained processing checks."""
 
-from uuid import uuid5
+from uuid import UUID, uuid4, uuid5
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -20,6 +20,7 @@ from core.analysis.execution import (
 )
 from core.analysis.manual import start_available_run
 from core.analysis.operations import OPERATIONS
+from core.analysis.services import case_run
 from core.models import AnalysisRun, CaseAnalysisBatch
 
 RETRIES_PER_STEP = 10
@@ -66,6 +67,32 @@ def retry_run(actor, case, prior, *, submission_id, require_retained_inputs=Fals
     )
 
 
+@transaction.atomic
+def retry_analysis(actor, case_id, run_id, *, submission_id=None):
+    """Return the run to display, whether a retry was queued, and any issue code."""
+    case = get_case(actor, case_id, edit=True, lock=True)
+    prior = case_run(case, run_id)
+    if prior.status in {AnalysisRun.Status.QUEUED, AnalysisRun.Status.RUNNING}:
+        return prior, False, "prior_run_active"
+    try:
+        submission_id = UUID(str(submission_id)) if submission_id else uuid4()
+        # An exact receipt is recoverable even if the original route changed.
+        existing = AnalysisRun.objects.filter(
+            submission_id=submission_id,
+            case=case,
+            requested_by=actor,
+            previous_run=prior,
+        ).first()
+        if existing is not None:
+            return existing, False, ""
+        run, created = retry_run(actor, case, prior, submission_id=submission_id)
+    except ValueError, ValidationError:
+        return prior, False, "source_unavailable"
+    except AnalysisError as error:
+        return prior, False, error.code
+    return run, created, ""
+
+
 def failed_checks(case):
     runs = AnalysisRun.objects.filter(case=case)
     return (
@@ -87,13 +114,11 @@ def latest_failed_retry(case):
 @transaction.atomic
 def start_failed_retries(actor, case_id, *, submission_id, after_batch_id):
     case = get_case(actor, case_id, edit=True, lock=True)
-    existing = CaseAnalysisBatch.objects.filter(pk=submission_id).first()
+    existing = CaseAnalysisBatch.objects.filter(
+        case=case, requested_by=actor, submission_id=submission_id
+    ).first()
     if existing is not None:
-        if (
-            existing.case_id != case.pk
-            or existing.requested_by_id != actor.pk
-            or existing.scope.get("type") != "failed_retries"
-        ):
+        if existing.scope.get("type") != "failed_retries":
             raise ValidationError(
                 "This submission was already used for another analysis."
             )

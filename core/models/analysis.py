@@ -21,6 +21,7 @@ class CaseAnalysisBatch(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    submission_id = models.UUIDField(null=True, blank=True, editable=False)
     status = models.CharField(max_length=16, choices=Status, default=Status.QUEUED)
     source_kind = models.CharField(max_length=32, blank=True)
     source_cursor = models.UUIDField(null=True, blank=True)
@@ -34,6 +35,12 @@ class CaseAnalysisBatch(models.Model):
 
     class Meta:
         ordering = ["-created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("case", "requested_by", "submission_id"),
+                name="analysis_batch_submission_scope",
+            ),
+        ]
 
     def __str__(self):
         return f"Case analysis {self.pk}"
@@ -73,7 +80,7 @@ class AnalysisRun(models.Model):
         on_delete=models.SET_NULL,
         related_name="runs",
     )
-    submission_id = models.UUIDField(default=uuid4, unique=True, editable=False)
+    submission_id = models.UUIDField(default=uuid4, editable=False)
     previous_run = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL
     )
@@ -105,6 +112,10 @@ class AnalysisRun(models.Model):
             ),
         ]
         constraints = [
+            models.UniqueConstraint(
+                fields=("case", "requested_by", "submission_id"),
+                name="analysis_run_submission_scope",
+            ),
             models.CheckConstraint(
                 condition=models.Q(progress__lte=100), name="analysis_progress_range"
             ),

@@ -71,6 +71,10 @@ class AdminInspectionTests(TestCase):
             "geo.VehicleTripInput",  # Trip observation provenance
             "geo.VehicleTripSource",  # Trip observation provenance
             "phone.CallEvidenceAttachment",  # Call inlines
+            "phone.CallHistoryImport",  # Case import review and Processing
+            "phone.CallHistoryRow",  # Paginated import review
+            "phone.CallImportSource",  # Case import source chooser
+            "phone.CallPersonLink",  # Attributed links in the call reader
             "phone.ConversationPairRevision",  # Conversation processing marker
             "phone.ConversationSessionMember",  # Paginated session reader
             "socialmedia.InstagramConnection",  # Personal account settings

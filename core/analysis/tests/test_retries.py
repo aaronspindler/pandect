@@ -89,7 +89,9 @@ class FailedRetryTests(EvidenceViewTestMixin, TestCase):
 
         batch, created = self.request_retries()
         self.assertTrue(created)
-        self.assertEqual(self.request_retries(submission_id=batch.pk), (batch, False))
+        self.assertEqual(
+            self.request_retries(submission_id=batch.submission_id), (batch, False)
+        )
         self.assertEqual(self.request_retries(), (batch, False))
         AnalysisRun.objects.filter(pk=finishes_later.pk).update(
             status="failed", finished_at=timezone.now()
@@ -112,7 +114,9 @@ class FailedRetryTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(run.inputs, run.previous_run.inputs)
             self.assertEqual(run.batch_id, original_batch.pk)
             self.assertEqual(run.requested_by, self.users["editor"])
-        self.assertEqual(self.request_retries(submission_id=batch.pk), (batch, False))
+        self.assertEqual(
+            self.request_retries(submission_id=batch.submission_id), (batch, False)
+        )
 
     def test_archived_and_changed_inputs_are_skipped_individually(self):
         active, archived, changed = self.text(), self.text(), self.text()

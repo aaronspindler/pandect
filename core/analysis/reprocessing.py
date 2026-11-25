@@ -35,6 +35,7 @@ from core.analysis.sources import source_id
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
 from core.models import AnalysisRun, CaseAnalysisBatch
+from core.storage import private_file
 from phone.models import CallEvidenceAttachment
 
 MODEL_PARAMETERS = {
@@ -125,12 +126,12 @@ def start_reprocessing(actor, case_id, *, submission_id, kinds):
     if not isinstance(kinds, (list, tuple)) or not kinds or set(kinds) - KINDS.keys():
         raise ValidationError("Choose at least one supported evidence type.")
     kinds = sorted(set(kinds))
-    existing = CaseAnalysisBatch.objects.filter(pk=submission_id).first()
+    existing = CaseAnalysisBatch.objects.filter(
+        case=case, requested_by=actor, submission_id=submission_id
+    ).first()
     if existing:
         if (
-            existing.case_id != case.pk
-            or existing.requested_by_id != actor.pk
-            or existing.scope.get("type") != "reprocess"
+            existing.scope.get("type") != "reprocess"
             or existing.scope.get("kinds") != kinds
         ):
             raise ValidationError(
@@ -187,16 +188,27 @@ def _source_time_field(kind, additions):
 def _next_page(batch, case):
     from core.analysis.bulk import retained_cursor_time
 
+    call_history = batch.scope["type"] == "call-history"
     phases = [
         phase
         for kind in batch.scope["kinds"]
-        for phase in ((kind, f"{kind}:additions") if kind in CALL_KINDS else (kind,))
+        for phase in (
+            (kind, f"{kind}:additions")
+            if kind in CALL_KINDS and not call_history
+            else (kind,)
+        )
     ]
     for phase in phases:
         if batch.source_kind and phases.index(phase) < phases.index(batch.source_kind):
             continue
         kind, _, additions = phase.partition(":")
         originals = _originals(batch, case, kind)
+        if call_history:
+            originals = originals.filter(
+                import_row__batch_id=batch.scope["id"],
+                sender_id__isnull=False,
+                recipient_id__isnull=False,
+            )
         if additions:
             parent = "phone_call" if kind == "phone-call" else "facetime"
             queryset = CallEvidenceAttachment.objects.filter(
@@ -440,10 +452,16 @@ def _history_communication(
 
 
 def _communication_checks(batch, case, kind, rows, choices):
-    if not choices:
+    paired = [
+        (row, choice)
+        for row, choice in zip(rows, choices, strict=True)
+        if row.sender_id and row.recipient_id
+    ]
+    if not paired:
         return
+    rows, choices = zip(*paired, strict=True)
     history = None
-    if batch.scope["type"] == "added":
+    if batch.scope["type"] in {"added", "call-history"}:
         history = (
             case,
             {
@@ -453,7 +471,7 @@ def _communication_checks(batch, case, kind, rows, choices):
         )
     combined = list(choices)
     timed = [row for row in rows if row.occurred_at is not None]
-    if timed:
+    if timed and batch.scope["type"] != "call-history":
         for other_kind in batch.scope.get("kinds", []):
             if other_kind not in COMMUNICATION_KINDS or other_kind == kind:
                 continue
@@ -464,6 +482,8 @@ def _communication_checks(batch, case, kind, rows, choices):
             available = _originals(batch, case, other_kind).filter(
                 occurred_at__gte=timed[0].occurred_at - timedelta(minutes=10),
                 occurred_at__lte=timed[-1].occurred_at + timedelta(minutes=10),
+                sender_id__isnull=False,
+                recipient_id__isnull=False,
             )
             slots = settings.PANDECT_ANALYSIS_MAX_SOURCES - len(combined)
             combined.extend(
@@ -645,7 +665,7 @@ def _prepare_sources(batch, case, kind, additions, rows):
             operation = "native_text"
             if versioned and row.file:
                 try:
-                    with row.file.open("rb") as original:
+                    with private_file(row, case.pk).open("rb") as original:
                         header = original.read(8)
                     if header.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")):
                         operation = "ocr"

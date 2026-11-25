@@ -53,6 +53,7 @@ ALLOWED_HOSTS = [
 INSTALLED_APPS = [
     "django.contrib.postgres",
     "whitenoise.runserver_nostatic",
+    "accounts",  # The private admin base template overrides Django's template.
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -60,7 +61,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_tasks_db",
-    "accounts",
     "cases",
     "core.apps.CoreConfig",
     "people",

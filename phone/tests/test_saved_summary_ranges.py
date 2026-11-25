@@ -59,7 +59,9 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
             "reviewed_scope": review.context["reviewed_scope"],
         }
         self.assertEqual(self.client.post(url, payload).status_code, 302)
-        batch = CaseAnalysisBatch.objects.get(pk=payload["submission_id"])
+        batch = CaseAnalysisBatch.objects.get(
+            case=self.case, submission_id=payload["submission_id"]
+        )
         for _ in range(10):
             status = prepare_case_analysis_batch(batch.pk)
             if status != "queued":

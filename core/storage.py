@@ -6,6 +6,7 @@ import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import partial
+from pathlib import PurePosixPath
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
@@ -78,6 +79,34 @@ def original_upload_path(instance, filename):
     )
 
 
+def case_storage_key(name, case_id, *, model_name=None):
+    """Check the generated case namespace before resolving a retained key."""
+    if not name or case_id is None or "\\" in name or "\x00" in name:
+        return False
+    path = PurePosixPath(name)
+    return (
+        path.as_posix() == name
+        and len(path.parts) == 5
+        and path.parts[:3] == ("evidence", "cases", str(case_id))
+        and ".." not in path.parts
+        and (model_name is None or path.parts[3] == model_name)
+    )
+
+
+def private_file(record, case_id):
+    """Return a retained file only when both its row and key belong to the case."""
+    if record.case_id != case_id or not case_storage_key(
+        record.file.name, case_id, model_name=record._meta.model_name
+    ):
+        raise FileNotFoundError("The retained file is unavailable.")
+    return record.file
+
+
+def open_private_file(record, case_id):
+    original = private_file(record, case_id)
+    return original.storage.open(original.name, "rb")
+
+
 def _measure_file(content):
     position = content.tell()
     digest = hashlib.sha256()
@@ -139,8 +168,13 @@ def schedule_original_deletion(sender, instance, using, **kwargs):
     if instance.file:
         from core.models import PendingFileDeletion
 
+        if not case_storage_key(
+            instance.file.name, instance.case_id, model_name=sender._meta.model_name
+        ):
+            raise ValidationError("The retained file has an inconsistent storage key.")
         pending = PendingFileDeletion.objects.using(using).create(
-            storage_key=instance.file.name
+            case_id=instance.case_id,
+            storage_key=instance.file.name,
         )
         transaction.on_commit(
             partial(complete_file_deletion, pending, using, instance.file.storage),
@@ -150,10 +184,12 @@ def schedule_original_deletion(sender, instance, using, **kwargs):
 
 
 def complete_file_deletion(pending, using, storage=default_storage):
-    if not delete_original(storage, pending.storage_key):
-        type(pending).objects.using(using).filter(pk=pending.pk).update(
-            last_attempted_at=timezone.now()
-        )
-        return False
-    pending.delete(using=using)
-    return True
+    if not case_storage_key(pending.storage_key, pending.case_id):
+        logger.warning("Private file cleanup requires review for record %s", pending.pk)
+    elif delete_original(storage, pending.storage_key):
+        pending.delete(using=using)
+        return True
+    type(pending).objects.using(using).filter(pk=pending.pk).update(
+        last_attempted_at=timezone.now()
+    )
+    return False

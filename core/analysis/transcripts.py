@@ -27,26 +27,22 @@ def follow_up_transcription(run):
     group = transcript_group(run)
     if not group:
         return False
-    select_transcript(run.batch_id, group)
+    select_transcript(run.case_id, run.batch_id, group)
     return True
 
 
 @transaction.atomic
-def select_transcript(batch_id, group):
+def select_transcript(case_id, batch_id, group):
     from core.analysis.reprocessing import follow_up_reprocessing
 
-    case_id = (
-        CaseAnalysisBatch.objects.filter(pk=batch_id)
-        .values_list("case_id", flat=True)
+    # Match the publication and batch-preparation lock order.
+    if not Case.objects.select_for_update().filter(pk=case_id).exists():
+        return
+    batch = (
+        CaseAnalysisBatch.objects.select_for_update()
+        .filter(pk=batch_id, case_id=case_id)
         .first()
     )
-    # Match the publication and batch-preparation lock order.
-    if (
-        case_id is None
-        or not Case.objects.select_for_update().filter(pk=case_id).first()
-    ):
-        return
-    batch = CaseAnalysisBatch.objects.select_for_update().filter(pk=batch_id).first()
     if batch is None:
         return
     attempts = AnalysisRun.objects.filter(

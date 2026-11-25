@@ -108,9 +108,12 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(DBTaskResult.objects.count(), 1)
         with self.assertRaises(ValidationError):
             self.start(submission_id=identifier, parameters={"different": True})
-        with self.assertRaises(ValidationError):
-            self.start("editor", submission_id=identifier)
-        self.assertEqual(AnalysisRun.objects.count(), 1)
+        editor_run, created = self.start("editor", submission_id=identifier)
+        self.assertTrue(created)
+        self.assertNotEqual(editor_run.pk, first.pk)
+        self.assertEqual(editor_run.requested_by, self.users["editor"])
+        self.assertEqual(AnalysisRun.objects.count(), 2)
+        self.assertEqual(DBTaskResult.objects.count(), 2)
 
     def test_retry_identity_includes_previous_run(self):
         previous, _ = self.start()
@@ -1082,7 +1085,7 @@ class QueuePublicationTests(TransactionTestCase):
         self.assertEqual(AnalysisRun.objects.count(), 1)
         self.assertEqual(DBTaskResult.objects.count(), 1)
 
-    def test_concurrent_submission_id_reuse_in_different_cases_fails_cleanly(self):
+    def test_concurrent_submission_id_reuse_in_different_cases_is_independent(self):
         actor = get_user_model().objects.create_user(username="two-case-owner")
         originals = [
             TextEvidence.objects.create(
@@ -1111,9 +1114,6 @@ class QueuePublicationTests(TransactionTestCase):
                     submission_id=submission_id,
                 )
                 return created
-            except ValidationError as error:
-                self.assertIn("already used for different analysis", str(error))
-                return False
             finally:
                 close_old_connections()
 
@@ -1124,9 +1124,12 @@ class QueuePublicationTests(TransactionTestCase):
             ),
             ThreadPoolExecutor(max_workers=2) as executor,
         ):
-            self.assertEqual(sorted(executor.map(submit, originals)), [False, True])
-        self.assertEqual(AnalysisRun.objects.count(), 1)
-        self.assertEqual(DBTaskResult.objects.count(), 1)
+            self.assertEqual(list(executor.map(submit, originals)), [True, True])
+        self.assertCountEqual(
+            AnalysisRun.objects.values_list("case_id", flat=True),
+            [original.case_id for original in originals],
+        )
+        self.assertEqual(DBTaskResult.objects.count(), 2)
 
     def test_real_worker_dispatches_once_and_retains_only_uuid_operational_result(self):
         user = get_user_model().objects.create_user(

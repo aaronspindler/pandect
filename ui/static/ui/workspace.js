@@ -124,7 +124,10 @@
         handler: (_, {xhr}) => {
           if (sequence !== revision || document.querySelector("dialog[open]")) return;
           if (xhr.status !== 200 || new URL(xhr.responseURL).pathname !== url.pathname) return;
+          if (!window.PandectPrivateSession.matches(xhr.getResponseHeader("X-Pandect-Session"))) return;
           const page = new DOMParser().parseFromString(xhr.responseText, "text/html");
+          const role = page.querySelector("script[data-case-role]")?.dataset.caseRole;
+          if (role && !window.PandectPrivateSession.checkRole(role)) return;
           if (region) {
             const selector = region.id ? `#${CSS.escape(region.id)}` :
               `section[aria-labelledby="${CSS.escape(region.getAttribute("aria-labelledby"))}"]`;

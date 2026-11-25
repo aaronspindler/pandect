@@ -1,10 +1,13 @@
 """Shared admin permissions for records belonging to one case."""
 
 from django.contrib import admin
+from django.contrib.admin.utils import NestedObjects
+from django.db import router
 from django.db.models import Q
 
+from .deletion import CASCADE_CONFLICT, cascade_conflicts, delete_case_record
 from .models import Case, CaseMembership
-from .permissions import accessible_cases
+from .permissions import accessible_cases, get_case
 
 
 class AdminCascadeMixin:
@@ -18,7 +21,24 @@ class AdminCascadeMixin:
             del request._pandect_admin_collecting_cascade
 
 
-class CaseScopedAdmin(AdminCascadeMixin, admin.ModelAdmin):
+class CaseAdminCascadeMixin(AdminCascadeMixin):
+    def get_deleted_objects(self, objs, request):
+        obj = objs[0]
+        case_id = obj.pk if isinstance(obj, Case) else obj.case_id
+        if request.method == "POST":
+            get_case(request.user, case_id, owner=True, lock=True)
+        collector = NestedObjects(using=router.db_for_write(type(obj)), origin=objs)
+        collector.collect(objs)
+        if cascade_conflicts(collector, case_id, protected=collector.protected):
+            return [], {}, set(), [CASCADE_CONFLICT]
+        return super().get_deleted_objects(objs, request)
+
+    def delete_model(self, request, obj):
+        case_id = obj.pk if isinstance(obj, Case) else obj.case_id
+        delete_case_record(obj, case_id)
+
+
+class CaseScopedAdmin(CaseAdminCascadeMixin, admin.ModelAdmin):
     actions = None
 
     def get_queryset(self, request):

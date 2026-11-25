@@ -20,7 +20,7 @@
     <h2 id="message-analysis-preparation">Preparation</h2>
     <p>{% if analysis_mode %}{{ analysis_mode }} · {% endif %}Requested {{ batch.created_at|date:'j M Y, H:i T' }}</p>
     {% if live_pending %}<p role="status">{% if batch.status == 'queued' %}Preparing message analysis{% else %}{{ batch.get_status_display }}{% endif %}</p>{% endif %}
-    <p>{{ batch.processed_sources }} message{{ batch.processed_sources|pluralize }} prepared · {{ batch.queued_runs }} check{{ batch.queued_runs|pluralize }} queued.</p>
+    <p>{% include 'core/analysis/message_preparation_progress.html' with batch=batch only %}</p>
   </section>
   <section class="analysis-section" aria-labelledby="message-analysis-checks">
     <h2 id="message-analysis-checks">Analysis checks</h2>

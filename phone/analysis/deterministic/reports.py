@@ -21,11 +21,13 @@ from core.analysis.reporting import (
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from people.models import Person
+from phone.presentation import call_party_labels
 
 
 def _pairs(queries):
     streams = [
-        queryset.order_by()
+        queryset.filter(sender_id__isnull=False, recipient_id__isnull=False)
+        .order_by()
         .annotate(
             first=Least("sender_id", "recipient_id"),
             second=Greatest("sender_id", "recipient_id"),
@@ -59,7 +61,8 @@ def call_report(
         queryset = (
             scoped_evidence(case, kind)
             .filter(is_archived=False)
-            .select_related("sender", "recipient")
+            .select_related("sender", "recipient", "import_row__batch")
+            .defer("import_row__batch__selection", "import_row__overlap_candidates")
         )
         if other_participant_id:
             queryset = queryset.filter(
@@ -120,11 +123,9 @@ def call_report(
         pair["label"] = " ↔ ".join(people[pk] for pk in pair["ids"])
     items = []
     for kind, item in rows:
+        sender, recipient = call_party_labels(item)
         pair = sorted(
-            {
-                (str(item.sender_id), str(item.sender)),
-                (str(item.recipient_id), str(item.recipient)),
-            }
+            {(str(item.sender_id), sender), (str(item.recipient_id), recipient)}
         )
         items.append(
             _source(
@@ -133,8 +134,10 @@ def call_report(
                 item,
                 {
                     "Participant pair": " ↔ ".join(name for _, name in pair),
-                    "Sender ID": str(item.sender_id),
-                    "Recipient ID": str(item.recipient_id),
+                    "Sender ID": str(item.sender_id) if item.sender_id else "Unlinked",
+                    "Recipient ID": str(item.recipient_id)
+                    if item.recipient_id
+                    else "Unlinked",
                     "Recorded call time (UTC)": _instant(item.occurred_at),
                     "Reported duration (seconds)": item.duration.total_seconds()
                     if item.duration is not None

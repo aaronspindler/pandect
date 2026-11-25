@@ -1,6 +1,7 @@
-"""Prepare bounded summary runs for exact saved conversation instances."""
+"""Review and prepare bounded summaries for exact conversation instances."""
 
-from uuid import uuid5
+from hashlib import sha256
+from uuid import UUID, uuid5
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -8,11 +9,17 @@ from django.db.models import Q
 from django.db.models.functions import Length
 from django.http import Http404
 
+from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError
-from core.analysis.execution import available_executions, case_execution_grants
+from core.analysis.execution import (
+    available_executions,
+    case_execution_grants,
+    case_grant_revision,
+    execution_confirmation,
+)
 from core.analysis.manual import start_available_run
 from core.analysis.operations import OPERATIONS
-from core.models import AnalysisRun
+from core.models import AnalysisRun, CaseAnalysisBatch
 from people.models import Person
 from phone.analysis.ai import summary_chunks
 from phone.analysis.deterministic.conversations import DEFAULT_SESSION_GAP_MINUTES
@@ -26,6 +33,117 @@ from phone.saved_summary_ranges import (
 
 OPERATION = "session_summaries"
 INSTANCES_PER_STEP = 10
+
+
+def summary_review_revision(case, ids, executions):
+    grant = (
+        case_grant_revision(case, OPERATION, executions.get("gateway"))
+        if "gateway" in executions
+        else None
+    )
+    return execution_confirmation(
+        "phone.instance_summary", [str(case.pk), ids, grant], executions
+    )
+
+
+def request_summaries(
+    actor, case, people, ids, executions, submission_id, *, single=False
+):
+    """Queue the exact review scope while the caller holds the case lock."""
+    return start_case_analysis(
+        actor,
+        case.pk,
+        submission_id=submission_id,
+        scope={
+            "type": "instance_summaries",
+            "people": people,
+            "instances": ids,
+            "single": single,
+            "executions": executions,
+            "reviewed_scope": summary_review_revision(case, ids, executions),
+            "external_grant_revision": case_grant_revision(
+                case, OPERATION, executions.get("gateway")
+            ),
+        },
+    )
+
+
+def active_summary_batch(case, people, executions, instance_id=None):
+    if not executions:
+        return None
+    backend, execution = next(iter(executions.items()))
+    batches = CaseAnalysisBatch.objects.filter(
+        case=case, scope__type="instance_summaries", scope__people=people
+    )
+    matching = Q(**{f"scope__executions__{backend}": execution})
+    if backend == "gateway":
+        matching &= Q(
+            scope__external_grant_revision__in=list(
+                case_execution_grants(case, OPERATION, execution)
+            )
+        )
+    else:
+        matching |= Q(scope__backend="local", scope__execution=execution)
+    batches = batches.filter(matching)
+    if instance_id is None:
+        batches = batches.filter(
+            Q(scope__single=False) | ~Q(scope__has_key="single"),
+        ).filter(
+            Q(status=CaseAnalysisBatch.Status.QUEUED)
+            | Q(
+                runs__parameters___execution=execution,
+                runs__status__in=(
+                    AnalysisRun.Status.QUEUED,
+                    AnalysisRun.Status.RUNNING,
+                ),
+            )
+        )
+    else:
+        batches = batches.filter(scope__instances__contains=[str(instance_id)]).filter(
+            Q(status=CaseAnalysisBatch.Status.QUEUED)
+            | Q(
+                runs__parameters___saved_session_range__session=str(instance_id),
+                runs__parameters___execution=execution,
+                runs__status__in=(
+                    AnalysisRun.Status.QUEUED,
+                    AnalysisRun.Status.RUNNING,
+                ),
+            )
+        )
+    return batches.only("case_id").first()
+
+
+def submitted_summary_batch(
+    actor, case, people, instance_id, *, submission_id, reviewed_scope
+):
+    try:
+        identifier = UUID(submission_id)
+    except ValueError:
+        return None
+    batches = CaseAnalysisBatch.objects.filter(
+        submission_id=identifier,
+        case=case,
+        requested_by=actor,
+        scope__type="instance_summaries",
+        scope__people=people,
+    )
+    if instance_id is None:
+        batch = batches.filter(
+            Q(scope__single=False) | ~Q(scope__has_key="single")
+        ).first()
+        if batch is None:
+            return None
+        expected_scope = batch.scope.get("reviewed_scope")
+        if expected_scope is None:
+            expected_scope = sha256(
+                "|".join(batch.scope["instances"]).encode()
+            ).hexdigest()
+        if reviewed_scope == expected_scope:
+            return batch
+        return None
+    return batches.filter(
+        scope__single=True, scope__instances=[str(instance_id)]
+    ).first()
 
 
 def summary_originals(pair, member_ids):
@@ -141,6 +259,38 @@ def pending_summaries(case, instances, executions):
         ):
             pending.setdefault(instance_id, {}).setdefault(backend, run)
     return pending
+
+
+def review_summary_candidates(case, pair, page, executions):
+    """Count pending and oversized instances and return the requestable ones."""
+    missing = [instance for instance in page if instance["summary_missing"]]
+    pending = pending_summaries(case, missing, executions)
+    unrequested = [
+        instance
+        for instance in missing
+        if executions.keys()
+        - instance["summary_routes"]
+        - pending.get(instance["id"], {}).keys()
+    ]
+    originals = summary_originals(
+        pair,
+        {
+            pk
+            for instance in unrequested
+            if not instance.get("saved_session")
+            for pk in instance["member_ids"]
+        },
+    )
+    eligible = []
+    oversized = 0
+    for instance in unrequested:
+        if not instance.get("saved_session") and summary_limit(
+            instance["member_ids"], originals
+        ):
+            oversized += 1
+        else:
+            eligible.append(instance)
+    return eligible, oversized, len(pending)
 
 
 def queue_summary(

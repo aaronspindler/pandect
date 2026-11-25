@@ -9,6 +9,18 @@ from django.urls import reverse
 from core.analysis.navigation import finding_url
 
 
+def selection(value):
+    parts = value.split(":")
+    data = {"kind": parts[0], "id": parts[1]}
+    if len(parts) > 2 and parts[2] != "-":
+        data["attachment_id"] = parts[2]
+    if len(parts) > 3:
+        data["result_id"] = parts[3]
+    if len(parts) > 4:
+        data["geocode_candidate"] = int(parts[4])
+    return data
+
+
 def source_id(choice):
     """Stable virtual source keys let users review a selection before enqueueing."""
     identity = [

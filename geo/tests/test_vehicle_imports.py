@@ -57,6 +57,27 @@ class VehicleCSVParserTests(SimpleTestCase):
                 self.assertEqual(bool(row.errors), speed == "-")
                 self.assertEqual(row.raw["Speed"], speed)
 
+    def test_older_versions_keep_the_original_timestamp_format(self):
+        for version in ("asset-location.v1", "asset-location.v2"):
+            with self.subTest(version=version):
+                values = {
+                    "Created Time": "2026-09-16 14:57:22",
+                    "Speed": "-" if version == "asset-location.v2" else "",
+                }
+                row = next(
+                    iter_csv(
+                        io.BytesIO(csv_content(**values)),
+                        "UTC",
+                        parser_version=version,
+                    )
+                )
+                self.assertEqual(len(row.errors), 1)
+                self.assertTrue(row.errors[0].startswith("Created Time: "))
+                self.assertEqual(
+                    row.values["received_at"],
+                    datetime(2026, 9, 16, 14, 57, 25, tzinfo=UTC),
+                )
+
     def test_quoted_csv_bom_and_original_values_survive_interpretation(self):
         row = parse_csv(b"\xef\xbb\xbf" + csv_content(), "America/Toronto")[0]
         self.assertFalse(row.errors)
@@ -73,6 +94,29 @@ class VehicleCSVParserTests(SimpleTestCase):
             row.values["received_at"], datetime(2026, 9, 16, 18, 57, 25, tzinfo=UTC)
         )
         self.assertNotIn("latitude", row.values)
+
+    def test_timestamp_columns_can_use_different_formats(self):
+        row = parse_csv(
+            csv_content(**{"Received Time": "2026-09-16 14:57:25"}), "America/Toronto"
+        )[0]
+        self.assertFalse(row.errors)
+        self.assertEqual(
+            row.values["observed_at"], datetime(2026, 9, 16, 18, 57, 22, tzinfo=UTC)
+        )
+        self.assertEqual(
+            row.values["received_at"], datetime(2026, 9, 16, 18, 57, 25, tzinfo=UTC)
+        )
+
+    def test_24_hour_timestamps_reject_ambiguous_and_nonexistent_local_times(self):
+        for timestamp in ("2026-11-01 01:30:00", "2026-03-08 02:30:00"):
+            with self.subTest(timestamp=timestamp):
+                row = parse_csv(
+                    csv_content(**{"Created Time": timestamp}), "America/Toronto"
+                )[0]
+                self.assertEqual(len(row.errors), 1)
+                self.assertIn(
+                    "Created Time: This local time is ambiguous", row.errors[0]
+                )
 
     def test_parser_bounds_headers_encoding_and_malformed_input(self):
         for content in (
@@ -133,9 +177,9 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             kwargs={"case_id": (case or self.case).pk, "import_id": batch.pk},
         )
 
-    def upload(self, content=None, **changes):
+    def upload(self, content=None, *, case=None, **changes):
         return self.client.post(
-            self.upload_url(),
+            self.upload_url(case),
             {
                 "file": SimpleUploadedFile(
                     "synthetic-assets.csv",
@@ -236,13 +280,39 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             )
         self.assertEqual(hashlib.sha256(item.original_bytes()).hexdigest(), item.sha256)
 
+    def test_import_retains_24_hour_timestamp_cells_and_converts_to_utc(self):
+        timestamps = {
+            "Created Time": "2026-01-20 05:16:09",
+            "Received Time": "2026-01-20 05:15:47",
+        }
+        original = csv_content(**timestamps)
+        batch = self.new_batch(original)
+        self.assertEqual(batch.parser_version, "asset-location.v3")
+        self.assertEqual(batch.invalid_count, 0)
+        self.assertEqual(batch.document.file.read(), original)
+        self.assertContains(
+            self.client.get(self.review_url(batch)), "20 Jan 2026, 10:16:09"
+        )
+
+        self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(batch.status, "complete")
+        item = batch.observations.get()
+        self.assertEqual(item.observed_at, datetime(2026, 1, 20, 10, 16, 9, tzinfo=UTC))
+        self.assertEqual(
+            item.received_at, datetime(2026, 1, 20, 10, 15, 47, tzinfo=UTC)
+        )
+        retained = json.loads(item.original_bytes())
+        self.assertEqual(retained["import"]["parser_version"], "asset-location.v3")
+        for column, timestamp in timestamps.items():
+            self.assertEqual(retained["raw_row"][column], timestamp)
+
     def test_missing_speeds_import_without_changing_originals_or_zero(self):
         raw = parse_csv(csv_content(), "UTC")[0].raw
         original = csv_content(
             raw | {"Speed": "-"}, raw | {"Speed": ""}, raw | {"Speed": "0 km/h"}
         )
         batch = self.new_batch(original)
-        self.assertEqual(batch.parser_version, "asset-location.v2")
+        self.assertEqual(batch.parser_version, "asset-location.v3")
         self.assertEqual(batch.invalid_count, 0)
         self.assertEqual(batch.row_count, 3)
         self.assertEqual(
@@ -259,7 +329,7 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(original_json["raw_row"]["Speed"], speed)
             self.assertEqual(original_json["speed_kmh"], value)
             self.assertEqual(
-                original_json["import"]["parser_version"], "asset-location.v2"
+                original_json["import"]["parser_version"], "asset-location.v3"
             )
             self.assertEqual(
                 hashlib.sha256(item.original_bytes()).hexdigest(), item.sha256
@@ -476,7 +546,7 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             CaseAnalysisBatch.objects.filter(scope__type="vehicle").count(), 1
         )
 
-    def test_upload_retry_cannot_change_file_timezone_or_uploader(self):
+    def test_upload_retry_preserves_file_and_timezone_within_uploader_scope(self):
         self.login("editor")
         submission = str(uuid4())
         self.assertEqual(self.upload(submission_id=submission).status_code, 302)
@@ -493,7 +563,15 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             409,
         )
         self.login("owner")
-        self.assertEqual(self.upload(submission_id=submission).status_code, 409)
+        owner_upload = self.upload(submission_id=submission)
+        self.assertEqual(owner_upload.status_code, 302)
+        self.assertEqual(self.upload(submission_id=submission).url, owner_upload.url)
+        self.login("outsider")
+        other_upload = self.upload(case=self.other_case, submission_id=submission)
+        self.assertEqual(other_upload.status_code, 302)
+        self.assertNotEqual(owner_upload.url, other_upload.url)
+        self.assertEqual(VehicleLocationImport.objects.count(), 3)
+        self.assertEqual(DocumentEvidence.objects.count(), 3)
 
     def test_upload_vehicle_is_case_scoped_and_initializes_review_mappings(self):
         other_vehicle = Vehicle.objects.create(

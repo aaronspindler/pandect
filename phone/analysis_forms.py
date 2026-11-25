@@ -4,8 +4,8 @@ from uuid import uuid4
 
 from django import forms
 
-from core.analysis.form_base import BaseAnalysisForm, selection
-from core.analysis.sources import source_id
+from core.analysis.form_base import BaseAnalysisForm
+from core.analysis.sources import selection, source_id
 
 
 class PhoneAnalysisForm(BaseAnalysisForm):

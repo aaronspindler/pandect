@@ -1,6 +1,5 @@
 """Case-scoped selection, interpretation, and review for plan comparisons."""
 
-import hashlib
 import json
 from uuid import uuid4
 
@@ -8,33 +7,29 @@ from django.conf import settings
 from django.contrib import messages
 from django.core import signing
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
-from cases.permissions import case_context, get_case
+from cases.permissions import case_context
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.form_base import _source_choice_page, selection
-from core.analysis.manual import start_selected_analysis
+from core.analysis.form_base import _source_choice_page
 from core.analysis.navigation import current_comparison_origin, evidence_return_url
 from core.analysis.readiness import source_readiness
-from core.analysis.services import snapshot_and_resolve_sources
-from core.analysis.sources import source_id
-from core.evidence.types import KIND_LABELS
 from geo.analysis.deterministic.journey_claims import (
     claimed_subjects,
     validate_comparison,
 )
-from geo.journey_claim_checks import (
-    COMPARISON_EXTRACTIONS,
-    check_source_integrity,
-)
+from geo.journey_claim_checks import COMPARISON_EXTRACTIONS
 from geo.journey_claim_forms import STATUSES, InterpretationForm
 from geo.journey_claim_inputs import derived_page, expand_input
+from geo.journey_claim_requests import (
+    DERIVED_INPUT_PREFIXES,
+    comparison_selection,
+    queue_comparison,
+)
 
 PICKERS = {"claim": "content_events", "movement": "location_conflicts"}
-DERIVED = ("trip:", "finding:")
 
 
 def _picker(case, role, data, chosen, *, recover=False):
@@ -57,7 +52,7 @@ def _picker(case, role, data, chosen, *, recover=False):
         except ValueError:
             derived_number = 1
 
-    raw = [value for value in chosen if not value.startswith(DERIVED)]
+    raw = [value for value in chosen if not value.startswith(DERIVED_INPUT_PREFIXES)]
     page_options = {"selected": raw, "extractions_by_kind": COMPARISON_EXTRACTIONS}
     reset = False
     try:
@@ -85,7 +80,9 @@ def _picker(case, role, data, chosen, *, recover=False):
     )
     derived_choices = dict(derived)
     for token in chosen:
-        if not token.startswith(DERIVED) or (token in derived_choices and not recover):
+        if not token.startswith(DERIVED_INPUT_PREFIXES) or (
+            token in derived_choices and not recover
+        ):
             continue
         try:
             option = expand_input(case, token, role)
@@ -109,80 +106,6 @@ def _picker(case, role, data, chosen, *, recover=False):
         "reset": reset,
         "unavailable": unavailable,
     }
-
-
-def _selection(case, picked):
-    """Separate explicitly chosen interpretations from their contributing inputs."""
-    selections = {}
-    options = {}
-    refs, groups, observations = [], [], []
-    for role, tokens in picked.items():
-        for token in tokens:
-            if token.startswith(DERIVED):
-                option = expand_input(case, token, role)
-                if option["finding_ref"] and option["finding_ref"] not in refs:
-                    refs.append(option["finding_ref"])
-                choices = option["selections"]
-                if role == "claim":
-                    options[token] = (
-                        option["claim"]["source_id"],
-                        option["claim"],
-                        option["label"],
-                    )
-                else:
-                    group = dict(option["group"])
-                    for key in group["members"]:
-                        if key not in observations:
-                            observations.append(key)
-                    group["members"] = [
-                        observations.index(key) for key in group["members"]
-                    ]
-                    groups.append(group)
-            else:
-                choices = [selection(token)]
-                key = source_id(choices[0])
-                if role == "claim":
-                    options[token] = (key, None, "")
-                elif key not in observations:
-                    observations.append(key)
-            for choice in choices:
-                selections[source_id(choice)] = choice
-            if len(selections) > settings.PANDECT_ANALYSIS_MAX_SOURCES:
-                raise ValidationError(
-                    "Choose fewer sources or a smaller trip. All members must fit."
-                )
-    chosen = list(selections.values())
-    try:
-        snapshots, sources = snapshot_and_resolve_sources(case, chosen)
-    except Http404:
-        raise AnalysisError("source_unavailable") from None
-    check_source_integrity(case, sources)
-    by_id = {source.id: source for source in sources}
-    claim_options = {}
-    for token, (key, claim, label) in options.items():
-        source = by_id[key]
-        if not source.text.strip():
-            raise ValidationError("Choose a retained passage for every claim.")
-        claim_options[token] = {
-            "source": source,
-            "claim": claim,
-            "label": label or _source_label(source),
-            "quote": source.text[claim["start"] : claim["end"]] if claim else "",
-        }
-    parameters = {"observations": observations, "groups": groups, "finding_refs": refs}
-    digest = hashlib.sha256(
-        json.dumps([snapshots, options, parameters], sort_keys=True).encode()
-    ).hexdigest()
-    return chosen, sources, claim_options, parameters, digest
-
-
-def _source_label(source):
-    label = f"{KIND_LABELS[source.kind]} · {source.item.title}"
-    if source.attachment:
-        label += f" · Call addition {source.attachment.created_at:%Y-%m-%d %H:%M %Z}"
-    if source.derived_run_id:
-        label += f" · Extraction {source.derived_run_id[:8]}"
-    return label
 
 
 def _draft_options(options, claims):
@@ -233,7 +156,9 @@ def _review_rows(claims, sources, subjects):
 
 
 def _interpret(request, case, state, context, action, salt):
-    _, sources, options, parameters, digest = _selection(case, state["picked"])
+    _, sources, options, parameters, digest = comparison_selection(
+        case, state["picked"]
+    )
     if state.get("digest", digest) != digest:
         raise ValidationError(
             "A selected source or trip changed. Choose the sources again."
@@ -310,24 +235,8 @@ def _interpret(request, case, state, context, action, salt):
     return render(request, template, context)
 
 
-@transaction.atomic
 def _queue(request, case, state):
-    case = get_case(request.user, case.pk, edit=True, lock=True)
-    if not state.get("reviewed"):
-        raise ValidationError(
-            "Review its exact sources and interpretations before queuing."
-        )
-    selected, _, _, parameters, digest = _selection(case, state["picked"])
-    if digest != state["digest"]:
-        raise ValidationError("The selection changed. Choose its exact sources again.")
-    _, runs, created = start_selected_analysis(
-        request.user,
-        case.pk,
-        "journey_claims",
-        selected,
-        parameters | {"claims": state["claims"]},
-        submission_id=state["submission_id"],
-    )
+    run, created = queue_comparison(request.user, case.pk, state)
     messages.success(
         request,
         "Comparison queued." if created else "This comparison was already queued.",
@@ -335,7 +244,7 @@ def _queue(request, case, state):
     return redirect(
         reverse(
             "core:analysis:detail",
-            args=(case.pk, runs[0].pk),
+            args=(case.pk, run.pk),
             query=state["result_query"],
         )
     )

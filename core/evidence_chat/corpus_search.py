@@ -18,7 +18,8 @@ from core.case_search.semantic import (
     CHAT_SOURCE_LIMIT,
     related_results,
 )
-from core.evidence.types import COMMUNICATION_KINDS, FILE_KINDS
+from core.evidence.search import CALL_HISTORY_SEARCH_FIELDS
+from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, FILE_KINDS
 from text.analysis.synthesis import finding_text
 
 from .corpus import (
@@ -85,6 +86,8 @@ def fields_for(surface, kind):
                 for field in ("first_name", "last_name", "email", "phone_number")
             )
         fields.append("occurred_at")
+    if kind in CALL_KINDS:
+        fields.extend(CALL_HISTORY_SEARCH_FIELDS)
     if kind.endswith("location"):
         fields.extend(("address", "latitude", "longitude", "observed_at"))
         if kind == "vehicle-location":

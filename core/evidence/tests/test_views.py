@@ -526,18 +526,36 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(retry.json()["id"], confirmed.json()["id"])
         self.assertEqual(TextEvidence.objects.count(), 2)
 
-    def test_cross_actor_submission_token_is_a_generic_conflict(self):
+    def test_submission_tokens_are_independent_across_users_and_cases(self):
         self.login("owner")
         data = self.payload()
         first = self.client.post(
             self.url("create"), data, HTTP_ACCEPT="application/json"
         )
+        self.assertEqual(first.status_code, 201)
         self.login("editor")
+        editor_data = data | {"body": "A different retained original."}
         response = self.client.post(
-            self.url("create"), data, HTTP_ACCEPT="application/json"
+            self.url("create"), editor_data, HTTP_ACCEPT="application/json"
         )
-        self.assertEqual(response.status_code, 409)
-        self.assertNotContains(response, first.json()["id"], status_code=409)
+        self.assertEqual(response.status_code, 201)
+        self.assertNotEqual(response.json()["id"], first.json()["id"])
+        repeated = self.client.post(
+            self.url("create"), editor_data, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(repeated.json()["id"], response.json()["id"])
+        CaseMembership.objects.create(
+            case=self.other_case, user=self.users["editor"], role="editor"
+        )
+        foreign = self.client.post(
+            self.url("create", case=self.other_case),
+            editor_data,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(foreign.status_code, 201)
+        self.assertNotEqual(foreign.json()["id"], response.json()["id"])
+        self.assertEqual(TextEvidence.objects.count(), 3)
 
     def test_revocation_and_downgrade_affect_following_requests(self):
         self.login("editor")

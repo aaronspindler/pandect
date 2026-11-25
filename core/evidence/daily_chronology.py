@@ -33,6 +33,7 @@ from geo.daily_chronology import (
     daily_trip_covers,
 )
 from phone.daily_chronology import attach_daily_message_previews, daily_message_rows
+from phone.presentation import call_party_labels
 
 PAGE_SIZE = 25
 DAY = timedelta(days=1)
@@ -159,7 +160,8 @@ def _calls(case, kind, start, end):
     calls = (
         scoped_evidence(case, kind)
         .filter(is_archived=False, occurred_at__gte=start, occurred_at__lt=end)
-        .select_related("sender", "recipient")
+        .select_related("sender", "recipient", "import_row__batch")
+        .defer("import_row__batch__selection", "import_row__overlap_candidates")
         .order_by("occurred_at", "pk")
     )
     for call in calls.iterator(chunk_size=PAGE_SIZE):
@@ -191,7 +193,8 @@ def _day_page(case, start, end, number):
     for row in rows:
         if call := row.pop("call", None):
             set_call_interval(row, call.occurred_at, call.duration)
-            row["title"] = f"{call.sender} to {call.recipient}"
+            sender, recipient = call_party_labels(call)
+            row["title"] = f"{sender} to {recipient}"
             row["detail"] = (
                 f"Duration {call.duration}" if call.duration is not None else ""
             )

@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_safe
 from django.views.decorators.vary import vary_on_headers
 
+from cases.deletion import CASCADE_CONFLICT, CaseDeletionBlocked, delete_case_record
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.catalogue import catalogue_page
@@ -20,16 +21,7 @@ from people.models import Person
 from socialmedia.models import SocialAccount
 from ui.dialogs import form_saved, render_quick_form, render_record, wants_record
 from ui.live import render_live
-
-
-def list_query(request):
-    values = {}
-    query = request.GET.get("q", "").strip()[:200]
-    if query:
-        values["q"] = query
-    if request.GET.get("page", "").isdigit():
-        values["page"] = request.GET["page"]
-    return urlencode(values)
+from ui.navigation import list_query
 
 
 @product_login_required
@@ -202,7 +194,9 @@ def person_delete(request, case_id, person_id):
         form = PersonDeleteForm(request.POST if request.method == "POST" else None)
         if request.method == "POST" and not related["rows"] and form.is_valid():
             try:
-                person.delete()
+                delete_case_record(person, case.pk)
+            except CaseDeletionBlocked:
+                form.add_error(None, CASCADE_CONFLICT)
             except RestrictedError:
                 form.add_error(
                     None,

@@ -70,8 +70,11 @@ records are ignored; malformed rows remain visible and block completion.
 | Heading | Optional N, NE, E, SE, S, SW, W, or NW. Case/outer spaces are accepted; original retained. |
 | Trigger | Retained description; no inferred engine state/activity. |
 | Time Summary | Retained text; no inferred duration, start/end time, or presence interval. |
-| Created Time | Required `2026-09-16, 2:57:22 PM` format, interpreted in the selected export timezone and stored as UTC `observed_at`. |
-| Received Time | Optional same-format/timezone timestamp, retained as `received_at`; separate from collection/upload time. |
+| Created Time | Required timestamp interpreted in the selected export timezone and stored as UTC `observed_at`. |
+| Received Time | Optional timestamp interpreted in the selected export timezone and retained as `received_at`, separate from collection and upload times. |
+
+New imports accept both `2026-09-16, 2:57:22 PM` (12-hour) and
+`2026-09-16 14:57:22` (24-hour) in either timestamp column.
 
 Every row requires an asset/device identifier and address. Ambiguous autumn and
 nonexistent spring times require an unambiguous new export; no offset is chosen
@@ -97,16 +100,15 @@ cannot replace them.
 
 **Download original** returns canonical UTF-8 `pandect.vehicle-location.v1` JSON:
 vehicle UUID, location, optional telemetry, row, source document UUID/checksum,
-record number, export timezone, and parser `asset-location.v2`. The linked
+record number, export timezone, and the parser version used. The linked
 Document retains exact CSV bytes. Editable metadata/current vehicle details are
 outside the checksum. Future parsers must support or reject pending old imports
 explicitly, never silently reinterpret them.
 
-Parser v2 accepts `-` Speed as unavailable and retains the cell. Existing
-`asset-location.v1` reviews/jobs retain v1 rules, including rejecting `-`; valid
-v1 imports can complete. For a CSV rejected only for `-`, upload the unchanged
-original anew with the updated app. Earlier sources/reviews remain unchanged.
-New imports default to v2 in the fresh `geo` schema.
+New imports use `asset-location.v3`, which accepts both timestamp formats.
+Existing v1 and v2 imports keep their original 12-hour timestamp rule. V2 and v3
+accept `-` in Speed as unavailable and retain the cell. If an older import rejects
+a format now supported by v3, start a new import with the same CSV.
 
 Archiving retains links; observations protect individual vehicle deletion.
 Superusers with case access may confirm source-document deletion from Evidence
@@ -117,9 +119,10 @@ Owner-confirmed whole-case deletion is also available. File cleanup follows comm
 `geo` owns `VehicleLocationImport`, `VehicleLocationImportRow`, and
 `VehicleLocationEvidence`, their constraints, parser, jobs, and UI. Source files
 remain `document.DocumentEvidence`; entities remain `vehicle.Vehicle`.
-`geo.vehicle_imports` is the bounded parser; `geo.vehicle_import_jobs` owns
-preparation/publication/recovery. `geo.tasks.process_vehicle_import` accepts IDs
-only. Templates live in `geo/templates/geo/`; shared deletion uses
+`geo.vehicle_imports` is the bounded parser. `geo.vehicle_import_jobs` owns
+original retention, preparation, publication, and recovery.
+`geo.tasks.process_vehicle_import` accepts IDs only. Templates live in
+`geo/templates/geo/`; shared deletion uses
 `core.evidence.deletion`.
 
 ## Operational bounds and scope

@@ -4,6 +4,7 @@
     {% if can_edit %}
     {% if not item.is_archived %}{% include 'core/important/reader_actions.html' with important_menu=True %}{% endif %}
     {% if kind == 'document' and not item.is_archived %}<a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}?document={{ item.pk }}">Import message CSV</a>{% endif %}
+    {% if kind == 'document' and call_history_csv and not item.is_archived %}<a class="record-link" href="{% url 'phone:call_history_upload' case_id=case.pk %}?document={{ item.pk }}">Import call history CSV</a>{% endif %}
     {% partialdef checks inline %}
     <div id="evidence-rerun" data-live-region data-live-poll="false">
     {% if can_edit and not item.is_archived and findings_page and not analysis_pending and not analysis_form.errors %}<form data-collection-context method="post" action="{% url 'core:analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}#evidence-analysis-error">{% csrf_token %}{{ analysis_form.submission_id }}<button type="submit">{% if has_evidence_analysis %}Run checks again{% else %}Run checks{% endif %}</button></form>{% endif %}
@@ -11,6 +12,7 @@
     {% endpartialdef %}
     <form data-collection-context method="post" action="{% if item.is_archived %}{% url 'core:evidence:restore' case_id=case.pk kind=kind evidence_id=item.pk %}{% else %}{% url 'core:evidence:archive' case_id=case.pk kind=kind evidence_id=item.pk %}{% endif %}{{ list_suffix }}">{% csrf_token %}<button type="submit">{% include 'ui/components/icon.html' with name='archive' %} {% if item.is_archived %}Restore{% else %}Archive{% endif %}</button></form>
     {% endif %}
+    {% if call_history_import %}<a class="record-link" href="{% url 'phone:call_history_review' case.pk call_history_import.pk %}">View call history import</a>{% endif %}
     {% if can_delete_evidence %}<a data-collection-context class="record-link evidence-delete-link" href="{% url 'core:evidence:delete' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Delete evidence</a>{% endif %}
   </div>
 </details>

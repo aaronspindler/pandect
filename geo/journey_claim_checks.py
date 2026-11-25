@@ -10,6 +10,7 @@ from django.db.models import Prefetch, prefetch_related_objects
 from core.analysis.errors import AnalysisError
 from core.analysis.source_limits import payload_bytes
 from core.evidence.types import COMMUNICATION_KINDS, FILE_KINDS, LOCATION_KINDS
+from core.storage import private_file
 from geo.analysis.deterministic.journey_claims import (
     claimed_subjects,
     validate_comparison,
@@ -66,10 +67,10 @@ def check_comparison_inputs(run, sources, case, cache, depth):
 
 
 def _check_private_key(case, record):
-    directory, _, key = (record.file.name or "").rpartition("/")
-    expected = f"evidence/cases/{case.pk}/{record._meta.model_name}"
-    if directory != expected or key in ("", ".", "..") or "\\" in key:
-        raise AnalysisError("source_unavailable")
+    try:
+        return private_file(record, case.pk)
+    except OSError as error:
+        raise AnalysisError("source_unavailable") from error
 
 
 def check_source_integrity(case, sources):
@@ -96,7 +97,13 @@ def check_source_integrity(case, sources):
                 case=case, document__case=case
             )
             .select_related("document")
-            .only("timezone", "parser_version", "document__sha256", "document__file"),
+            .only(
+                "timezone",
+                "parser_version",
+                "document__case_id",
+                "document__sha256",
+                "document__file",
+            ),
         ),
     )
     documents = {row.import_batch.document for row in vehicles}
@@ -122,9 +129,9 @@ def check_source_integrity(case, sources):
             raise AnalysisError("source_changed")
         documents.add(document)
     for document in documents:
-        _check_private_key(case, document)
+        original = _check_private_key(case, document)
         try:
-            available = document.file.storage.exists(document.file.name)
+            available = original.storage.exists(original.name)
         except OSError:
             available = False
         if not available:

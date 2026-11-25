@@ -217,20 +217,29 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         }
         self.assertEqual(selected_additions, {str(item.pk) for item in attachments})
 
-    def test_submission_retry_recovers_same_batch_and_rejects_other_actor_or_case(self):
+    def test_submission_retry_is_scoped_to_case_and_initiator(self):
         self.source("text")
         batch, _ = self.start()
         self.drain(batch)
         queued = DBTaskResult.objects.count()
-        again, created = self.start(submission_id=batch.pk)
+        again, created = self.start(submission_id=batch.submission_id)
         self.assertFalse(created)
         self.assertEqual(again.pk, batch.pk)
         self.assertEqual(prepare_case_analysis_batch(str(batch.pk)), "complete")
         self.assertEqual(DBTaskResult.objects.count(), queued)
-        with self.assertRaises(ValidationError):
-            self.start(role="editor", submission_id=batch.pk)
-        with self.assertRaises(ValidationError):
-            self.start(role="outsider", case=self.other_case, submission_id=batch.pk)
+        batch.runs.update(status="cancelled")
+        editor_batch, created = self.start(
+            role="editor", submission_id=batch.submission_id
+        )
+        self.assertTrue(created)
+        CaseMembership.objects.create(
+            case=self.other_case, user=self.users["editor"], role="editor"
+        )
+        other_batch, created = self.start(
+            role="editor", case=self.other_case, submission_id=batch.submission_id
+        )
+        self.assertTrue(created)
+        self.assertEqual(len({batch.pk, editor_batch.pk, other_batch.pk}), 3)
 
     def test_unavailable_original_does_not_block_other_evidence(self):
         missing = self.source("document")
@@ -312,7 +321,11 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
             response = self.client.post(self.url(), {"submission_id": submission_id})
             self.assertEqual(response.status_code, status)
             if status == 302:
-                batch = CaseAnalysisBatch.objects.get(pk=submission_id)
+                batch = CaseAnalysisBatch.objects.get(
+                    case=self.case,
+                    requested_by=self.users[role],
+                    submission_id=submission_id,
+                )
                 self.assertEqual(batch.scope["type"], "reprocess")
                 self.assertEqual(set(batch.scope["kinds"]), set(KINDS))
                 self.assertEqual(

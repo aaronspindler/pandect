@@ -6,7 +6,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import timedelta
 from itertools import batched, chain
-from pathlib import PurePosixPath
 
 from django.core import signing
 from django.core.exceptions import PermissionDenied
@@ -18,13 +17,13 @@ from django.db.models.functions import JSONObject
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
+from cases.deletion import collected_querysets, outside_case
 from cases.permissions import get_case
 from core.analysis.operations import OPERATIONS
 from core.evidence.queries import get_evidence, same_case_evidence
-from core.evidence.types import KIND_LABELS, KINDS
+from core.evidence.types import CALL_KINDS, KIND_LABELS, KINDS
 from core.models import (
     AnalysisRun,
-    ChatMatch,
     ChatSource,
     ChatTurn,
     DeletionReview,
@@ -33,6 +32,7 @@ from core.models import (
     ImportantNote,
     SavedSelection,
 )
+from core.storage import case_storage_key
 from core.tasks import expire_deletion_review
 from geo.models import (
     VehicleLocationEvidence,
@@ -41,11 +41,13 @@ from geo.models import (
     VehicleTripGeneration,
 )
 from phone.models import (
+    CallHistoryImport,
+    CallHistoryRow,
+    CallPersonLink,
     CommunicationContext,
     ConversationSession,
     ConversationSessionMember,
 )
-from socialmedia.models import InstagramCapture, InstagramComparison
 
 CASE_CONFLICT = (
     "Related material has inconsistent case links. "
@@ -66,6 +68,9 @@ INVENTORY_LABELS = {
     "gatewayrequest": "Processing usage",
     "communicationcontext": "Imported message source context",
     "callevidenceattachment": "Retained call material",
+    "callhistoryimport": "Call history import",
+    "callhistoryrow": "Call import review row",
+    "callpersonlink": "Investigator call party link",
     "instagramcapture": "Instagram list capture",
     "instagramcomparison": "Instagram list comparison",
     "importantitem": "Important item",
@@ -186,39 +191,7 @@ def _analysis_runs(case_id, selections, generation_ids, session_ids):
     return runs.filter(pk__in=ids).only("id", "case_id", "operation", "status")
 
 
-def _outside_case(model, objects, case_id):
-    ids = [obj.pk for obj in objects]
-    if not ids:
-        return False
-    scopes = {
-        ChatTurn: ("case_id", "chat__case_id"),
-        ChatSource: ("case_id", "turn__case_id", "turn__chat__case_id"),
-        ChatMatch: (
-            "case_id",
-            "turn__case_id",
-            "source__case_id",
-            "source__turn__case_id",
-        ),
-        VehicleLocationImportRow: ("batch__case_id",),
-        ImportantNote: ("item__case_id",),
-        ConversationSession: ("case_id", "grouping__case_id"),
-        ConversationSessionMember: ("case_id", "session__case_id", "message__case_id"),
-        InstagramCapture: ("monitor_check__monitor__case_id", "evidence__case_id"),
-        InstagramComparison: (
-            "capture__monitor_check__monitor__case_id",
-            "capture__evidence__case_id",
-            "previous__monitor_check__monitor__case_id",
-            "previous__evidence__case_id",
-        ),
-    }.get(model, ("case_id",))
-    return (
-        model.objects.filter(pk__in=ids)
-        .exclude(**dict.fromkeys(scopes, case_id))
-        .exists()
-    )
-
-
-def _record_rows(model, objects):
+def _record_rows(model, objects, using):
     """Fetch only inventory labels/identities, never original bodies or raw CSV JSON."""
     fields = {f.name for f in model._meta.fields}
     wanted = fields.intersection(
@@ -246,11 +219,8 @@ def _record_rows(model, objects):
             "item",
         }
     )
-    return (
-        model.objects.filter(pk__in=[obj.pk for obj in objects])
-        .values("id", *wanted)
-        .iterator(chunk_size=1000)
-    )
+    for rows in collected_querysets(model, objects, using):
+        yield from rows.values("id", *wanted).iterator(chunk_size=500)
 
 
 def _record_name(model, row):
@@ -271,7 +241,7 @@ def _record_name(model, row):
             + " · "
             + dict(AnalysisRun.Status.choices).get(row["status"], row["status"])
         )
-    if model is VehicleLocationImportRow:
+    if model in (VehicleLocationImportRow, CallHistoryRow):
         return f"CSV review row {row['number']} · import {row['batch']}"
     if model is CommunicationContext:
         return (
@@ -287,16 +257,6 @@ def _record_name(model, row):
     return str(model._meta.verbose_name).capitalize()
 
 
-def _case_file(name, case_id):
-    path = PurePosixPath(name)
-    return (
-        "\\" not in name
-        and path.as_posix() == name
-        and ".." not in path.parts
-        and name.startswith(f"evidence/cases/{case_id}/")
-    )
-
-
 def plan_deletion(item, kind):
     return plan_deletions([item], kind)
 
@@ -310,6 +270,7 @@ def plan_deletions(items, kind):
     plan = DeletionPlan(items, kind, collector)
     roots = {kind: items}
     batches = []
+    call_batches = []
     if kind == "document":
         batches = list(
             VehicleLocationImport.objects.filter(document__in=items).only(
@@ -326,10 +287,19 @@ def plan_deletions(items, kind):
             .objects.filter(communication_context__source_document__in=items)
             .only("id", "case_id")
         )
+        call_batches = list(
+            CallHistoryImport.objects.filter(document__in=items).only("id", "case_id")
+        )
+        for call_kind in CALL_KINDS:
+            roots[call_kind] = list(
+                KINDS[call_kind]
+                .objects.filter(import_row__batch__in=call_batches)
+                .only("id", "case_id")
+            )
     # Check source-linked roots before querying or displaying any private labels.
     if any(
         obj.case_id != item.case_id for objects in roots.values() for obj in objects
-    ) or any(batch.case_id != item.case_id for batch in batches):
+    ) or any(batch.case_id != item.case_id for batch in (*batches, *call_batches)):
         plan.blocker = CASE_CONFLICT
         return plan
     for root_kind, objects in roots.items():
@@ -395,6 +365,17 @@ def plan_deletions(items, kind):
                 collector.collect(objects, fail_on_restricted=False)
         if batches:
             collector.collect(batches, fail_on_restricted=False)
+        if call_batches:
+            collector.collect(call_batches, fail_on_restricted=False)
+        elif kind in CALL_KINDS:
+            collector.collect(
+                CallPersonLink.objects.filter(
+                    row_id__in=KINDS[kind]
+                    .objects.filter(pk__in=[call.pk for call in items])
+                    .values("import_row_id")
+                ),
+                fail_on_restricted=False,
+            )
         collector.collect(runs, fail_on_restricted=False)
         collector.collect(downstream, fail_on_restricted=False)
         collector.collect(
@@ -440,14 +421,19 @@ def plan_deletions(items, kind):
         )
         return plan
     for model, objects in collector.data.items():
-        if _outside_case(model, objects, item.case_id):
+        if any(
+            outside_case(rows, item.case_id)
+            for rows in collected_querysets(model, objects, collector.using)
+        ):
             plan.blocker = CASE_CONFLICT
             return plan
     updates = []
     for (db_field, value), groups in collector.field_updates.items():
         for group in groups:
-            objects = list(group)
-            if _outside_case(db_field.model, objects, item.case_id):
+            if any(
+                outside_case(rows, item.case_id)
+                for rows in collected_querysets(db_field.model, group, collector.using)
+            ):
                 plan.blocker = CASE_CONFLICT
                 return plan
             removed = {obj.pk for obj in collector.data.get(db_field.model, [])}
@@ -460,12 +446,12 @@ def plan_deletions(items, kind):
                     "field": db_field.name,
                     "value": value,
                 }
-                for obj in objects
+                for obj in group
                 if obj.pk not in removed
             )
     private_files = []
     for model, objects in collector.data.items():
-        for row in _record_rows(model, objects):
+        for row in _record_rows(model, objects, collector.using):
             name = _record_name(model, row)
             label = (
                 KIND_LABELS[MODEL_KINDS[model]] + " evidence"
@@ -483,7 +469,9 @@ def plan_deletions(items, kind):
             plan.entries.append(entry)
             plan.counts["records"] += 1
             if row.get("file"):
-                if not _case_file(row["file"], item.case_id):
+                if not case_storage_key(
+                    row["file"], item.case_id, model_name=model._meta.model_name
+                ):
                     plan.blocker = CASE_CONFLICT
                     plan.entries.clear()
                     return plan

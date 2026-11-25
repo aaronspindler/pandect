@@ -1,0 +1,23 @@
+{% extends "ui/base.html" %}
+{% block title %}Link a person to the call · {{ case.name }}{% endblock %}
+{% block content %}
+<div class="page-content">
+  <a class="back-link" href="{{ reader_url }}">Back to the call</a>
+  <header class="page-header"><div><h1>Link a person to the call</h1><p>{{ item.title }}</p></div></header>
+  {% if form %}
+    <p>Pandect records your association separately from the original call history.</p>
+    <form method="post" class="form-layout" data-unsaved-form>
+      {% csrf_token %}
+      {% include 'ui/components/form_fields.html' with form=form %}
+      <div class="actions">
+        <button type="submit" class="button button-primary">Link person</button>
+        <a class="button button-secondary" href="{{ reader_url }}">Cancel</a>
+      </div>
+    </form>
+  {% elif item.is_archived %}
+    <p class="notice" role="alert">Restore this call before linking a person.</p>
+  {% else %}
+    <p class="notice" role="alert">Both parties already have person links.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,6 +1,6 @@
 """Current case authorization shared by investigator-facing entry points."""
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from django.http import Http404
 
@@ -25,15 +25,20 @@ def case_role(case, user):
 
 
 def get_case(user, case_id, *, edit=False, owner=False, lock=False):
+    case, _ = get_case_with_role(user, case_id, edit=edit, owner=owner, lock=lock)
+    return case
+
+
+def get_case_with_role(user, case_id, *, edit=False, owner=False, lock=False):
     """Lock only inside a transaction; inaccessible UUIDs remain undisclosed."""
     if not user.is_authenticated or not user.is_active:
         raise Http404("Case not found.")
-    queryset = Case.objects.select_related("owner", "activity")
+    queryset = accessible_cases(user).select_related("owner", "activity")
     if lock:
         queryset = queryset.select_for_update(of=("self",))
     try:
         case = queryset.get(pk=case_id)
-    except (Case.DoesNotExist, ValueError) as exc:
+    except (Case.DoesNotExist, ValidationError, ValueError) as exc:
         raise Http404("Case not found.") from exc
     role = case_role(case, user)
     if not role:
@@ -42,7 +47,7 @@ def get_case(user, case_id, *, edit=False, owner=False, lock=False):
         raise PermissionDenied("Only the case owner can do this.")
     if edit and role not in ("owner", "editor"):
         raise PermissionDenied("Your Viewer access does not allow changes.")
-    return case
+    return case, role
 
 
 def case_context(case, user):

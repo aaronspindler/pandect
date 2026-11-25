@@ -49,7 +49,7 @@ class ChatTurn(models.Model):
     ordinal = models.PositiveIntegerField()
     question = models.TextField(max_length=2000)
     include_archived = models.BooleanField(default=False)
-    submission_id = models.UUIDField(unique=True)
+    submission_id = models.UUIDField()
     status = models.CharField(max_length=16, choices=Status, default=Status.QUEUED)
     mode = models.CharField(max_length=20, blank=True)
     execution = models.JSONField(default=dict)
@@ -68,6 +68,10 @@ class ChatTurn(models.Model):
 
     class Meta:
         constraints = [
+            models.UniqueConstraint(
+                fields=("case", "asked_by", "submission_id"),
+                name="chat_turn_submission_scope",
+            ),
             models.UniqueConstraint(
                 fields=("chat", "ordinal"), name="chat_turn_ordinal"
             ),

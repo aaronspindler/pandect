@@ -424,14 +424,18 @@ in the ordinary analysis reader. Exact copies remain visible beside the other
 selected sources. Processing owns progress and recovery.
 
 Processing puts **Refresh status** beside **Browse findings** in the header.
-The **Processing overview** directly below it shows **Queued**, **Processing**,
-**Processed**, and **Failed** cards for the whole case. They update with worker
-progress and retain their scope when history is filtered or paginated. Counts
-represent processing work and its retained attempts. One source can have several
-checks. See [background tasks](background-tasks.md#investigator-progress-and-completed-imports)
+The **Processing overview** directly below it shows **Queued work items**,
+**Processing**, **Processed**, and **Failed** cards for the whole case. The cards
+update with worker progress and retain their scope when history is filtered or
+paginated. They count work items, including one per batch and earlier attempts.
+Preparation adds checks as it progresses, and a check can cover several messages. See
+[background tasks](background-tasks.md#investigator-progress-and-completed-imports)
 for what contributes to each count.
 **Needs attention** follows the overview and includes saved vehicle CSVs that
 require preparation or review. Queued and running jobs appear under **In progress**.
+Active message import batches show how many imported messages have been prepared,
+the retained import total when available, and the initial checks created so far.
+Check statuses show which checks have finished.
 **Retry all failed checks** is a case-wide action for owners and editors.
 The retry request shows preparation status and any checks it could not queue.
 Show up to three current failures for each of batch preparation, vehicle imports,
@@ -487,6 +491,12 @@ Message CSV setup leads with the CSV and confirmed export timezone. Alternate
 sources and **Limit by date** use disclosures. Review has one **Person** chooser
 per participant, with **Create a person** and a native disclosure for new person
 details.
+
+Call history CSV setup adds a source line or account. The review shows original
+rows and any time errors, group choices for people and possible overlaps, and
+individual exceptions. Published calls link to the original CSV. Missing
+people appear as source labels or reported identifiers, and case editors can
+link a person in the call reader.
 
 The completed CSV review links to background analysis for newly published rows.
 Show preparation, checks, live updates and a manual refresh fallback. Preparation

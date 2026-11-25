@@ -20,6 +20,7 @@ from geo.trip_models import (  # noqa: F401
     VehicleTripSource,
     VehicleTripState,
 )
+from geo.vehicle_imports import PARSER_VERSION
 
 
 class LocationContent(Evidence):
@@ -151,9 +152,10 @@ class VehicleLocationImport(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    submission_id = models.UUIDField(null=True, blank=True, editable=False)
     document = models.OneToOneField(DocumentEvidence, on_delete=models.RESTRICT)
     timezone = models.CharField(max_length=100)
-    parser_version = models.CharField(max_length=50, default="asset-location.v2")
+    parser_version = models.CharField(max_length=50, default=PARSER_VERSION)
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     vehicle_mapping = models.JSONField(default=dict, blank=True)
@@ -199,6 +201,10 @@ class VehicleLocationImport(models.Model):
     class Meta:
         ordering = ("-created_at", "-pk")
         constraints = [
+            models.UniqueConstraint(
+                fields=("case", "uploaded_by", "submission_id"),
+                name="vehicle_import_submission_scope",
+            ),
             models.CheckConstraint(
                 condition=models.Q(attempts__lte=3),
                 name="evidence_vehicle_import_attempt_bound",
@@ -241,6 +247,7 @@ class VehicleLocationImport(models.Model):
                 "case_id",
                 "uploaded_by_id",
                 "document_id",
+                "submission_id",
                 "timezone",
                 "parser_version",
                 "created_at",

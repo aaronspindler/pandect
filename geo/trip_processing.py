@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Exists, F, Max, Min, OuterRef, Q, Subquery, Window
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
@@ -48,9 +48,35 @@ def _vehicles(case, identifiers):
             raise Http404("Vehicle not found.") from None
     else:
         queryset = queryset.filter(
-            Q(location_evidence__is_archived=False) | Q(vehicletripstate__isnull=False)
+            Q(location_evidence__case=case, location_evidence__is_archived=False)
+            | Q(vehicletripstate__case=case)
         ).distinct()
     return queryset
+
+
+def _locked_state(case, vehicle):
+    try:
+        return VehicleTripState.objects.select_for_update().get_or_create(
+            case=case, vehicle=vehicle
+        )[0]
+    except IntegrityError as error:
+        raise ValidationError(
+            "The saved trip preparation state is unavailable."
+        ) from error
+
+
+def _consistent_predecessor():
+    return Q(previous_generation__isnull=True) | Q(
+        previous_generation__case_id=F("case_id"),
+        previous_generation__vehicle_id=F("vehicle_id"),
+        previous_generation__state_id=F("state_id"),
+    )
+
+
+def state_generations(state):
+    return state.generations.filter(
+        _consistent_predecessor(), case_id=state.case_id, vehicle_id=state.vehicle_id
+    )
 
 
 def _enqueue(actor, state, *, previous=None):
@@ -114,14 +140,14 @@ def invalidate_vehicle_trips(actor, case, vehicle_ids):
     can_process = _verified_editor(actor, case)
     generations = []
     for vehicle in vehicles:
-        state, _ = VehicleTripState.objects.get_or_create(case=case, vehicle=vehicle)
-        state = VehicleTripState.objects.select_for_update().get(pk=state.pk)
+        state = _locked_state(case, vehicle)
+        scoped_generations = state_generations(state)
         state.revision += 1
         state.current_generation = None
         state.save(update_fields=("revision", "current_generation"))
-        pending = state.generations.filter(status__in=("queued", "running"))
+        pending = scoped_generations.filter(status__in=("queued", "running"))
         waiting = (
-            pending.select_for_update()
+            pending.select_for_update(of=("self",))
             .filter(
                 status="queued",
                 started_at__isnull=True,
@@ -136,7 +162,7 @@ def invalidate_vehicle_trips(actor, case, vehicle_ids):
         if waiting is not None:
             pending = pending.exclude(pk=waiting.pk)
         pending.update(status="superseded", finished_at=timezone.now())
-        state.generations.filter(
+        scoped_generations.filter(
             status="complete", geocode_status__in=("pending", "queued", "running")
         ).update(geocode_status="superseded", token=uuid4())
         if waiting is not None:
@@ -145,7 +171,7 @@ def invalidate_vehicle_trips(actor, case, vehicle_ids):
             waiting.revision = state.revision
             waiting.requested_by = actor
             waiting.total_sources = _source_count(state)
-            state.generations.filter(pk=waiting.pk).update(
+            scoped_generations.filter(pk=waiting.pk).update(
                 revision=waiting.revision,
                 requested_by=actor,
                 total_sources=waiting.total_sources,
@@ -166,11 +192,12 @@ def prepare_case_trips(
         raise PermissionDenied("Verify your email before processing trips.")
     generations = []
     for vehicle in _vehicles(case, vehicle_ids).order_by("pk"):
-        state, _ = VehicleTripState.objects.get_or_create(case=case, vehicle=vehicle)
-        state = VehicleTripState.objects.select_for_update().get(pk=state.pk)
-        latest = state.generations.filter(
-            revision=state.revision, method_version=METHOD_VERSION
-        ).first()
+        state = _locked_state(case, vehicle)
+        latest = (
+            state_generations(state)
+            .filter(revision=state.revision, method_version=METHOD_VERSION)
+            .first()
+        )
         if latest and latest.status in ("queued", "running", "complete"):
             if latest.status in ("queued", "running") and retry:
                 if latest.status == "running" and not worker_stopped:
@@ -241,6 +268,7 @@ def _queue_geocoding(actor, generation, *, retry=False, worker_stopped=False):
 
 def _current_generation_states(case):
     return VehicleTripGeneration.objects.filter(
+        _consistent_predecessor(),
         case=case,
         vehicle__case=case,
         state__case=case,
@@ -284,7 +312,10 @@ def latest_generations(case, *, vehicle_id=None):
     if vehicle_id:
         states = states.filter(vehicle_id=vehicle_id)
     latest = VehicleTripGeneration.objects.filter(
+        _consistent_predecessor(),
         state_id=OuterRef("pk"),
+        case_id=OuterRef("case_id"),
+        vehicle_id=OuterRef("vehicle_id"),
         revision=OuterRef("revision"),
         method_version=METHOD_VERSION,
     ).values("pk")[:1]

@@ -43,6 +43,7 @@ def read_source(source):
     from django.conf import settings
 
     from core.analysis.errors import AnalysisError
+    from core.storage import open_private_file
 
     record = source.attachment if source.attachment is not None else source.item
     original = getattr(record, "file", None)
@@ -53,7 +54,7 @@ def read_source(source):
         raise AnalysisError("input_limit")
     expected = record.audio_sha256 if source.attachment is not None else record.sha256
     try:
-        with original.storage.open(original.name, "rb") as stream:
+        with open_private_file(record, source.item.case_id) as stream:
             content = stream.read(maximum + 1)
     except OSError:
         raise AnalysisError("source_unavailable") from None

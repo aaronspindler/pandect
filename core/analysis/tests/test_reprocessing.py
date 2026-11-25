@@ -168,13 +168,13 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         self.text()
         batch, created = self.start()
         self.assertTrue(created)
-        repeated, created = self.start(submission_id=batch.pk)
+        repeated, created = self.start(submission_id=batch.submission_id)
         self.assertFalse(created)
         self.assertEqual(repeated.pk, batch.pk)
         with self.assertRaises(ValidationError):
-            self.start(submission_id=batch.pk, kinds=("document",))
-        with self.assertRaises(ValidationError):
-            self.start(submission_id=batch.pk, role="editor")
+            self.start(submission_id=batch.submission_id, kinds=("document",))
+        with self.assertRaisesMessage(ValidationError, "already in progress"):
+            self.start(submission_id=batch.submission_id, role="editor")
 
     @override_settings(PANDECT_ANALYSIS_MAX_SOURCES=1)
     def test_deleted_cursor_source_does_not_stop_already_requested_preparation(self):

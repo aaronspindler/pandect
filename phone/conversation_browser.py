@@ -472,15 +472,20 @@ class ConversationBrowserTests(BrowserTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, self.viewer)
                 page.goto(self.live_server_url + self.reader_path)
+                expect(page.locator(".conversation-message")).to_have_count(50)
                 self.db(
                     lambda: CaseMembership.objects.filter(
                         case=self.case, user=self.viewer
                     ).delete()
                 )
-                edge = page.locator('[data-conversation-edge="next"]')
-                edge.scroll_into_view_if_needed()
-                expect(edge).to_contain_text("Could not load messages.")
-                expect(page.locator(".conversation-message")).to_have_count(50)
+                page.evaluate(
+                    "document.querySelector('[data-conversation-edge=next]')"
+                    "?.scrollIntoView()"
+                )
+                expect(
+                    page.get_by_role("heading", name="Your session or access changed")
+                ).to_be_focused()
+                expect(page.locator(".conversation-message")).to_have_count(0)
                 expect(page.locator(f"#message-{self.messages[-1].pk}")).to_have_count(
                     0
                 )

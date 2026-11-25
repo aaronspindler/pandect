@@ -6,12 +6,14 @@ from urllib.parse import unquote
 
 from django.conf import settings
 from django.utils.cache import add_never_cache_headers
+from django.utils.crypto import salted_hmac
 from gunicorn.glogging import Logger
 
 TOKEN_PATH = re.compile(
     r"(/(?:invitations|accounts/(?:confirm-email|password/reset/key))/)[^/?\s\"'<>]+"
 )
 QUERY = re.compile(r"\?[^\s\"'<>]*")
+PRIVATE_PATHS = ("/cases/", "/accounts/", "/invitations/", "/events/", "/admin/")
 
 
 def redact_url(value):
@@ -25,22 +27,60 @@ def redact_url(value):
     return sanitized
 
 
+def private_session(request):
+    """Bind private pages to the authenticated account and this browser session."""
+    user = getattr(request, "user", None)
+    session = getattr(request, "session", None)
+    if (
+        request.path_info.startswith(PRIVATE_PATHS)
+        and user is not None
+        and user.is_authenticated
+        and session is not None
+        and session.session_key
+    ):
+        if not hasattr(request, "pandect_private_session"):
+            marker = salted_hmac(
+                "pandect.private-session",
+                f"{user.pk}:{session.session_key}",
+                algorithm="sha256",
+            )
+            if request.path_info.startswith("/admin/"):
+                # Admin can show records and controls from more than one case.
+                from cases.models import CaseMembership
+
+                permissions = (
+                    user.is_staff,
+                    user.is_superuser,
+                    sorted(user.get_all_permissions()),
+                )
+                marker.update(repr(permissions).encode())
+                roles = (
+                    CaseMembership.objects.filter(user=user)
+                    .order_by("case_id")
+                    .values_list("case_id", "role")
+                )
+                for case_id, role in roles.iterator():
+                    marker.update(f"{case_id}:{role}\n".encode())
+            request.pandect_private_session = marker.hexdigest()
+        return request.pandect_private_session
+    return ""
+
+
 class PrivatePageMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
         response = self.get_response(request)
-        private_page = request.path_info.startswith(
-            ("/cases/", "/accounts/", "/invitations/", "/events/")
-        )
+        private_page = request.path_info.startswith(PRIVATE_PATHS)
         if private_page:
             add_never_cache_headers(response)
             # Preserve same-origin form Origin/Referer checks. `no-referrer`
             # makes browsers send Origin: null for ordinary form POSTs.
             response["Referrer-Policy"] = "same-origin"
-        if private_page or request.path_info.startswith("/admin/"):
             response["X-Robots-Tag"] = "noindex"
+            if session := private_session(request):
+                response["X-Pandect-Session"] = session
         response.setdefault("X-Content-Type-Options", "nosniff")
         tile_source = ""
         match = request.resolver_match

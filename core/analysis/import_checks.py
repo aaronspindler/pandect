@@ -164,7 +164,7 @@ def start(request, case_id, import_type, import_id):
                 case = get_case(request.user, case_id, edit=True, lock=True)
                 submission_id = form.cleaned_data["submission_id"]
                 existing = CaseAnalysisBatch.objects.filter(
-                    pk=submission_id,
+                    submission_id=submission_id,
                     case=case,
                     requested_by=request.user,
                     scope__type=import_type,

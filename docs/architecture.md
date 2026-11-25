@@ -101,11 +101,15 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
 - `geo/` owns location/person-location/vehicle-location evidence, points of
   interest, maps, geocoding, geographic analysis, and vehicle-location CSV imports.
 - `phone/` owns message and call evidence, retained call additions, imported
-  communication context, message imports, and conversation analysis. Migration
+  communication context, message and call history imports, and conversation
+  analysis. Migration
   `phone.0005_conversation_grouping` adds grouping revisions, sessions and
   ordered membership rows. Apply it before serving the updated reader or worker.
   Migration `phone.0006_conversation_pair_revision` adds change tracking for
   active pair originals. Existing finding-backed sessions keep their source links.
+  Migration `phone.0008_call_history_import` adds case source lines, retained
+  import rows, and attributed call-person links. Apply it before starting the
+  call import web and worker paths. Existing call original bytes are preserved.
 - `people/` and `vehicle/` own case-scoped person and vehicle records. These are
   investigator-maintained entities, not evidence subclasses. `socialmedia/` owns
   social accounts linked to people and [case-bound Instagram monitors](instagram-monitors.md). `video/` is a registered placeholder only.
@@ -142,6 +146,42 @@ form, storage, and parser contracts do not import domain registries. Explicit
 registries compose domain models/forms/readers and processing callables at the
 application layer; there is no plugin autodiscovery. Shared file cleanup runs
 only after transaction commit, with receivers registered by the owning apps.
+
+### Application services
+
+Keep multi-step domain workflows in focused modules in the owning app. Views,
+admin hooks, task functions, and management commands adapt requests, model
+forms, queue payloads, or command arguments. They call the workflow and handle
+rendering, redirects, and reporting. Services check current authorization when
+they own a user-initiated mutation and keep locking, writes, and queue
+publication together where the operation requires atomicity. Model constraints
+and validation still protect individual records. Simple model form CRUD can
+stay with its entry point.
+
+| Workflow | Service owner |
+| --- | --- |
+| Case invitation issuance, delivery, and acceptance | `cases.invitations` |
+| Case AI, Meaning Search, ranking, and preparation settings | `cases.analysis_settings`, `cases.search_settings` |
+| Product evidence intake, duplicate review, and shared archive transitions | `core.evidence.retention` |
+| Important marks and dated notes | `core.important.services` |
+| Analysis execution, retry, and sighting review | `core.analysis.services`, `core.analysis.retries`, `core.analysis.sightings` |
+| Evidence chat submission, retry, and interrupted delivery recovery | `core.evidence_chat.services` |
+| Vehicle CSV retention, preparation, and publication | `geo.vehicle_import_jobs` |
+| Plan comparison source review and submission | `geo.journey_claim_requests` |
+| Call additions and conversation summary requests | `phone.call_attachments`, `phone.instance_summaries` |
+| Text claim source review and quotation matching | `text.claim_comparison_requests` |
+
+Existing queued task paths stay stable across service refactors. Keep task
+entry points importable while persisted deliveries can refer to them.
+Submission references identify retries within the initiating account and case.
+Analysis batches and vehicle imports retain separate record IDs for links and
+queued deliveries. The scoped-submission migrations preserve those IDs and
+backfill the existing retry references. Stop older web and worker writers before
+applying the migrations and start the matching versions together.
+After independent cases reuse a submission reference, the old global uniqueness
+constraints can no longer be restored in place. Keep a pre-upgrade backup.
+
+### Search and processing
 
 Migration `core.0024_chat_completed_topics` adds a partial PostgreSQL GIN
 index over bounded question, claim, clarification and follow-up text on

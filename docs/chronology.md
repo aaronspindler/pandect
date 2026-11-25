@@ -25,6 +25,11 @@ evidence. A **Collected** entry dates acquisition. Its original also appears und
 | Location observation | Shows the reported place and any person or vehicle explicitly linked to it. Individual vehicle observations remain visible when a current trip does not cover them. |
 | Collected | Shows the source's recorded collection time. For example, a photo collected on Tuesday appears as **Collected** on Tuesday. A source with both an event time and a collection time can have two entries. |
 
+[Imported calls](evidence.md#call-history-csv-import) can show a source line,
+reported identifier, or **Unknown caller** when a party has no person link.
+People filters use the explicit investigator links. Calls held in import review
+for an unresolved timestamp do not appear in the dated timeline.
+
 Browsing uses existing [conversation instances](evidence.md#reading-conversations)
 and [possible trips](analysis-locations.md#automatic-vehicle-trips). It starts no
 analysis. Only timed originals and their source-backed groupings can place

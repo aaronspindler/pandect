@@ -71,17 +71,15 @@ def submit_turn(
         submission_id = UUID(str(submission_id))
     except ValueError, TypeError:
         raise ValidationError("The submission reference is invalid.") from None
-    existing = ChatTurn.objects.filter(submission_id=submission_id).first()
+    submissions = ChatTurn.objects.filter(
+        case=case, asked_by=actor, submission_id=submission_id
+    )
+    existing = submissions.filter(chat__case=case).first()
     if existing:
         correct_chat = (
             str(existing.chat_id) == str(chat_id) if chat_id else existing.ordinal == 1
         )
-        if (
-            existing.case_id == case.pk
-            and existing.asked_by_id == actor.pk
-            and correct_chat
-            and existing.question == question
-        ):
+        if correct_chat and existing.question == question:
             return existing
         raise ValidationError("This submission reference has already been used.")
     execution, revision, search, ranking = _route(case, expected_route)
@@ -115,7 +113,7 @@ def submit_turn(
                 approval_revision=revision,
             )
     except IntegrityError:
-        if ChatTurn.objects.filter(submission_id=submission_id).exists():
+        if submissions.exists():
             raise ValidationError(
                 "This submission reference has already been used."
             ) from None
@@ -165,6 +163,25 @@ def retry_turn(actor, case_id, chat_id, turn_id, *, expected_route=None):
     turn.save(update_fields=["status", "delivery_token", "error_code", "completed_at"])
     jobs.enqueue_turn(turn)
     return turn
+
+
+@transaction.atomic
+def recover_interrupted_delivery(turn_id, reviewed_token):
+    """Replace a confirmed delivery under the original requester's current access."""
+    turn = ChatTurn.objects.select_related("asked_by").get(pk=turn_id)
+    case = _edit_case(turn.asked_by, turn.case_id)
+    turn = ChatTurn.objects.select_for_update().get(
+        pk=turn_id, case=case, chat__case=case
+    )
+    if (
+        turn.status not in {ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING}
+        or turn.delivery_token != reviewed_token
+    ):
+        raise AnalysisError("chat_delivery_changed")
+    ai.check_execution(turn, case)
+    turn.delivery_token = uuid4()
+    turn.save(update_fields=["delivery_token"])
+    jobs.enqueue_turn(turn)
 
 
 def _citation(case, source, ref, *, read=None):

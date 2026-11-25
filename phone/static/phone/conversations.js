@@ -137,9 +137,15 @@ window.PandectPage((signal) => {
           const response = await fetch(link.href, {
             credentials: "same-origin",
             cache: "no-store",
+            redirect: "manual",
             signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
           });
-          if (!response.ok || response.redirected) throw new Error("Page unavailable");
+          if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
+            window.PandectPrivateSession.clearPrivatePage();
+            return;
+          }
+          if (!response.ok) throw new Error("Page unavailable");
+          if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
           const page = new DOMParser().parseFromString(await response.text(), "text/html");
           if (signal.aborted) return;
           const incomingReader = reader.id ? page.getElementById(reader.id) : page.querySelector("[data-conversation-scroll]");

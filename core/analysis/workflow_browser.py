@@ -777,6 +777,59 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 retried = self.db(AnalysisRun.objects.get, previous_run=prior)
                 self.assertEqual(retried.batch_id, self.batch.pk)
 
+    def test_processing_shows_large_message_batch_preparation_without_javascript(self):
+        AnalysisRun.objects.filter(case=self.case, status="queued").update(
+            status="cancelled"
+        )
+        batch = CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            scope={"type": "messages", "automatic": True, "source_count": 10_001},
+            processed_sources=25,
+            queued_runs=23,
+        )
+        AnalysisRun.objects.bulk_create(
+            AnalysisRun(
+                case=self.case,
+                requested_by=self.owner,
+                operation="entities",
+                method_version=OPERATIONS["entities"].version,
+                inputs=[{"kind": "text-message", "evidence_id": str(self.message.pk)}],
+                batch=batch,
+            )
+            for _ in range(batch.queued_runs)
+        )
+        url = self.url("core:analysis:processing", case_id=self.case.pk)
+        progress = "25 of 10,001 imported messages prepared · 23 checks created"
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(url)
+                overview = page.get_by_role("region", name="Processing overview")
+                queued = overview.locator(".case-summary-card").filter(
+                    has_text="Queued work items"
+                )
+                expect(queued.locator("dd")).to_have_text("24")
+                expect(
+                    overview.get_by_text("Checks can cover multiple sources")
+                ).to_be_visible()
+                preparation = page.get_by_role(
+                    "link", name=re.compile("Preparing message analysis")
+                )
+                expect(preparation).to_contain_text(progress)
+                self.capture_layouts(page, engine, "processing-message-preparation")
+                page.set_viewport_size({"width": 390, "height": 844})
+                preparation.focus()
+                expect(preparation).to_be_focused()
+                preparation.press("Enter")
+                expect(page).to_have_url(f"{url}?batch={batch.pk}#processing-history")
+                expect(page.locator("#processing-batch-progress")).to_contain_text(
+                    progress
+                )
+
     def test_processing_analysis_run_breakdown_without_javascript(self):
         saved_runs = {
             "style_profiles": 7,

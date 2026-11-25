@@ -144,6 +144,7 @@ class CaseActivityTests(EvidenceViewTestMixin, TestCase):
             page = self.client.get(reverse("people:list", args=[self.case.pk]))
             with CaptureQueriesContext(connection) as queries:
                 snapshot = self.snapshot()
+            self.assertEqual(snapshot["role"], role)
             self.assertEqual(
                 snapshot["versions"], page.context["case_activity_versions"]
             )

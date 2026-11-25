@@ -20,7 +20,7 @@ class ImageAnalysisTests(SimpleTestCase):
     def test_48_megapixel_jpeg_metadata(self):
         content = jpeg_bytes(size=(8064, 6048))
         source = file_source(content, "image")
-        source.item.file.name = "iphone-export.jpeg"
+        source.item.original_filename = "iphone-export.jpeg"
         result = image_metadata([source], {})
         self.assertEqual(result["outcome"], "complete")
         values = result["items"][0]["values"]
@@ -32,7 +32,7 @@ class ImageAnalysisTests(SimpleTestCase):
 
     def test_multi_picture_jpeg_metadata_discloses_primary_image_only(self):
         source = file_source(jpeg_bytes(multiple_pictures=True), "image")
-        source.item.file.name = "iphone-export.JPEG"
+        source.item.original_filename = "iphone-export.JPEG"
         result = image_metadata([source], {})
         self.assertEqual(result["outcome"], "partial")
         values = result["items"][0]["values"]

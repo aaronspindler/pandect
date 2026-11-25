@@ -408,11 +408,11 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             },
         )
         self.login("editor")
-        batch_id = uuid4()
+        submission_id = uuid4()
         upload = self.client.post(
             reverse("geo:vehicle_import_upload", kwargs={"case_id": self.case.pk}),
             {
-                "submission_id": str(batch_id),
+                "submission_id": str(submission_id),
                 "file": SimpleUploadedFile("trips.csv", content),
                 "vehicle": str(self.vehicle.pk),
                 "timezone": "UTC",
@@ -420,7 +420,11 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             },
         )
         self.assertEqual(upload.status_code, 302)
-        batch = VehicleLocationImport.objects.get(pk=batch_id)
+        batch = VehicleLocationImport.objects.get(
+            case=self.case,
+            uploaded_by=self.users["editor"],
+            submission_id=submission_id,
+        )
         self.assertEqual(process_import(batch.pk, batch.job_token), "review")
         confirmation = self.client.post(
             upload.url, {"vehicle_0": str(self.vehicle.pk), "confirm": "on"}

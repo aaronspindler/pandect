@@ -50,6 +50,7 @@ window.PandectPage((signal) => {
       signal: AbortSignal.any([lifecycle, AbortSignal.timeout(15000)]),
     });
     if (!response.ok || response.redirected) throw new Error("Day unavailable");
+    if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) throw new Error("Access changed");
     const page = new DOMParser().parseFromString(await response.text(), "text/html");
     const panel = page.querySelector("[data-timeline]");
     const day = panel?.querySelector("[data-timeline-day]");

@@ -2,7 +2,7 @@
 
 from playwright.sync_api import expect
 
-from cases.models import Case
+from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.models import AnalysisRun, CaseAnalysisBatch
 from people.models import Person
@@ -73,6 +73,129 @@ class WorkspaceBrowserTests(BrowserTestCase):
                     )
                 )
                 self.capture(page, engine, "reader-after-back")
+
+    def test_account_switch_clears_owner_content_for_a_viewer_of_the_same_case(self):
+        viewer = self.make_user("workspace-viewer")
+        CaseMembership.objects.create(case=self.case, user=viewer, role="viewer")
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine) as (context, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("cases:case_settings", case_id=self.case.pk))
+                invitation = page.get_by_role("link", name="Invite collaborator")
+                expect(invitation).to_be_visible()
+                replacement = context.new_page()
+                replacement.goto(self.url("account_logout"))
+                replacement.get_by_role("button", name="Sign out", exact=True).click()
+                self.sign_in(replacement, viewer)
+                page.bring_to_front()
+                page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+
+                heading = page.get_by_role(
+                    "heading", name="Your session or access changed"
+                )
+                expect(heading).to_be_focused()
+                expect(invitation).to_have_count(0)
+                expect(page.get_by_text(self.case.name)).to_have_count(0)
+                self.capture(page, engine, "private-access-recovery-desktop")
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.capture(page, engine, "private-access-recovery-mobile")
+                page.get_by_role("link", name="All cases", exact=True).click()
+                expect(page.get_by_role("link", name=self.case.name)).to_be_visible()
+
+    def test_role_change_discards_the_view_under_the_previous_role(self):
+        editor = self.make_user("workspace-editor")
+        for engine in self.engines:
+            membership = CaseMembership.objects.create(
+                case=self.case, user=editor, role="editor"
+            )
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, editor)
+                case_people = self.url("people:list", case_id=self.case.pk)
+                page.goto(case_people)
+                expect(page.get_by_role("link", name="Add person")).to_be_visible()
+                self.db(
+                    CaseMembership.objects.filter(pk=membership.pk).update,
+                    role="viewer",
+                )
+                page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+                expect(
+                    page.get_by_role("heading", name="Your session or access changed")
+                ).to_be_focused()
+                expect(page.get_by_role("link", name="Add person")).to_have_count(0)
+                expect(page.get_by_text(self.case.name)).to_have_count(0)
+                page.goto(case_people)
+                expect(page.get_by_role("link", name="Add person")).to_have_count(0)
+                expect(
+                    page.get_by_role("heading", name="People", exact=True)
+                ).to_be_visible()
+            self.db(membership.delete)
+
+    def test_back_after_logout_reads_the_private_route_again(self):
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine) as (context, page),
+            ):
+                self.sign_in(page)
+                evidence = self.url("core:evidence:list", case_id=self.case.pk)
+                page.goto(evidence)
+                private_record = page.get_by_role("link", name="Record 26", exact=True)
+                expect(private_record).to_be_visible()
+                # Playwright disables the back-forward cache in some engines. Exercise
+                # the page-transition listener as well as a real history entry.
+                page.evaluate(
+                    "window.dispatchEvent(new PageTransitionEvent("
+                    "'pagehide', {persisted: true}))"
+                )
+                expect(private_record).to_be_hidden()
+                page.goto(self.url("marketing:home"))
+                replacement = context.new_page()
+                replacement.goto(self.url("account_logout"))
+                replacement.get_by_role("button", name="Sign out", exact=True).click()
+                expect(
+                    replacement.get_by_role("button", name="Sign in", exact=True)
+                ).to_be_visible()
+                page.go_back()
+                expect(
+                    page.get_by_role("button", name="Sign in", exact=True)
+                ).to_be_visible()
+                expect(private_record).to_have_count(0)
+
+    def test_admin_scope_recheck_preserves_a_draft_until_the_role_changes(self):
+        editor = self.make_user("workspace-admin-editor")
+        editor.is_staff = editor.is_superuser = True
+        editor.save(update_fields=("is_staff", "is_superuser"))
+        person = Person.objects.create(case=self.case, first_name="Synthetic witness")
+        person_url = self.url("admin:people_person_change", object_id=person.pk)
+        for engine in self.engines:
+            membership = CaseMembership.objects.create(
+                case=self.case, user=editor, role="editor"
+            )
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, editor)
+                page.goto(person_url)
+                name = page.get_by_label("First name")
+                name.fill("Unsaved draft")
+                visibility = "document.dispatchEvent(new Event('visibilitychange'))"
+                with page.expect_response(person_url) as checked:
+                    page.evaluate(visibility)
+                self.assertEqual(checked.value.status, 200)
+                expect(name).to_have_value("Unsaved draft")
+                self.db(
+                    CaseMembership.objects.filter(pk=membership.pk).update,
+                    role="viewer",
+                )
+                page.evaluate(visibility)
+                heading = page.get_by_role(
+                    "heading", name="Your session or access changed"
+                )
+                expect(heading).to_be_focused()
+                expect(name).to_have_count(0)
+                expect(page.get_by_text(person.first_name)).to_have_count(0)
+            self.db(membership.delete)
 
     def test_filter_page_edit_and_return_on_desktop_and_mobile(self):
         for engine in self.engines:

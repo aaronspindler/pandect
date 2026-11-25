@@ -23,7 +23,7 @@ from core.analysis.errors import AnalysisError
 from core.analysis.sources import output
 from core.evidence.queries import scoped_evidence
 from core.models import AnalysisRun
-from core.storage import canonical_bytes
+from core.storage import canonical_bytes, private_file
 from people.models import Person
 from phone.message_csv import IMESSAGE_PARSER_VERSION, WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext, TextMessageEvidence
@@ -251,7 +251,7 @@ def _raw_rows(source, *, review=None, checkpoint=None):
     if source.item.byte_size > import_file_limit():
         raise AnalysisError("imessage_import_limit")
     try:
-        with source.item.file.open("rb") as original:
+        with private_file(source.item, source.item.case_id).open("rb") as original:
             path = _local_path(source) if review is not None else None
             byte_offset = None
             offset, number = 0, 1
@@ -767,7 +767,7 @@ def prepare_import(sources, parameters, *, publication=None):
 
 def _local_path(source):
     try:
-        return source.item.file.path
+        return private_file(source.item, source.item.case_id).path
     except NotImplementedError:
         return None
 
@@ -798,7 +798,7 @@ def _storage_identity(source):
         path = _local_path(source)
         if path is None:
             return None
-        with source.item.file.open("rb") as original:
+        with private_file(source.item, source.item.case_id).open("rb") as original:
             return _file_identity(original, path)
     except (OSError, ValueError) as error:
         raise AnalysisError("source_unavailable") from error

@@ -11,12 +11,12 @@
 
 {% partialdef overview inline %}
 <div id="processing-summary-live" data-live-region data-live-poll="false">
-  {% include 'ui/case_summary.html' with summary_heading='Processing overview' summary_id='processing-summary' summary_items=processing_summary summary_note='Counts include earlier attempts.' only %}
+  {% include 'ui/case_summary.html' with summary_heading='Processing overview' summary_id='processing-summary' summary_items=processing_summary summary_note='Counts show work items, including earlier attempts. Checks can cover multiple sources and are queued as preparation progresses.' only %}
 </div>
 {% endpartialdef %}
 {% partialdef activity inline %}
 <div id="processing-activity" data-live-region data-live-poll="{{ live_pending|yesno:'true,false' }}">
-{% if message_reviews or import_reviews and not showing_import_reviews or failed_checks or failed_batches or failed_imports or failed_trips or failed_chat or search_needs_attention %}
+{% if message_reviews or import_reviews and not showing_import_reviews or failed_checks or failed_batches or failed_imports or failed_trips or failed_chat or search_needs_attention or call_imports_to_review %}
 <section class="analysis-section" aria-labelledby="needs-attention-heading">
   <h2 id="needs-attention-heading">Needs attention</h2>
   {% if message_reviews %}<h3>Message imports ready for review</h3>
@@ -25,6 +25,11 @@
   {% if import_reviews and not showing_import_reviews %}<h3>Vehicle imports to prepare or review</h3>
   {% for item in import_reviews %}{% include 'core/analysis/processing_import.html' %}{% endfor %}
   {% if more_import_reviews %}<p><a class="record-link" href="?imports=review#import-history">All pending vehicle imports</a></p>{% endif %}{% endif %}
+  {% if call_imports_to_review %}
+    <h3>Call history imports to review</h3>
+    {% for item in call_imports_to_review %}{% include 'phone/call_history_processing_row.html' %}{% endfor %}
+    <p><a class="record-link" href="{% querystring call_imports_page=1 %}#call-import-history">All call history imports</a></p>
+  {% endif %}
   {% if failed_chat %}
     <h3>Stopped evidence chats</h3>
     <ul class="source-list">{% for turn in failed_chat %}<li><a href="{% url 'core:chat:reply' case.pk turn.chat_id turn.pk %}">{{ turn.question }}</a></li>{% endfor %}</ul>
@@ -75,8 +80,10 @@
   {% for item in active_batches %}
   {% if item.scope.type == 'failed_retries' %}
   <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>Preparing failed check retries</strong><p>{{ item.processed_sources }} reviewed · {{ item.queued_runs }} queued</p></div></a>
+  {% elif item.scope.type == 'messages' %}
+  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>Preparing message analysis</strong><p>{% include 'core/analysis/message_preparation_progress.html' with batch=item only %}</p></div></a>
   {% else %}
-  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'conversation_grouping' %}<strong>Grouping conversation</strong><p>{{ item.processed_sources }} of {{ item.scope.source_count }} messages grouped</p>{% elif item.scope.type == 'search_generation' %}<strong>Preparing {% if item.scope.feature == 'briefs' %}document briefs{% else %}conversation summaries{% endif %} for search</strong><p>{{ item.processed_sources }} sources reviewed · {{ item.queued_runs }} queued</p>{% elif item.scope.type == 'instance_summaries' %}<strong>Preparing session summaries</strong><p>{{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{% if item.scope.type == 'reprocess' %}Preparing selected checks{% elif item.scope.type == 'messages' %}Preparing message analysis{% elif item.scope.analysis_version %}Preparing evidence analysis{% else %}Preparing local checks{% endif %}</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p>{% endif %}</div></a>
+  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'conversation_grouping' %}<strong>Grouping conversation</strong><p>{{ item.processed_sources }} of {{ item.scope.source_count }} messages grouped</p>{% elif item.scope.type == 'search_generation' %}<strong>Preparing {% if item.scope.feature == 'briefs' %}document briefs{% else %}conversation summaries{% endif %} for search</strong><p>{{ item.processed_sources }} sources reviewed · {{ item.queued_runs }} queued</p>{% elif item.scope.type == 'instance_summaries' %}<strong>Preparing session summaries</strong><p>{{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{% if item.scope.type == 'reprocess' %}Preparing selected checks{% elif item.scope.analysis_version %}Preparing evidence analysis{% else %}Preparing local checks{% endif %}</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p>{% endif %}</div></a>
   {% endif %}
   {% endfor %}
   {% if active_batches.has_other_pages %}<nav class="pagination" aria-label="Preparation in progress pages">{% if active_batches.has_previous %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_batches.number }} of {{ active_batches.paginator.num_pages }}</span>{% if active_batches.has_next %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
@@ -100,9 +107,14 @@
   {% if active_trips.has_other_pages %}<nav class="pagination" aria-label="Trips in progress pages">{% if active_trips.has_previous %}<a class="button button-secondary" href="{% querystring active_trips_page=active_trips.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_trips.number }} of {{ active_trips.paginator.num_pages }}</span>{% if active_trips.has_next %}<a class="button button-secondary" href="{% querystring active_trips_page=active_trips.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
   </div>
   {% endif %}
+  {% if active_call_imports %}
+    <h3>Call history imports</h3>
+    {% for item in active_call_imports %}{% include 'phone/call_history_processing_row.html' %}{% endfor %}
+    {% if more_active_call_imports %}<p><a class="record-link" href="{% querystring call_imports_page=1 %}#call-import-history">All call history imports</a></p>{% endif %}
+  {% endif %}
   {% if running_monitors %}<p><a href="{% url 'instagram:list' case.pk %}">{{ running_monitors }} Instagram monitor check{{ running_monitors|pluralize }} running</a></p>{% endif %}
   {% if search_pending %}<p><a class="record-link" href="#case-search-index">{{ search_index.label }}</a></p>{% endif %}
-  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count and not search_pending and not running_monitors and not active_chat %}<p class="muted" role="status">{% if batch and batch.scope.type != 'failed_retries' %}Checks for the selected batch appear below.{% elif history_filters.status == 'queued' or history_filters.status == 'running' %}Checks matching your status filter appear below.{% else %}Nothing is being processed right now.{% endif %}</p>{% endif %}
+  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count and not search_pending and not running_monitors and not active_chat and not active_call_imports %}<p class="muted" role="status">{% if batch and batch.scope.type != 'failed_retries' %}Checks for the selected batch appear below.{% elif history_filters.status == 'queued' or history_filters.status == 'running' %}Checks matching your status filter appear below.{% else %}Nothing is being processed right now.{% endif %}</p>{% endif %}
 </section>
 <details data-workspace-region class="disclosure processing-disclosure" id="case-search-index"{% if search_pending or search_needs_attention %} open{% endif %}>
   <summary>Meaning-based search</summary>
@@ -162,7 +174,7 @@
   <a class="record-link" href="?status=failed#processing-history">Review failed checks</a>
   {% endif %}
   {% else %}
-  <p><strong>Selected batch · {{ batch.get_status_display }}</strong></p><p>Requested {{ batch.created_at|date:'j M Y, H:i T' }} · {{ batch.processed_sources }} sources prepared · {{ batch.queued_runs }} initial checks queued.</p>
+  <p><strong>Selected batch · {{ batch.get_status_display }}</strong></p><p>Requested {{ batch.created_at|date:'j M Y, H:i T' }} · {% if batch.scope.type == 'messages' %}{% include 'core/analysis/message_preparation_progress.html' with batch=batch only %}{% else %}{{ batch.processed_sources }} sources prepared · {{ batch.queued_runs }} initial checks queued.{% endif %}</p>
   {% if batch.scope.type == 'reprocess' %}<p>Reprocessing{% if reprocessing_mode %} · {{ reprocessing_mode }}{% endif %}. Earlier results are retained. Each comparison covers its selected sources.</p>{% endif %}
   {% if batch.status == 'queued' %}<p role="status">Checks are still being prepared. Queued checks may continue after preparation finishes.</p>{% elif batch.status == 'failed' %}<p role="status">Preparation stopped. {% if batch.error_code == 'access_removed' %}The requester no longer has the required access.{% else %}Review the checks below before making another request.{% endif %}</p>{% endif %}
   {% if batch.status == 'failed' and can_edit %}
@@ -220,6 +232,19 @@
   {% if showing_import_reviews %}<p><a class="record-link" href="{% url 'core:analysis:processing' case.pk %}#import-history">Vehicle import history</a></p>{% endif %}
   {% for item in import_history %}{% include 'core/analysis/processing_import.html' %}{% endfor %}
   {% if import_history.has_other_pages %}<nav class="pagination" aria-label="Vehicle import history pages">{% if import_history.has_previous %}<a class="button button-secondary" href="{% querystring imports_page=import_history.previous_page_number %}#import-history">Previous</a>{% endif %}<span>Page {{ import_history.number }} of {{ import_history.paginator.num_pages }}</span>{% if import_history.has_next %}<a class="button button-secondary" href="{% querystring imports_page=import_history.next_page_number %}#import-history">Next</a>{% endif %}</nav>{% endif %}
+</details>
+{% endif %}
+{% if call_import_history.paginator.count %}
+<details data-workspace-region class="disclosure processing-disclosure" id="call-import-history"{% if request.GET.call_imports_page %} open{% endif %}>
+  <summary>Call history imports · {{ call_import_history.paginator.count }}</summary>
+  {% for item in call_import_history %}{% include 'phone/call_history_processing_row.html' %}{% endfor %}
+  {% if call_import_history.has_other_pages %}
+    <nav class="pagination" aria-label="Call history import pages">
+      {% if call_import_history.has_previous %}<a class="button button-secondary" href="{% querystring call_imports_page=call_import_history.previous_page_number %}#call-import-history">Previous</a>{% endif %}
+      <span>Page {{ call_import_history.number }} of {{ call_import_history.paginator.num_pages }}</span>
+      {% if call_import_history.has_next %}<a class="button button-secondary" href="{% querystring call_imports_page=call_import_history.next_page_number %}#call-import-history">Next</a>{% endif %}
+    </nav>
+  {% endif %}
 </details>
 {% endif %}
 {% if batches.paginator.count %}

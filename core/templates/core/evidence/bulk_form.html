@@ -52,6 +52,7 @@
     <nav class="related-actions" aria-labelledby="import-records-heading">
       <a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a>
       <a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}">Import message CSV</a>
+      <a class="record-link" href="{% url 'phone:call_history_upload' case_id=case.pk %}">Import call history CSV</a>
     </nav>
   </section>
   </div>

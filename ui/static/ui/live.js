@@ -22,7 +22,7 @@
     source.addEventListener("change", () => page?.invalidate());
     source.addEventListener("access-lost", () => {
       closeStream();
-      document.dispatchEvent(new Event("pandect:access-lost", {cancelable: true}));
+      window.PandectPrivateSession.clearPrivatePage();
     });
     source.onerror = () => {
       // EventSource retries an interrupted stream. A failed HTTP handshake
@@ -38,7 +38,6 @@
     const feedback = controls || document.querySelector("[data-activity-feedback]");
     const message = feedback.querySelector("[data-live-message], [data-activity-message]");
     const retry = feedback.querySelector("[data-live-refresh], [data-activity-retry]");
-    const access = feedback.querySelector("[data-live-access], [data-activity-access]");
     const regions = () => [...document.querySelectorAll("[data-live-region]")];
     const waiting = new Map();
     const savedControls = document.querySelector("[data-live-saved-controls]");
@@ -71,7 +70,7 @@
       collection.before(noticeStatus, notice);
     }
     function showCollectionChange() {
-      if (!notice || !displayed || !versions || !access.hidden) return;
+      if (!notice || !displayed || !versions) return;
       const kind = collection.dataset.collectionKind;
       const keys = kind === "case-tools" ? ["evidence", "findings"] :
         kind === "important" ? ["important", "evidence", "findings"] : [kind];
@@ -110,11 +109,11 @@
     function checkAccess(response) {
       if (stopped) return false;
       if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-        document.dispatchEvent(new Event("pandect:access-lost", {cancelable: true}));
+        window.PandectPrivateSession.clearPrivatePage();
         return false;
       }
       if (!response.ok) throw Error("Update unavailable");
-      return true;
+      return window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"));
     }
     function updateBadge(snapshot) {
       const parts = [];
@@ -186,7 +185,7 @@
         const response = await fetch(statusUrl, {...options, headers: {Accept: "application/json"}});
         if (!checkAccess(response)) return;
         const snapshot = await response.json();
-        if (stopped) return;
+        if (stopped || !window.PandectPrivateSession.checkRole(snapshot.role)) return;
         const changed = !versions || versions.work !== snapshot.versions.work ||
           (document.getElementById("evidence-saved-findings") && versions.findings !== snapshot.versions.findings);
         caseBusy = snapshot.active;
@@ -274,30 +273,11 @@
     }
     document.addEventListener("input", markEdited, listeners);
     document.addEventListener("change", markEdited, listeners);
-    document.addEventListener("pandect:access-lost", event => {
-      event.preventDefault();
-      if (!access.hidden) return;
-      const focused = document.activeElement;
-      stopped = true;
-      closeStream();
-      clearTimeout(timer);
-      controller?.abort();
-      waiting.clear();
-      badge.hidden = true;
-      if (notice) notice.hidden = true;
-      if (savedControls) savedControls.hidden = true;
-      if (noticeStatus) noticeStatus.textContent = "";
-      feedback.hidden = false;
-      access.hidden = false;
-      if (!controls) retry.hidden = true;
-      announce("Automatic updates stopped. Your session or access may have changed.");
-      if (focused === notice || (!controls && focused === retry)) access.focus();
-    }, listeners);
+    document.addEventListener("pandect:access-lost", closeStream, listeners);
     document.addEventListener("focusout", () => {
       if (waiting.size) setTimeout(() => { if (waiting.size && !stopped) applyWaiting(); }, 0);
     }, listeners);
     retry.addEventListener("click", event => {
-      if (!access.hidden) return;
       event.preventDefault();
       stopped = false;
       failures = 0;
@@ -313,13 +293,6 @@
       }
     }, listeners);
     document.addEventListener("pandect:refresh", forceRefresh, listeners);
-    window.addEventListener("pageshow", event => {
-      if (event.persisted && access.hidden) {
-        stopped = false;
-        openStream(activity);
-        refresh();
-      }
-    }, listeners);
     window.addEventListener("pagehide", () => {
       stopped = true;
       closeStream();

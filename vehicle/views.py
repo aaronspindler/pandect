@@ -10,6 +10,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_safe
 from django.views.decorators.vary import vary_on_headers
 
+from cases.deletion import CASCADE_CONFLICT, CaseDeletionBlocked, delete_case_record
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.reports import report
@@ -17,18 +18,9 @@ from core.evidence.queries import same_case_evidence
 from geo.models import VehicleLocationImport
 from ui.dialogs import form_saved, render_quick_form, render_record, wants_record
 from ui.live import render_live
+from ui.navigation import list_query
 from vehicle.forms import VehicleDeleteForm, VehicleForm
 from vehicle.models import Vehicle
-
-
-def list_query(request):
-    values = {}
-    query = request.GET.get("q", "").strip()[:200]
-    if query:
-        values["q"] = query
-    if request.GET.get("page", "").isdigit():
-        values["page"] = request.GET["page"]
-    return urlencode(values)
 
 
 @product_login_required
@@ -212,7 +204,9 @@ def vehicle_delete(request, case_id, vehicle_id):
         form = VehicleDeleteForm(request.POST if request.method == "POST" else None)
         if request.method == "POST" and not (locations or imports) and form.is_valid():
             try:
-                vehicle.delete()
+                delete_case_record(vehicle, case.pk)
+            except CaseDeletionBlocked:
+                form.add_error(None, CASCADE_CONFLICT)
             except RestrictedError:
                 form.add_error(
                     None,

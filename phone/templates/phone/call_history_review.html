@@ -1,0 +1,150 @@
+{% extends "ui/base.html" %}
+{% load tz %}
+{% block title %}Call history import · {{ case.name }}{% endblock %}
+{% block content %}
+{% if processing %}{% include 'ui/components/live_updates.html' %}{% endif %}
+{% partialdef live inline %}
+{% get_current_timezone as display_timezone %}
+<div class="page-content" id="call-history-import" data-live-region data-live-poll="{% if processing %}true{% else %}false{% endif %}"{% if completed %} data-live-outcome="Call history import complete"{% elif review_ready %} data-live-outcome="Call history review ready"{% elif failed %} data-live-outcome="Call history import needs attention"{% endif %}>
+  <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
+  <header class="page-header"><div>
+    <h1>{% if completed %}Call history imported{% elif review_ready %}Review call history{% else %}Call history import{% endif %}</h1>
+    <p>{{ batch.source_label }} · Export timezone {{ batch.timezone }}</p>
+  </div></header>
+  <p><a class="record-link" href="{% url 'core:evidence:detail' case.pk 'document' batch.document_id %}">View source CSV</a></p>
+
+  {% if error_message %}<p class="notice" role="alert">{{ error_message }}</p>{% endif %}
+  {% if processing_error %}<p class="notice" role="alert">{{ processing_error }}</p>{% endif %}
+  {% if overlaps_need_confirmation and view != "overlaps" %}
+    <p><a class="record-link" href="{% querystring view='overlaps' page=None row=None group=None earlier_page=None %}#call-review-choices">Review possible overlaps before publishing</a></p>
+  {% endif %}
+  {% if batch.document.is_archived and not completed %}<p class="notice">Restore this CSV before continuing the import.</p>{% endif %}
+
+  {% if processing %}
+    <section class="content-section" aria-labelledby="call-history-progress">
+      <h2 id="call-history-progress">{% if batch.status == 'publishing' %}Publishing calls{% else %}Preparing call history{% endif %}</h2>
+      <p role="status">{% if batch.is_running %}Processing{% else %}Queued for processing{% endif %}. You can return to this review from the source CSV.</p>
+      <progress class="work-progress" aria-label="Call history processing">Processing</progress>
+      {% if can_retry and batch.is_running %}
+        <details class="disclosure"><summary>Recover interrupted processing</summary>
+          <form method="post" class="form-layout">
+            {% csrf_token %}
+            <label for="call-worker-stopped"><input type="checkbox" id="call-worker-stopped" name="worker_stopped" required> The operator stopped the worker for this attempt</label>
+            <button class="button button-secondary" type="submit" name="action" value="retry">Retry interrupted import</button>
+          </form>
+        </details>
+      {% endif %}
+    </section>
+  {% elif failed %}
+    {% if not processing_error %}<p class="notice" role="alert">The import could not finish. The original CSV is available for review.</p>{% endif %}
+    {% if can_retry %}
+      <form method="post">
+        {% csrf_token %}
+        <button class="button button-primary" type="submit" name="action" value="retry">Retry import</button>
+      </form>
+    {% elif can_edit and not batch.document.is_archived %}
+      <p>This import has reached its retry limit. Check the source or ask the operator for help.</p>
+    {% endif %}
+  {% endif %}
+
+  {% if review_ready or completed %}
+    {% if completed %}
+      <p role="status">{{ counts.published }} published · {{ counts.skipped }} skipped · {{ counts.held }} held for review</p>
+      <p><a class="button button-primary" href="{% url 'core:evidence:list' case_id=case.pk %}">Open Evidence</a></p>
+    {% else %}
+      <p>{{ counts.ready }} ready for review · {{ counts.overlaps }} possible overlap{{ counts.overlaps|pluralize }} · {{ counts.held }} held for review</p>
+      {% if not can_edit %}<p class="role-note">An owner or editor can choose matches and publish calls.</p>{% endif %}
+      {% if not counts.ready %}<p class="notice">No calls are ready to publish. Check the held rows and the source CSV.</p>{% endif %}
+    {% endif %}
+    <nav class="actions" aria-label="Call history review">
+      {% for key,label in tabs.items %}
+        {% if not completed or key != 'people' %}
+          <a class="record-link" href="{% querystring view=key page=None row=None group=None earlier_page=None %}#call-review-choices"{% if view == key %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endif %}
+      {% endfor %}
+    </nav>
+    <section class="content-section" id="call-review-choices" aria-labelledby="call-review-heading">
+      <h2 id="call-review-heading">{% if view == "people" %}Choose person matches{% elif view == "held" %}Rows held for review{% elif view == "overlaps" %}Review possible overlaps{% else %}Source rows{% endif %}</h2>
+      {% if form %}
+        <form method="post" class="form-layout" data-unsaved-form>
+          {% csrf_token %}
+          {% include 'ui/components/form_errors.html' with form=form %}
+          {{ form.reviewed_attempt }}
+      {% endif %}
+      {% if view == "people" %}
+        <p>Person matches are optional. A match applies to the rows with that reported identifier. You can make exceptions from Source rows.</p>
+        {% if form %}{% include 'ui/components/form_field.html' with field=form.source_person only %}{% endif %}
+        {% for group,field in groups %}
+          <div class="import-observation">
+            {% if field %}{% include 'ui/components/form_field.html' with field=field only %}{% else %}<p>{{ group.identifier }}</p>{% endif %}
+            <p><a href="{% querystring view='rows' page=None row=None group=group.group_row %}#call-review-choices">View {{ group.call_count }} row{{ group.call_count|pluralize }} for {{ group.identifier }}</a></p>
+          </div>
+        {% empty %}<p>This export has no reported identifiers available for group matching.</p>{% endfor %}
+      {% else %}
+        {% if view == "held" %}
+          <p>These rows stay in review with their original values and a reason. Calls that are ready can publish.</p>
+        {% elif view == "overlaps" %}
+          <p>These calls match rows in earlier exports from the same source. Each original CSV stays available. You can choose a different action for individual rows.</p>
+          {% if form and counts.overlaps %}{% include 'ui/components/form_field.html' with field=form.overlap_keep only %}{% endif %}
+        {% else %}
+          <p class="muted">Interpreted times use {{ display_timezone }}. The Date field keeps the timestamp as reported in the CSV.</p>
+        {% endif %}
+        {% for entry in rows %}
+          {% with row=entry.row %}
+          <details class="import-observation"{% if view != "rows" or request.GET.row or entry.person_field.errors or entry.overlap_field.errors %} open{% endif %}>
+            <summary>Row {{ row.number }} · {{ row.raw.Service|default:"Call" }}{% if row.occurred_at %} · {{ row.occurred_at|date:"d M Y, H:i:s T" }}{% endif %}{% if row.issue %} · Needs review{% elif row.overlap_candidates %} · Possible overlap{% endif %}</summary>
+            {% if row.issue %}<p class="notice">{{ row.issue }}</p>{% endif %}
+            {% if completed %}
+              {% if row.phonecallevidence %}<p><a href="{% url 'core:evidence:detail' case.pk 'phone-call' row.phonecallevidence.pk %}">Open phone call</a></p>{% endif %}
+              {% if row.facetimeevidence %}<p><a href="{% url 'core:evidence:detail' case.pk 'facetime' row.facetimeevidence.pk %}">Open FaceTime call</a></p>{% endif %}
+              {% if row.disposition == "skipped" %}<p>Skipped as a possible overlap.</p>{% endif %}
+            {% endif %}
+            <dl class="metadata-grid">
+              {% for label,value in row.raw.items %}<div><dt>{{ label }}</dt><dd>{{ value|default:"Not supplied"|linebreaksbr }}</dd></div>{% endfor %}
+            </dl>
+            {% if row.overlap_candidates %}
+              <p>{{ entry.incoming_count }} matching row{{ entry.incoming_count|pluralize }} in this export and {{ row.overlap_candidates|length }} in earlier exports.</p>
+              <ul>
+                {% for candidate in entry.candidates %}
+                  <li><a href="{% url 'phone:call_history_review' case.pk candidate.batch_id %}?view=rows&amp;row={{ candidate.number }}#call-review-choices">{{ candidate.batch.document.original_filename }} · Row {{ candidate.number }}</a></li>
+                {% empty %}<li>Earlier source rows are unavailable.</li>{% endfor %}
+              </ul>
+              {% if entry.earlier_page.has_other_pages %}
+                {% if entry.focus_row %}
+                  <nav class="pagination" aria-label="Earlier rows matching row {{ row.number }}">
+                    {% if entry.earlier_page.has_previous %}<a class="record-link" href="{% querystring earlier_page=entry.earlier_page.previous_page_number %}#call-review-choices">Previous earlier rows</a>{% endif %}
+                    <span>Page {{ entry.earlier_page.number }} of {{ entry.earlier_page.paginator.num_pages }}</span>
+                    {% if entry.earlier_page.has_next %}<a class="record-link" href="{% querystring earlier_page=entry.earlier_page.next_page_number %}#call-review-choices">Next earlier rows</a>{% endif %}
+                  </nav>
+                {% else %}
+                  <p><a href="{% querystring view='rows' row=row.number page=None group=None earlier_page=2 %}#call-review-choices">See more earlier rows for row {{ row.number }}</a></p>
+                {% endif %}
+              {% endif %}
+            {% endif %}
+            {% if entry.person_field %}{% include 'ui/components/form_field.html' with field=entry.person_field only %}{% endif %}
+            {% if entry.overlap_field %}{% include 'ui/components/form_field.html' with field=entry.overlap_field only %}{% endif %}
+          </details>
+          {% endwith %}
+        {% empty %}<p>No rows in this view.</p>{% endfor %}
+      {% endif %}
+      {% if form %}
+        {% if form.visible_fields or can_publish %}
+          <div class="actions">
+            {% if form.visible_fields %}<button class="button button-secondary" type="submit" name="action" value="save">Save choices</button>{% endif %}
+            {% if can_publish %}<button class="button button-primary" type="submit" name="action" value="publish">Publish calls</button>{% endif %}
+          </div>
+        {% endif %}
+        </form>
+      {% endif %}
+      {% if page_obj.paginator.num_pages > 1 %}
+        <nav class="pagination" aria-label="Call history review pages">
+          {% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#call-review-choices">Previous</a>{% endif %}
+          <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+          {% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#call-review-choices">Next</a>{% endif %}
+        </nav>
+      {% endif %}
+    </section>
+  {% endif %}
+</div>
+{% endpartialdef %}
+{% endblock %}

@@ -10,12 +10,12 @@ from django.utils import timezone
 
 from cases.models import CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch, start_case_analysis
-from core.analysis.form_base import selection
 from core.analysis.forms import analysis_form
 from core.analysis.import_checks import imported_sources
 from core.analysis.operations import OPERATIONS
 from core.analysis.reprocessing import start_reprocessing
 from core.analysis.services import process_run, snapshot_sources, start_run
+from core.analysis.sources import selection
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, CaseSearchIndex
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -189,7 +189,10 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(all(len(run.inputs) == 28 for run in batch.runs.all()))
         self.assertFalse(batch.runs.filter(external_processing=True).exists())
         again, created = start_case_analysis(
-            self.users["owner"], self.case.pk, submission_id=batch.pk, scope=scope
+            self.users["owner"],
+            self.case.pk,
+            submission_id=batch.submission_id,
+            scope=scope,
         )
         self.assertEqual(again.pk, batch.pk)
         self.assertFalse(created)
@@ -283,7 +286,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
                 item["label"]: item["count"]
                 for item in response.context["processing_summary"]
             },
-            {"Queued": 2, "Processing": 1, "Processed": 26, "Failed": 1},
+            {"Queued work items": 2, "Processing": 1, "Processed": 26, "Failed": 1},
         )
         self.assertEqual(
             response.context["analysis_run_counts"],
@@ -350,7 +353,12 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
                         item["label"]: item["count"]
                         for item in response.context["processing_summary"]
                     },
-                    {"Queued": 2, "Processing": 1, "Processed": 11, "Failed": 1},
+                    {
+                        "Queued work items": 2,
+                        "Processing": 1,
+                        "Processed": 11,
+                        "Failed": 1,
+                    },
                 )
                 self.assertEqual(
                     response.context["analysis_run_counts"],
@@ -407,8 +415,45 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
                 item["label"]: item["count"]
                 for item in response.context["processing_summary"]
             },
-            {"Queued": 2, "Processing": 3, "Processed": 5, "Failed": 3},
+            {"Queued work items": 2, "Processing": 3, "Processed": 5, "Failed": 3},
         )
+
+    def test_message_preparation_progress_uses_the_case_batch_scope(self):
+        batch = CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=self.case.owner,
+            scope={"type": "messages", "source_count": 10_001},
+            processed_sources=25,
+            queued_runs=7,
+        )
+        CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=self.case.owner,
+            scope={"type": "messages"},
+            processed_sources=1,
+            queued_runs=1,
+        )
+        CaseAnalysisBatch.objects.create(
+            case=self.other_case,
+            requested_by=self.other_case.owner,
+            scope={"type": "messages", "source_count": 60_000},
+        )
+        self.login("viewer")
+        query = {"batch": batch.pk}
+        response = self.client.get(self.processing_url(), query)
+        self.assertContains(
+            response,
+            "25 of 10,001 imported messages prepared · 7 checks created",
+            count=2,
+        )
+        self.assertContains(response, "1 imported message prepared · 1 check created")
+        self.assertNotContains(response, "60,000 imported messages")
+
+        CaseAnalysisBatch.objects.filter(pk=batch.pk).update(processed_sources=50)
+        live = self.client.get(
+            self.processing_url(), query, headers={"X-Pandect-Live": "1"}
+        )
+        self.assertContains(live, "50 of 10,001 imported messages prepared", count=2)
 
     def test_processing_current_work_and_import_history_are_bounded_independently(self):
         document = self.document()

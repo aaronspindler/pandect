@@ -16,7 +16,7 @@ from cases.models import Case, CaseMembership
 from core.evidence.form_registry import ORIGINAL_FIELDS
 from core.evidence.types import COMMUNICATION_KINDS, FILE_KINDS, KINDS, LOCATION_KINDS
 from core.models import CaseAnalysisBatch
-from geo.models import VehicleLocationImport
+from geo.models import VehicleLocationImport, VehicleTripState
 from people.models import Person
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence
 from vehicle.models import Vehicle
@@ -441,6 +441,21 @@ class EvidenceAdminTests(TestCase):
         self.assertTrue(item.is_archived)
         self.assertEqual(item.archive_changed_by, self.owner)
         self.assertEqual(item.source, "Reviewed source")
+
+    def test_stale_archive_submission_leaves_vehicle_trip_revision_current(self):
+        self.client.force_login(self.editor)
+        kind = "vehicle-location"
+        item = self.items[kind]
+        url = self.url(kind, "change", item)
+        data = self.data(is_archived="on", **{"initial-is_archived": "False"})
+        self.assertRedirects(self.client.post(url, data), self.url(kind))
+        state = VehicleTripState.objects.get(vehicle=self.vehicle)
+        revision = state.revision
+
+        self.assertRedirects(self.client.post(url, data), self.url(kind))
+
+        state.refresh_from_db()
+        self.assertEqual(state.revision, revision)
 
     def test_unrelated_users_cannot_access_direct_object_or_history_urls(self):
         for user in (self.outsider, self.superuser):

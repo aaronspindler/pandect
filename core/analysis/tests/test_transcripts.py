@@ -10,7 +10,11 @@ from core.analysis.services import cancel_run, process_run
 from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
-from core.analysis.transcripts import select_transcript, transcription_profile
+from core.analysis.transcripts import (
+    follow_up_transcription,
+    select_transcript,
+    transcription_profile,
+)
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 
@@ -64,7 +68,7 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
             "core.analysis.reprocessing.follow_up_reprocessing",
             side_effect=self.retain_follow_up,
         ) as follow_up:
-            select_transcript(self.batch.pk, "recording")
+            select_transcript(self.case.pk, self.batch.pk, "recording")
             follow_up.assert_not_called()
             AnalysisRun.objects.filter(pk=private.pk).update(status="partial")
             result = AnalysisResult.objects.create(
@@ -72,8 +76,8 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
                 run=private,
                 data={"items": [{"text": "Private reading."}]},
             )
-            select_transcript(self.batch.pk, "recording")
-            select_transcript(self.batch.pk, "recording")
+            select_transcript(self.case.pk, self.batch.pk, "recording")
+            select_transcript(self.case.pk, self.batch.pk, "recording")
             follow_up.assert_called_once_with(private, result)
 
     def test_waits_for_external_and_honors_only_exact_qualified_profile(self):
@@ -86,7 +90,7 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
             self.settings(PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE=profile),
             patch("core.analysis.reprocessing.follow_up_reprocessing") as follow_up,
         ):
-            select_transcript(self.batch.pk, "recording")
+            select_transcript(self.case.pk, self.batch.pk, "recording")
             follow_up.assert_not_called()
             AnalysisRun.objects.filter(pk=external.pk).update(status="complete")
             result = AnalysisResult.objects.create(
@@ -94,7 +98,7 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
                 run=external,
                 data={"items": [{"text": "External reading."}]},
             )
-            select_transcript(self.batch.pk, "recording")
+            select_transcript(self.case.pk, self.batch.pk, "recording")
             follow_up.assert_called_once_with(external, result)
             follow_up.reset_mock()
             other = self.attempt(
@@ -103,7 +107,7 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
             self.attempt(
                 "gateway", "complete", group="other", model="changed", text="External."
             )
-            select_transcript(self.batch.pk, "other")
+            select_transcript(self.case.pk, self.batch.pk, "other")
             follow_up.assert_called_once_with(other, other.result)
 
     def test_cancellation_selects_usable_sibling_without_a_gap_in_processing(self):
@@ -117,14 +121,22 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
         private = self.attempt("local", "complete", text="Private reading.")
         self.attempt("gateway", "running")
         with patch("core.analysis.reprocessing.follow_up_reprocessing") as follow_up:
-            select_transcript(self.batch.pk, "recording")
+            select_transcript(self.case.pk, self.batch.pk, "recording")
             follow_up.assert_called_once_with(private, private.result)
 
     def test_blank_or_failed_attempts_do_not_queue_text_analysis(self):
         self.attempt("local", "partial", text="   ")
         self.attempt("gateway", "failed")
         with patch("core.analysis.reprocessing.follow_up_reprocessing") as follow_up:
-            select_transcript(self.batch.pk, "recording")
+            select_transcript(self.case.pk, self.batch.pk, "recording")
+            follow_up.assert_not_called()
+
+    def test_follow_up_is_bound_to_the_originating_case(self):
+        self.attempt("local", "complete", text="Case-specific transcript.")
+        stopped = self.attempt("gateway", "failed")
+        stopped.case_id = self.other_case.pk
+        with patch("core.analysis.reprocessing.follow_up_reprocessing") as follow_up:
+            self.assertTrue(follow_up_transcription(stopped))
             follow_up.assert_not_called()
 
     @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)

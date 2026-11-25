@@ -48,11 +48,17 @@ class ByteStorage:
 
 
 def file_source(content, kind="document", **values):
+    case_id = uuid4()
+    model_name = f"{kind}evidence"
     item = SimpleNamespace(
         pk=uuid4(),
-        case_id=uuid4(),
+        case_id=case_id,
         title="Synthetic retained source",
-        file=SimpleNamespace(name="fixture", storage=ByteStorage(content)),
+        _meta=SimpleNamespace(model_name=model_name),
+        file=SimpleNamespace(
+            name=f"evidence/cases/{case_id}/{model_name}/{uuid4().hex}",
+            storage=ByteStorage(content),
+        ),
         byte_size=len(content),
         sha256=hashlib.sha256(content).hexdigest(),
         **values,

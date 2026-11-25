@@ -36,13 +36,11 @@ def start_preview(actor, case_id, values):
                 or f"Messages: {metadata['original_filename']}"[:255]
             )
             document = DocumentEvidence.objects.filter(
-                submission_id=values["submission_id"]
+                case=case, uploaded_by=actor, submission_id=values["submission_id"]
             ).first()
             if document:
                 if (
-                    document.case_id != case.pk
-                    or document.uploaded_by_id != actor.pk
-                    or document.sha256 != metadata["sha256"]
+                    document.sha256 != metadata["sha256"]
                     or document.title != title
                     or document.source != values.get("source", "")
                 ):
@@ -134,10 +132,17 @@ def confirm_import(actor, case_id, preview_id, people):
     submission_id = uuid5(preview.pk, "confirmed-import")
     # An old confirmation can be replayed after the form stops choosing a route.
     previous = AnalysisRun.objects.filter(
-        case=case, submission_id=submission_id
+        case=case,
+        operation="imessage_import",
+        parameters__phase="import",
+        parameters__preview_run_id=str(preview.pk),
+        submission_id=submission_id,
     ).first()
-    if previous is not None and "analysis" in previous.parameters:
-        parameters["analysis"] = previous.parameters["analysis"]
+    if previous is not None:
+        if previous.requested_by_id != actor.pk:
+            raise ValidationError("This review already has a confirmed import.")
+        if "analysis" in previous.parameters:
+            parameters["analysis"] = previous.parameters["analysis"]
     return start_run(
         actor,
         case.pk,

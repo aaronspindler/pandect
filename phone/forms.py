@@ -5,7 +5,6 @@ from django.conf import settings
 from django.template.defaultfilters import filesizeformat
 
 from core.evidence.forms import EvidenceForm, validate_file, validate_text
-from phone.models import CallEvidenceAttachment
 
 
 class ConversationDayForm(forms.Form):
@@ -29,6 +28,7 @@ class CommunicationEvidenceForm(EvidenceForm):
         if self.instance._state.adding:
             self.fields["submission_id"].required = True
             for name in ("sender", "recipient"):
+                self.fields[name].required = True
                 self.fields[name].queryset = self.fields[name].queryset.filter(
                     case_id=self.instance.case_id
                 )
@@ -104,42 +104,6 @@ class CallAttachmentForm(CallContentForm):
         ):
             raise forms.ValidationError("Supply a transcript, an audio file, or both.")
         return cleaned
-
-
-def call_content_matches(attachment, data):
-    from core.storage import file_integrity
-
-    transcript, original = data.get("transcript", ""), data.get("file")
-    if attachment is None:
-        return not (transcript or original)
-    if attachment.transcript != transcript or bool(attachment.file) != bool(original):
-        return False
-    if not original:
-        return True
-    metadata = file_integrity(CallEvidenceAttachment(file=original).file)
-    return (
-        attachment.audio_sha256 == metadata["sha256"]
-        and attachment.byte_size == metadata["byte_size"]
-        and attachment.original_filename == metadata["original_filename"]
-        and attachment.declared_content_type == metadata["declared_content_type"]
-    )
-
-
-def save_call_content(call, actor, data, submission_id):
-    if not data.get("transcript") and not data.get("file"):
-        return None
-    return CallEvidenceAttachment.objects.create(
-        case_id=call.case_id,
-        uploaded_by=actor,
-        submission_id=submission_id,
-        **{
-            "phone_call"
-            if call.communication_kind == "phone-call"
-            else "facetime": call
-        },
-        transcript=data.get("transcript", ""),
-        file=data.get("file") or "",
-    )
 
 
 class TextMessageEvidenceForm(CommunicationEvidenceForm):

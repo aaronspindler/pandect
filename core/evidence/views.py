@@ -1,22 +1,13 @@
 """Case-authorized investigator workflows for retained original evidence."""
 
-from uuid import UUID
-
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.models import DELETION, LogEntry
-from django.core import signing
-from django.core.exceptions import (
-    PermissionDenied,
-    SuspiciousFileOperation,
-    ValidationError,
-)
-from django.db import DatabaseError, IntegrityError, transaction
-from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.utils import timezone
-from django.utils.text import get_valid_filename
 from django.views.decorators.http import (
     require_http_methods,
     require_POST,
@@ -26,7 +17,6 @@ from django.views.decorators.vary import vary_on_headers
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
-from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.errors import AnalysisError
 from core.analysis.findings import evidence_findings_context
 from core.evidence.collection import collection_context
@@ -43,10 +33,18 @@ from core.evidence.deletion import (
 from core.evidence.form_registry import TYPE_FIELDS, evidence_form
 from core.evidence.forms import COMMON_FIELDS, SOURCE_FIELDS, EvidenceDeleteForm
 from core.evidence.navigation import list_params, query_suffix
-from core.evidence.queries import (
-    duplicate_matches,
-    evidence_counts_by_type,
-    get_evidence,
+from core.evidence.queries import evidence_counts_by_type, get_evidence
+from core.evidence.responses import (
+    SAVE_UNCONFIRMED,
+    detail_url,
+    error_response,
+    file_download,
+)
+from core.evidence.retention import (
+    SubmissionConflict,
+    SubmissionUnavailable,
+    set_evidence_archive,
+    submit_evidence,
 )
 from core.evidence.types import (
     CALL_KINDS,
@@ -58,16 +56,11 @@ from core.evidence.types import (
     READER_TEMPLATES,
 )
 from core.important.reader import reader_context as important_reader_context
-from core.storage import retain_uploaded_originals, staged_file_upload
 from geo.models import VehicleLocationImport
 from image.previews import image_preview
-from phone.forms import call_content_matches, save_call_content
 from ui.dialogs import form_saved, render_quick_form, render_record, wants_record
 from ui.live import render_live
 
-SAVE_UNCONFIRMED = (
-    "The save could not be confirmed. Keep your original and retry this submission."
-)
 EVIDENCE_SUMMARY_ICONS = {
     "image": "photo",
     "audio": "music",
@@ -82,32 +75,11 @@ EVIDENCE_SUMMARY_ICONS = {
 }
 
 
-def _error(request, code, message, status=400, errors=None):
-    if wants_json(request):
-        return JsonResponse(
-            {"code": code, "message": message, "errors": errors or {}},
-            status=status,
-        )
-    return render(
-        request,
-        "core/evidence/error.html",
-        {"error_message": message},
-        status=status,
-    )
-
-
-def _detail_url(case, kind, item):
-    return reverse(
-        "core:evidence:detail",
-        kwargs={"case_id": case.pk, "kind": kind, "evidence_id": item.pk},
-    )
-
-
 def _info_url(request, case, kind, item):
     params = list_params(request)
     params["info"] = "1"
     return (
-        _detail_url(case, kind, item)
+        detail_url(case, kind, item)
         + "?"
         + params.urlencode()
         + "#evidence-details-heading"
@@ -265,9 +237,23 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
             )
         )
     if kind == "document":
+        from phone.models import CallHistoryImport
+
         context["vehicle_import"] = VehicleLocationImport.objects.filter(
             case=case, document=item
         ).first()
+        context["call_history_csv"] = item.original_filename.lower().endswith(".csv")
+        if context["call_history_csv"]:
+            context["call_history_import"] = (
+                CallHistoryImport.objects.filter(
+                    case=case,
+                    document=item,
+                    source__case=case,
+                    source_sha256=item.sha256,
+                )
+                .order_by("-created_at", "-pk")
+                .first()
+            )
     elif kind == "vehicle-location":
         from geo.trip_processing import observation_trip_url
 
@@ -276,7 +262,7 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
 
 
 def _created_response(request, case, kind, item, *, created):
-    url = _detail_url(case, kind, item)
+    url = detail_url(case, kind, item)
     if wants_json(request):
         return JsonResponse(
             {"type": kind, "id": str(item.pk), "detail_url": url},
@@ -288,37 +274,25 @@ def _created_response(request, case, kind, item, *, created):
     return redirect(url)
 
 
-def _duplicate_review(request, case, kind, item):
-    if kind not in (*FILE_KINDS, "text"):
-        return None
-    identity = [str(case.pk), str(request.user.pk), kind, item.sha256]
-    confirmation = request.POST.get("duplicate_confirmation", "")
-    try:
-        if signing.loads(confirmation, salt="core.evidence.duplicate") == identity:
-            return None
-    except signing.BadSignature:
-        pass
-    matches = list(duplicate_matches(case, item.sha256)[:11])
-    if not matches:
-        return None
-    for match in matches[:10]:
-        match["id"] = str(match["id"])
-        match["label"] = KIND_LABELS[match["kind"]]
-        match["url"] = reverse(
-            "core:evidence:detail",
-            kwargs={
-                "case_id": case.pk,
-                "kind": match["kind"],
-                "evidence_id": match["id"],
-            },
-        )
+def _duplicate_context(case, item, review):
+    matches = [
+        match
+        | {
+            "id": str(match["id"]),
+            "label": KIND_LABELS[match["kind"]],
+            "url": reverse(
+                "core:evidence:detail", args=(case.pk, match["kind"], match["id"])
+            ),
+        }
+        for match in review.matches[:10]
+    ]
     return {
-        "matches": matches[:10],
-        "has_more": len(matches) > 10,
-        "all_matches_url": reverse("core:evidence:list", args=(case.pk,))
-        + "?checksum="
-        + item.sha256,
-        "confirmation": signing.dumps(identity, salt="core.evidence.duplicate"),
+        "matches": matches,
+        "has_more": len(review.matches) > 10,
+        "all_matches_url": reverse(
+            "core:evidence:list", args=(case.pk,), query={"checksum": item.sha256}
+        ),
+        "confirmation": review.confirmation,
     }
 
 
@@ -354,7 +328,7 @@ def create(request, case_id):
         case = get_case(request.user, case_id, edit=True)
     except PermissionDenied:
         if wants_json(request):
-            return _error(
+            return error_response(
                 request,
                 "permission_denied",
                 "You no longer have permission to add evidence.",
@@ -363,7 +337,9 @@ def create(request, case_id):
         raise
     except Http404:
         if wants_json(request):
-            return _error(request, "not_found", "This case is unavailable.", 404)
+            return error_response(
+                request, "not_found", "This case is unavailable.", 404
+            )
         raise
     if request.method == "GET" and "kind" not in request.GET:
         return _add_files(request, case)
@@ -373,121 +349,29 @@ def create(request, case_id):
         else request.GET.get("kind", "document")
     )
     if kind not in KINDS:
-        return _error(request, "invalid_type", "Choose a supported evidence type.")
-    form_class = evidence_form(kind)
-    form = form_class(
-        kind=kind,
-        instance=KINDS[kind](case=case, uploaded_by=request.user),
-        initial={"vehicle": request.GET.get("vehicle")}
-        if kind == "vehicle-location"
-        else None,
-    )
+        return error_response(
+            request, "invalid_type", "Choose a supported evidence type."
+        )
     status = 200
     duplicates = None
     if request.method == "POST":
         if getattr(request, "evidence_upload_too_large", False):
-            return _error(
+            return error_response(
                 request,
                 "file_too_large",
                 "The file exceeds the configured upload limit.",
                 413,
             )
         if sum(len(request.FILES.getlist(key)) for key in request.FILES) > 1:
-            return _error(request, "too_many_files", "Send one file at a time.")
+            return error_response(request, "too_many_files", "Send one file at a time.")
         try:
-            submission_id = UUID(request.POST.get("submission_id", ""))
-        except ValueError, AttributeError:
-            submission_id = None
-        item = None
-        try:
-            with (
-                staged_file_upload(
-                    request.FILES.get("file"), limit=settings.PANDECT_MAX_FILE_BYTES
-                ),
-                retain_uploaded_originals() as originals,
-            ):
-                case = get_case(request.user, case_id, edit=True, lock=True)
-                previous = (
-                    KINDS[kind].objects.filter(submission_id=submission_id).first()
-                    if submission_id
-                    else None
-                )
-                if previous and (
-                    previous.case_id != case.pk
-                    or previous.uploaded_by_id != request.user.pk
-                ):
-                    return _error(
-                        request,
-                        "submission_conflict",
-                        "This submission cannot be reused.",
-                        409,
-                    )
-                instance = KINDS[kind](
-                    case=case, uploaded_by=request.user, submission_id=submission_id
-                )
-                form = form_class(
-                    request.POST, request.FILES, kind=kind, instance=instance
-                )
-                if form.is_valid():
-                    if previous:
-                        same_content = previous.sha256 == form.instance.sha256
-                        if same_content and kind in CALL_KINDS:
-                            earlier_content = previous.attachments.filter(
-                                case=case, submission_id=submission_id
-                            ).first()
-                            same_content = call_content_matches(
-                                earlier_content, form.cleaned_data
-                            )
-                        if not same_content:
-                            return _error(
-                                request,
-                                "submission_conflict",
-                                "This submission belongs to different material.",
-                                409,
-                            )
-                        return _created_response(
-                            request, case, kind, previous, created=False
-                        )
-                    duplicates = _duplicate_review(request, case, kind, form.instance)
-                    if duplicates:
-                        if wants_json(request):
-                            return JsonResponse(
-                                {"code": "duplicate_evidence", **duplicates},
-                                status=409,
-                            )
-                        status = 409
-                    else:
-                        item = form.save()
-                        if kind == "vehicle-location":
-                            from geo.trip_processing import invalidate_vehicle_trips
-
-                            invalidate_vehicle_trips(
-                                request.user, case, [item.vehicle_id]
-                            )
-                        original = getattr(item, "file", None)
-                        if original:
-                            originals.append(original)
-                        attachment = None
-                        if kind in CALL_KINDS:
-                            attachment = save_call_content(
-                                item, request.user, form.cleaned_data, submission_id
-                            )
-                            if attachment and attachment.file:
-                                originals.append(attachment.file)
-                        start_added_evidence_analysis(
-                            request.user,
-                            case.pk,
-                            kind,
-                            item.pk,
-                            attachment_id=attachment.pk if attachment else None,
-                            new_call=kind in CALL_KINDS,
-                        )
-                else:
-                    status = 400
+            submission = submit_evidence(
+                request.user, case_id, kind, request.POST, request.FILES
+            )
         except PermissionDenied:
             if not wants_json(request):
                 raise
-            return _error(
+            return error_response(
                 request,
                 "permission_denied",
                 "You no longer have permission to add evidence.",
@@ -496,44 +380,68 @@ def create(request, case_id):
         except Http404:
             if not wants_json(request):
                 raise
-            return _error(request, "not_found", "This case is unavailable.", 404)
-        except OSError:
-            message = "The original could not be saved. Keep your file and try again."
-            if wants_json(request) or not form.is_bound:
-                return _error(request, "storage_unavailable", message, 503)
+            return error_response(
+                request, "not_found", "This case is unavailable.", 404
+            )
+        except SubmissionConflict as exc:
+            return error_response(request, "submission_conflict", str(exc), 409)
+        except SubmissionUnavailable as exc:
+            code, message = (
+                (
+                    "storage_unavailable",
+                    "The original could not be saved. Keep your file and try again.",
+                )
+                if exc.storage
+                else ("save_unconfirmed", SAVE_UNCONFIRMED)
+            )
+            if wants_json(request) or exc.form is None:
+                return error_response(request, code, message, 503)
+            form = exc.form
+            case = form.instance.case
             form.add_error(None, message)
             status = 503
-        except IntegrityError:
-            return _error(
-                request,
-                "submission_conflict",
-                "This submission could not be confirmed. "
-                "Retry with the same submission ID.",
-                409,
-            )
-        except AnalysisError, ValidationError, DatabaseError:
-            if wants_json(request) or not form.is_bound:
-                return _error(request, "save_unconfirmed", SAVE_UNCONFIRMED, 503)
-            form.add_error(None, SAVE_UNCONFIRMED)
-            status = 503
         else:
-            if item is not None:
-                return _created_response(request, case, kind, item, created=True)
-        if wants_json(request):
-            status = (
-                413
-                if "file" in form.errors
-                and request.FILES.get("file")
-                and request.FILES["file"].size > settings.PANDECT_MAX_FILE_BYTES
-                else 400
-            )
-            return _error(
-                request,
-                "validation_error",
-                "Review the highlighted fields.",
-                status,
-                form.errors.get_json_data(),
-            )
+            form = submission.form
+            case = form.instance.case
+            if submission.item is not None:
+                return _created_response(
+                    request, case, kind, submission.item, created=submission.created
+                )
+            if submission.duplicates:
+                duplicates = _duplicate_context(
+                    case, form.instance, submission.duplicates
+                )
+                if wants_json(request):
+                    return JsonResponse(
+                        {"code": "duplicate_evidence", **duplicates}, status=409
+                    )
+                status = 409
+            elif wants_json(request):
+                upload = request.FILES.get("file")
+                status = (
+                    413
+                    if "file" in form.errors
+                    and upload
+                    and upload.size > settings.PANDECT_MAX_FILE_BYTES
+                    else 400
+                )
+                return error_response(
+                    request,
+                    "validation_error",
+                    "Review the highlighted fields.",
+                    status,
+                    form.errors.get_json_data(),
+                )
+            else:
+                status = 400
+    else:
+        form = evidence_form(kind)(
+            kind=kind,
+            instance=KINDS[kind](case=case, uploaded_by=request.user),
+            initial={"vehicle": request.GET.get("vehicle")}
+            if kind == "vehicle-location"
+            else None,
+        )
     context = case_context(case, request.user) | {
         "form": form,
         "duplicates": duplicates,
@@ -634,30 +542,6 @@ def preview(request, case_id, kind, evidence_id):
     return response
 
 
-def _file_download(request, case, kind, item, *, attachment=None):
-    source = attachment if attachment is not None else item
-    try:
-        original = source.file.open("rb")
-    except OSError, ValueError:
-        return render(
-            request,
-            "core/evidence/unavailable.html",
-            case_context(case, request.user) | {"item": item, "kind": kind},
-            status=503,
-        )
-    try:
-        filename = get_valid_filename(source.original_filename)
-    except SuspiciousFileOperation:
-        prefix = "audio" if attachment is not None else "evidence"
-        filename = f"{prefix}-{source.pk}"
-    return FileResponse(
-        original,
-        as_attachment=True,
-        filename=filename,
-        content_type="application/octet-stream",
-    )
-
-
 @product_login_required
 @require_safe
 def download(request, case_id, kind, evidence_id):
@@ -679,7 +563,7 @@ def download(request, case_id, kind, evidence_id):
             f'attachment; filename="evidence-{item.pk}.json"'
         )
     else:
-        response = _file_download(request, case, kind, item)
+        response = file_download(request, case, kind, item)
     response["X-Content-Type-Options"] = "nosniff"
     return response
 
@@ -697,29 +581,9 @@ def restore(request, case_id, kind, evidence_id):
 
 
 def _set_archive(request, case_id, kind, evidence_id, archived):
-    with transaction.atomic():
-        case = get_case(request.user, case_id, edit=True, lock=True)
-        item = get_evidence(case, kind, evidence_id, lock=True)
-        if item.is_archived != archived:
-            item.is_archived = archived
-            item.archive_changed_at = timezone.now()
-            item.archive_changed_by = request.user
-            item.save(
-                update_fields=[
-                    "is_archived",
-                    "archive_changed_at",
-                    "archive_changed_by",
-                ]
-            )
-            from core.case_search.indexing import evidence_archive_changed
-
-            evidence_archive_changed(
-                case, request.user, kind, item.pk, archived=archived
-            )
-            if kind == "vehicle-location":
-                from geo.trip_processing import invalidate_vehicle_trips
-
-                invalidate_vehicle_trips(request.user, case, [item.vehicle_id])
+    case, item = set_evidence_archive(
+        request.user, case_id, kind, evidence_id, archived=archived
+    )
     messages.success(
         request,
         "Evidence archived. Its original is retained."

@@ -2,9 +2,11 @@
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
-from django.db.models import Count, Max
+from django.db.models import Count, F, Max
 
+from core.evidence.queries import scoped_evidence
 from geo.analysis.deterministic.locations import distance_m, normalize_address
 from geo.trip_models import VehicleTrip, VehicleTripSource
 
@@ -58,6 +60,42 @@ class Segmenter:
     def __init__(self, generation):
         self.generation = generation
         self.pending = []
+        self.trips = generation.trips.filter(
+            case_id=generation.case_id, vehicle_id=generation.vehicle_id
+        )
+
+    def validate_carry(self):
+        """Verify the persisted boundary samples before resuming an open trip."""
+        carry = self.generation.carry
+        if not carry:
+            return
+        trip = self.trips.get(pk=UUID(carry["trip_id"]), kind="trip")
+        originals = scoped_evidence(self.generation.case_id, "vehicle-location").filter(
+            vehicle_id=self.generation.vehicle_id, is_archived=False
+        )
+        sources = [carry[key] for key in ("previous", "anchor", "run_start", "origin")]
+        source_ids = {UUID(source["input_id"]) for source in sources}
+        inputs = {
+            str(row.pk): row.snapshot
+            | {"input_id": str(row.pk), "ordinal": row.ordinal}
+            for row in self.generation.inputs.filter(
+                case_id=self.generation.case_id,
+                pk__in=source_ids,
+                observation__in=originals,
+                sha256=F("observation__sha256"),
+            )
+        }
+        if any(inputs.get(source["input_id"]) != source for source in sources):
+            raise ValueError("invalid_trip_checkpoint")
+        if trip.sources.exclude(
+            case_id=self.generation.case_id,
+            input__case_id=self.generation.case_id,
+            input__generation_id=self.generation.pk,
+            input__observation__case_id=self.generation.case_id,
+            input__observation__vehicle_id=self.generation.vehicle_id,
+            input__ordinal=F("ordinal"),
+        ).exists():
+            raise ValueError("invalid_trip_checkpoint")
 
     def flush(self):
         if self.pending:
@@ -101,7 +139,7 @@ class Segmenter:
         self.flush()
         origin = entry["origin"]
         moved = entry.get("first_movement")
-        trip = VehicleTrip.objects.get(pk=trip_id)
+        trip = self.trips.get(pk=trip_id, kind="trip")
         if moved is None or moved > end["ordinal"] or _time(end) <= _time(origin):
             trip.delete()
         else:

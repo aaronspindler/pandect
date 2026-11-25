@@ -1,38 +1,33 @@
 """Review summaries for one saved instance or a conversation's missing summaries."""
 
-from hashlib import sha256
-from uuid import UUID
-
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.execution import (
-    case_execution_grants,
-    case_grant_revision,
-    execution_confirmation,
-    selected_ai_executions,
-)
+from core.analysis.execution import selected_ai_executions
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.readiness import configuration_readiness
-from core.models import AnalysisRun, CaseAnalysisBatch
+from core.models import AnalysisRun
 from people.models import Person
 from phone.conversation_instances import get_session_instance, review_instance_page
 from phone.conversations import conversation_list_page, pair_messages
 from phone.instance_summaries import (
     OPERATION,
+    active_summary_batch,
     pending_summaries,
+    request_summaries,
+    review_summary_candidates,
+    submitted_summary_batch,
     summary_limit,
     summary_originals,
+    summary_review_revision,
 )
 from phone.saved_summary_ranges import session_reports, summary_gap, summary_members
 
@@ -48,115 +43,11 @@ def _batch_url(batch):
     )
 
 
-def _review_confirmation(case, ids, executions):
-    grant = (
-        case_grant_revision(case, OPERATION, executions.get("gateway"))
-        if "gateway" in executions
-        else None
-    )
-    return execution_confirmation(
-        "phone.instance_summary", [str(case.pk), ids, grant], executions
-    )
-
-
-def _request_summaries(
-    request, case, people, ids, executions, submission_id, *, single=False
-):
-    return start_case_analysis(
-        request.user,
-        case.pk,
-        submission_id=submission_id,
-        scope={
-            "type": "instance_summaries",
-            "people": people,
-            "instances": ids,
-            "single": single,
-            "executions": executions,
-            "reviewed_scope": _review_confirmation(case, ids, executions),
-            "external_grant_revision": case_grant_revision(
-                case, OPERATION, executions.get("gateway")
-            ),
-        },
-    )
-
-
 def _active_batch_redirect(request, case, people, executions, instance_id=None):
-    if not executions:
-        return None
-    backend, execution = next(iter(executions.items()))
-    batches = CaseAnalysisBatch.objects.filter(
-        case=case, scope__type="instance_summaries", scope__people=people
-    )
-    matching = Q(**{f"scope__executions__{backend}": execution})
-    if backend == "gateway":
-        matching &= Q(
-            scope__external_grant_revision__in=list(
-                case_execution_grants(case, OPERATION, execution)
-            )
-        )
-    else:
-        matching |= Q(scope__backend="local", scope__execution=execution)
-    batches = batches.filter(matching)
-    if instance_id is None:
-        batches = batches.filter(
-            Q(scope__single=False) | ~Q(scope__has_key="single"),
-        ).filter(
-            Q(status=CaseAnalysisBatch.Status.QUEUED)
-            | Q(
-                runs__parameters___execution=execution,
-                runs__status__in=(
-                    AnalysisRun.Status.QUEUED,
-                    AnalysisRun.Status.RUNNING,
-                ),
-            )
-        )
-    else:
-        batches = batches.filter(scope__instances__contains=[str(instance_id)]).filter(
-            Q(status=CaseAnalysisBatch.Status.QUEUED)
-            | Q(
-                runs__parameters___saved_session_range__session=str(instance_id),
-                runs__parameters___execution=execution,
-                runs__status__in=(
-                    AnalysisRun.Status.QUEUED,
-                    AnalysisRun.Status.RUNNING,
-                ),
-            )
-        )
-    active = batches.only("case_id").first()
-    if active is not None:
+    batch = active_summary_batch(case, people, executions, instance_id)
+    if batch is not None:
         messages.info(request, "Instance summaries are already in progress.")
-        return redirect(_batch_url(active))
-
-
-def _submitted_batch(request, case, people, instance_id):
-    try:
-        identifier = UUID(request.POST.get("submission_id", ""))
-    except ValueError:
-        return None
-    batches = CaseAnalysisBatch.objects.filter(
-        pk=identifier,
-        case=case,
-        requested_by=request.user,
-        scope__type="instance_summaries",
-        scope__people=people,
-    )
-    if instance_id is None:
-        batch = batches.filter(
-            Q(scope__single=False) | ~Q(scope__has_key="single")
-        ).first()
-        if batch is None:
-            return None
-        reviewed_scope = batch.scope.get("reviewed_scope")
-        if reviewed_scope is None:
-            reviewed_scope = sha256(
-                "|".join(batch.scope["instances"]).encode()
-            ).hexdigest()
-        if request.POST.get("reviewed_scope") == reviewed_scope:
-            return batch
-        return None
-    return batches.filter(
-        scope__single=True, scope__instances=[str(instance_id)]
-    ).first()
+        return redirect(_batch_url(batch))
 
 
 def _conversation_review(request, case, pair, people, context, executions):
@@ -170,36 +61,12 @@ def _conversation_review(request, case, pair, people, context, executions):
         SESSIONS_PER_REVIEW,
         executions=executions,
     )
-    missing = [instance for instance in page if instance["summary_missing"]]
-    pending = pending_summaries(case, missing, executions)
-    unrequested = [
-        instance
-        for instance in missing
-        if executions.keys()
-        - instance["summary_routes"]
-        - pending.get(instance["id"], {}).keys()
-    ]
-    originals = summary_originals(
-        pair,
-        {
-            pk
-            for instance in unrequested
-            if not instance.get("saved_session")
-            for pk in instance["member_ids"]
-        },
+    eligible, oversized, pending_count = review_summary_candidates(
+        case, pair, page, executions
     )
-    eligible = []
-    oversized = 0
-    for instance in unrequested:
-        if not instance.get("saved_session") and summary_limit(
-            instance["member_ids"], originals
-        ):
-            oversized += 1
-        else:
-            eligible.append(instance)
 
     ids = [str(instance["id"]) for instance in eligible]
-    revision = _review_confirmation(case, ids, executions)
+    revision = summary_review_revision(case, ids, executions)
     submitting = request.method == "POST"
     scope_changed = submitting and request.POST.get("reviewed_scope") != revision
     form = (
@@ -211,8 +78,8 @@ def _conversation_review(request, case, pair, people, context, executions):
         # The worker revalidates each reviewed session and skips any work already
         # started between review and preparation.
         try:
-            batch, created = _request_summaries(
-                request,
+            batch, created = request_summaries(
+                request.user,
                 case,
                 people,
                 ids,
@@ -238,7 +105,7 @@ def _conversation_review(request, case, pair, people, context, executions):
             "eligible_count": len(eligible),
             "message_count": sum(instance["count"] for instance in eligible),
             "oversized": oversized,
-            "pending_count": len(pending),
+            "pending_count": pending_count,
             "reviewed_scope": revision,
             "scope_changed": scope_changed,
         },
@@ -257,7 +124,16 @@ def instance_summary(
     first = get_object_or_404(Person, case=case, pk=first_person_id)
     second = get_object_or_404(Person, case=case, pk=second_person_id)
     people = sorted(str(person.pk) for person in (first, second))
-    if submitting and (batch := _submitted_batch(request, case, people, instance_id)):
+    if submitting and (
+        batch := submitted_summary_batch(
+            request.user,
+            case,
+            people,
+            instance_id,
+            submission_id=request.POST.get("submission_id", ""),
+            reviewed_scope=request.POST.get("reviewed_scope"),
+        )
+    ):
         return redirect(_batch_url(batch))
     pair = pair_messages(case, first, second)
     query = {"tab": "instances"}
@@ -325,7 +201,7 @@ def instance_summary(
         limit_message = summary_limit(member_ids, originals)
 
     ids = [str(instance["id"])]
-    revision = _review_confirmation(case, ids, executions)
+    revision = summary_review_revision(case, ids, executions)
     can_queue = bool(executions) and not limit_message
     scope_changed = (
         submitting
@@ -337,8 +213,8 @@ def instance_summary(
     )
     if submitting and can_queue and not scope_changed and form.is_valid():
         try:
-            batch, created = _request_summaries(
-                request,
+            batch, created = request_summaries(
+                request.user,
                 case,
                 people,
                 ids,

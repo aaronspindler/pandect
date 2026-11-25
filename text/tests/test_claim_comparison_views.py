@@ -153,7 +153,7 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(AnalysisRun.objects.filter(operation=self.operation).exists())
 
         with patch(
-            "text.claim_comparison_views.snapshot_and_resolve_sources",
+            "text.claim_comparison_requests.snapshot_and_resolve_sources",
             side_effect=Http404,
         ):
             changed = self.choose(self.selected)

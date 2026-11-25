@@ -23,12 +23,21 @@ from core.evidence.types import KIND_LABELS, KINDS
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, ChatTurn
 from geo.models import VehicleLocationImport, VehicleTripGeneration
 from geo.trip_processing import latest_generations
+from phone.models import CallHistoryImport
 from socialmedia.models import InstagramCheck
 from socialmedia.monitor_jobs import check_message
 from ui.live import render_live
 
 ACTIVE_RUNS = ("queued", "running")
 ACTIVE_IMPORTS = ("queued", "running")
+ACTIVE_CALL_IMPORTS = (
+    CallHistoryImport.Status.PREPARING,
+    CallHistoryImport.Status.PUBLISHING,
+)
+FAILED_CALL_IMPORTS = (
+    CallHistoryImport.Status.PREPARE_FAILED,
+    CallHistoryImport.Status.PUBLISH_FAILED,
+)
 IMPORTS_AWAITING_ACTION = ("pending", "review")
 ACTIVE_TRIPS = Q(status__in=ACTIVE_RUNS) | Q(
     status="complete", geocode_status__in=ACTIVE_RUNS
@@ -45,6 +54,15 @@ NEEDS_ATTENTION_LIMIT = 3
 
 def case_imports(case):
     return VehicleLocationImport.objects.filter(case=case, document__case=case)
+
+
+def case_call_imports(case):
+    return CallHistoryImport.objects.filter(
+        case=case,
+        document__case=case,
+        source__case=case,
+        source_sha256=F("document__sha256"),
+    )
 
 
 def case_trip_generations(case):
@@ -83,12 +101,19 @@ def _status_counts(work):
 
 
 def _processing_summary(
-    run_counts, batches, imports, trips, monitor_counts, index_status
+    run_counts,
+    batches,
+    imports,
+    call_import_counts,
+    trips,
+    monitor_counts,
+    index_status,
 ):
     """Bucket each saved work record at its current processing stage."""
     counts = run_counts.copy()
     counts.update(_status_counts(batches))
     counts.update(_status_counts(imports))
+    counts.update(call_import_counts)
     counts.update(monitor_counts)
     trip_counts = (
         trips.values_list("status", "geocode_status")
@@ -101,7 +126,7 @@ def _processing_summary(
         counts[status] += count
     counts["complete" if index_status == "ready" else index_status] += 1
     return [
-        {"label": "Queued", "count": counts["queued"]},
+        {"label": "Queued work items", "count": counts["queued"]},
         {"label": "Processing", "count": counts["running"], "tone": "active"},
         {
             "label": "Processed",
@@ -280,6 +305,21 @@ def index(request, case_id):
         else imports.exclude(Q(status__in=ACTIVE_IMPORTS) | actionable_import),
         25,
     ).get_page(request.GET.get("imports_page"))
+    call_imports = case_call_imports(case).select_related("document").defer("selection")
+    active_call_imports = call_imports.filter(status__in=ACTIVE_CALL_IMPORTS)
+    call_imports_to_review = call_imports.filter(
+        status__in=(CallHistoryImport.Status.REVIEW, *FAILED_CALL_IMPORTS),
+        document__is_archived=False,
+    )
+    call_import_counts = call_imports.aggregate(
+        queued=Count("pk", filter=Q(status__in=ACTIVE_CALL_IMPORTS, is_running=False)),
+        running=Count("pk", filter=Q(status__in=ACTIVE_CALL_IMPORTS, is_running=True)),
+        complete=Count("pk", filter=Q(status=CallHistoryImport.Status.COMPLETED)),
+        failed=Count("pk", filter=Q(status__in=FAILED_CALL_IMPORTS)),
+    )
+    call_import_history = Paginator(call_imports, 25).get_page(
+        request.GET.get("call_imports_page")
+    )
     trip_generations = (
         case_trip_generations(case)
         .select_related("vehicle")
@@ -339,6 +379,7 @@ def index(request, case_id):
                 run_counts + Counter(chat_counts),
                 all_batches,
                 imports,
+                call_import_counts,
                 trip_generations,
                 monitor_counts,
                 search_index["status"],
@@ -380,10 +421,18 @@ def index(request, case_id):
                 or search_pending
                 or running_monitors
                 or active_imports.paginator.count
+                or call_import_counts["queued"]
+                or call_import_counts["running"]
             ),
             "active_batches": active_batches,
             "active_imports": active_imports,
             "import_history": import_history,
+            "active_call_imports": active_call_imports[:10],
+            "more_active_call_imports": (
+                call_import_counts["queued"] + call_import_counts["running"] > 10
+            ),
+            "call_imports_to_review": call_imports_to_review[:NEEDS_ATTENTION_LIMIT],
+            "call_import_history": call_import_history,
             "active_trips": active_trips,
             "trip_history": trip_history,
             "batches": batches,

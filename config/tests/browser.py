@@ -3133,13 +3133,11 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator("[data-upload-status]")).to_contain_text("paused")
                 self.db(membership.delete)
                 page.get_by_role("button", name="Upload files").click()
-                expect(entries.nth(1)).to_have_attribute("data-state", "blocked")
-                expect(entries.nth(2)).to_have_attribute("data-state", "ready")
-                expect(picker).to_be_disabled()
-                expect(page.get_by_role("button", name="Upload files")).to_be_disabled()
-                expect(page.locator("[data-upload-status]")).to_contain_text(
-                    "access is unavailable"
-                )
+                expect(
+                    page.get_by_role("heading", name="Your session or access changed")
+                ).to_be_focused()
+                expect(entries).to_have_count(0)
+                expect(picker).to_have_count(0)
                 self.assertEqual(
                     self.db(DocumentEvidence.objects.filter(uploaded_by=editor).count),
                     1,

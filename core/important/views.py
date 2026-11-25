@@ -3,14 +3,11 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import messages
-from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q
 from django.http import Http404, HttpResponseBadRequest
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import redirect
 from django.urls import reverse
-from django.utils import timezone
 from django.views.decorators.http import (
     require_http_methods,
     require_POST,
@@ -22,62 +19,34 @@ from config.access import product_login_required
 from core.analysis.catalogue import archived_finding_sources, raw_finding_item
 from core.analysis.important import finding_target
 from core.analysis.services import SourceResolutionCache
-from core.evidence.queries import get_evidence, scoped_evidence
+from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS
-from core.evidence_chat.services import reply_available
-from core.models import AnalysisResult, ImportantItem, ImportantNote
-from core.models.chat import ChatTurn
+from core.models import ImportantItem, ImportantNote
 from phone.presentation import message_labels
 from ui.dialogs import form_saved, render_quick_form
 from ui.live import render_live
 
 from .navigation import list_url, page_number, with_return
 from .reader import reader_return_token, reader_return_url
+from .services import (
+    RESULT_RELATION,
+    InvalidMarkAction,
+    evidence_target,
+    read_note_item,
+    reply_target,
+    set_evidence_mark,
+    set_finding_mark,
+    set_reply_mark,
+    submit_note,
+)
 
 PER_PAGE = 25
-RESULT_RELATION = "finding_result__run__previous_run"
 
 
 class ImportantNoteForm(forms.Form):
     body = forms.CharField(
         label="Note", max_length=4000, widget=forms.Textarea(attrs={"rows": 4})
     )
-
-
-def _evidence_target(case, kind, evidence, *, title=None):
-    return {
-        "title": title or evidence.title,
-        "label": KIND_LABELS[kind],
-        "url": reverse("core:evidence:detail", args=[case.pk, kind, evidence.pk]),
-    }
-
-
-def _read_target(case, item):
-    if item.chat_turn_id:
-        return _reply_target(case, item.chat_turn)
-    if item.finding_result_id:
-        return finding_target(case, item.finding_result, item.item_index)
-    evidence = get_evidence(case, item.evidence_kind, item.evidence_id)
-    if evidence.is_archived:
-        raise Http404("Restore this evidence to open its notes.")
-    title = None
-    if item.evidence_kind == "text-message":
-        title = message_labels(case, [evidence.pk]).get(evidence.pk)
-    return _evidence_target(case, item.evidence_kind, evidence, title=title)
-
-
-def _reply_target(case, turn):
-    if (
-        turn.case_id != case.pk
-        or turn.chat.case_id != case.pk
-        or not reply_available(turn)
-    ):
-        raise Http404("Reply unavailable.")
-    return {
-        "title": turn.question,
-        "label": "Evidence chat reply",
-        "url": reverse("core:chat:reply", args=[case.pk, turn.chat_id, turn.pk]),
-    }
 
 
 def _page_rows(case, page):
@@ -104,7 +73,7 @@ def _page_rows(case, page):
     for item in page:
         try:
             if item.chat_turn_id:
-                target = _reply_target(case, item.chat_turn)
+                target = reply_target(case, item.chat_turn)
             elif item.finding_result_id:
                 if item.finding_result_id != cached_result_id:
                     # Avoid keeping full source text from several results in memory.
@@ -119,7 +88,7 @@ def _page_rows(case, page):
                 )
             else:
                 original = evidence[(item.evidence_kind, item.evidence_id)]
-                target = _evidence_target(
+                target = evidence_target(
                     case,
                     item.evidence_kind,
                     original,
@@ -184,88 +153,54 @@ def index(request, case_id):
     )
 
 
-def _apply_mark(request, case, target, source_url):
+def _mark_response(request, change_mark, *target, evidence=False):
     action = request.POST.get("action")
-    if action == "mark":
-        item, _ = ImportantItem.objects.get_or_create(case=case, **target)
-        if item.marked_at is None:
-            item.marked_at = timezone.now()
-            item.marked_by = request.user
-            item.save(update_fields=("marked_at", "marked_by"))
-        messages.success(request, "Marked important.")
-    elif action == "unmark":
-        ImportantItem.objects.filter(case=case, **target).update(
-            marked_at=None, marked_by=None
-        )
-        messages.success(request, "Removed from Important.")
-    else:
+    try:
+        source_url = change_mark(request.user, *target, action=action)
+    except InvalidMarkAction:
         return HttpResponseBadRequest("Choose whether to mark or remove this item.")
+    messages.success(
+        request, "Marked important." if action == "mark" else "Removed from Important."
+    )
     reader_url = reader_return_url(
-        request, request.POST.get("reader_return", ""), evidence="evidence_id" in target
+        request, request.POST.get("reader_return", ""), evidence=evidence
     )
     return redirect(reader_url or source_url)
 
 
 @product_login_required
 @require_POST
-@transaction.atomic
 def mark_evidence(request, case_id, kind, evidence_id):
-    case = get_case(request.user, case_id, edit=True, lock=True)
-    evidence = get_evidence(case, kind, evidence_id, lock=True)
-    if evidence.is_archived:
-        raise Http404("Restore this evidence before changing its mark.")
-    return _apply_mark(
-        request,
-        case,
-        {"evidence_kind": kind, "evidence_id": evidence.pk},
-        reverse("core:evidence:detail", args=[case.pk, kind, evidence.pk]),
+    return _mark_response(
+        request, set_evidence_mark, case_id, kind, evidence_id, evidence=True
     )
 
 
 @product_login_required
 @require_POST
-@transaction.atomic
 def mark_finding(request, case_id, run_id, item_index):
-    case = get_case(request.user, case_id, edit=True, lock=True)
-    result = get_object_or_404(
-        AnalysisResult.objects.select_related("run"),
-        case=case,
-        run__case=case,
-        run_id=run_id,
-    )
-    target = finding_target(case, result, item_index)
-    return _apply_mark(
-        request,
-        case,
-        {"finding_result": result, "item_index": item_index},
-        target["url"],
-    )
+    return _mark_response(request, set_finding_mark, case_id, run_id, item_index)
 
 
 @product_login_required
 @require_POST
-@transaction.atomic
 def mark_reply(request, case_id, turn_id):
-    case = get_case(request.user, case_id, edit=True, lock=True)
-    turn = get_object_or_404(
-        ChatTurn.objects.select_related("chat"), pk=turn_id, case=case, chat__case=case
-    )
-    target = _reply_target(case, turn)
-    return _apply_mark(request, case, {"chat_turn": turn}, target["url"])
+    return _mark_response(request, set_reply_mark, case_id, turn_id)
 
 
 @product_login_required
 @require_http_methods(["GET", "HEAD", "POST"])
-@transaction.atomic
 def notes(request, case_id, item_id):
-    writing = request.method == "POST"
-    case = get_case(request.user, case_id, edit=writing, lock=writing)
-    item = get_object_or_404(
-        ImportantItem.objects.select_related("chat_turn__chat", RESULT_RELATION),
-        case=case,
-        pk=item_id,
-    )
-    target = _read_target(case, item)
+    if request.method == "POST":
+        form = ImportantNoteForm(request.POST)
+        case, item, target, note_count = submit_note(
+            request.user, case_id, item_id, form
+        )
+    else:
+        case = get_case(request.user, case_id)
+        item, target = read_note_item(case, item_id)
+        form = ImportantNoteForm()
+        note_count = None
     important_page = page_number(request.GET.get("important_page", ""))
     from_list = item.marked_at is not None and "important_page" in request.GET
     params = {"important_page": important_page} if from_list else {}
@@ -282,20 +217,13 @@ def notes(request, case_id, item_id):
             source_url,
             {"important_page": important_page, "important_item": str(item.pk)},
         )
-    form = ImportantNoteForm(request.POST if writing else None)
-    if writing:
-        if item.marked_at is None:
-            raise PermissionDenied("Mark this item important to add a note.")
-        if form.is_valid():
-            ImportantNote.objects.create(
-                item=item, author=request.user, body=form.cleaned_data["body"]
-            )
-            return form_saved(
-                request,
-                "Note added.",
-                reverse("core:important:notes", args=[case.pk, item.pk], query=params),
-                note_count=item.notes.count(),
-            )
+    if note_count is not None:
+        return form_saved(
+            request,
+            "Note added.",
+            reverse("core:important:notes", args=[case.pk, item.pk], query=params),
+            note_count=note_count,
+        )
 
     page = Paginator(item.notes.select_related("author"), PER_PAGE).get_page(
         page_number(request.GET.get("page", ""))

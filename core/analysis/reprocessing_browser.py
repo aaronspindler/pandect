@@ -127,20 +127,29 @@ class ReprocessingBrowserTests(BrowserTestCase):
                     "input[name='submission_id']"
                 ).input_value()
                 submit.press("Enter")
-                expect(page).to_have_url(
-                    self.url("core:analysis:processing", case_id=self.case.pk)
-                    + f"?batch={submission_id}#processing-history"
-                )
                 expect(page.locator("#processing-history")).to_contain_text(
                     "Selected batch"
                 )
-                batch = self.db(CaseAnalysisBatch.objects.get, pk=submission_id)
+                batch = self.db(
+                    CaseAnalysisBatch.objects.get,
+                    case=self.case,
+                    requested_by=self.owner,
+                    submission_id=submission_id,
+                )
+                expect(page).to_have_url(
+                    self.url("core:analysis:processing", case_id=self.case.pk)
+                    + f"?batch={batch.pk}#processing-history"
+                )
                 self.assertEqual(set(batch.scope["kinds"]), {"location", "text"})
                 self.assertNotIn("mode", batch.scope)
                 self.assertEqual(
                     self.db(AnalysisRun.objects.filter(batch=batch).count), 0
                 )
                 self.capture(page, engine, "reprocess-batch-progress")
+                self.db(
+                    CaseAnalysisBatch.objects.filter(pk=batch.pk).update,
+                    status=CaseAnalysisBatch.Status.COMPLETE,
+                )
 
     def test_viewer_has_history_without_reprocessing_action(self):
         for engine in self.engines:

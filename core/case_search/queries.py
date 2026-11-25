@@ -10,7 +10,11 @@ from django.db.models import Case, F, Q, TextField, Value, When, Window
 from django.db.models.functions import RowNumber, Upper
 from django.urls import reverse
 
-from core.evidence.search import CALL_PARENTS, content_excerpt
+from core.evidence.search import (
+    CALL_HISTORY_SEARCH_FIELDS,
+    CALL_PARENTS,
+    content_excerpt,
+)
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS
 from geo.trip_models import VehicleTripSource
 from people.models import Person
@@ -113,6 +117,7 @@ class RelatedMatches:
             clause |= Q(pk__in=self.passages.ids(kind, term))
         if kind in CALL_KINDS:
             clause |= Q(pk__in=self.ids(kind, term))
+            clause |= any_field(CALL_HISTORY_SEARCH_FIELDS, "icontains", term.text)
         if kind in ("text-message", "conversation"):
             clause |= Q(pk__in=self.ids("context", term))
         if kind in (*COMMUNICATION_KINDS, "conversation"):

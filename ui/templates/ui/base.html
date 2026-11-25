@@ -10,6 +10,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="{% static 'ui/brand/apple-touch-icon.png' %}">
   <link rel="stylesheet" href="{% static 'ui/primitives.css' %}">
   <link rel="stylesheet" href="{% static 'ui/app.css' %}">
+  {% include 'ui/components/private_session.html' %}
   <script src="{% static 'ui/timezone.js' %}" data-automatic="{% if user.timezone %}false{% else %}true{% endif %}" data-method="{{ request.method }}"></script>
   <script src="{% static 'ui/page.js' %}" defer></script>
   <script src="{% static 'ui/app.js' %}" defer></script>
@@ -18,7 +19,7 @@
   <meta name="htmx-config" content='{"historyEnabled":false,"historyCacheSize":0,"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"timeout":15000}'>
   <script src="{% static 'ui/vendor/htmx/htmx.min.js' %}" defer></script>
   <script src="{% static 'ui/workspace.js' %}" defer></script>
-  <script src="{% static 'ui/collection.js' %}" data-cases-url="{% url 'cases:case_list' %}" defer></script>
+  <script src="{% static 'ui/collection.js' %}" defer></script>
   <script src="{% static 'core/evidence.js' %}" defer></script>
   <script src="{% static 'phone/conversations.js' %}" defer></script>
   <script src="{% static 'core/daily-chronology.js' %}" defer></script>
@@ -44,7 +45,6 @@
     <div class="actions" data-activity-feedback hidden>
       <span role="status" data-activity-message></span>
       <button class="button button-secondary" type="button" data-activity-retry>Retry updates</button>
-      <a class="record-link" href="{% url 'cases:case_list' %}" data-activity-access hidden>All cases</a>
     </div>
     {% endif %}
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}" {% if message.level >= 40 %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>{% endfor %}</div>{% endif %}

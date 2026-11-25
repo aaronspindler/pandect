@@ -51,10 +51,11 @@
     if (accessLost) return null;
     if (location.href !== origin || !trigger.isConnected || dialog.open) return false;
     if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-      document.dispatchEvent(new Event("pandect:access-lost", {cancelable: true}));
+      window.PandectPrivateSession.clearPrivatePage();
       return null;
     }
     if (!response.ok || response.headers.get("X-Pandect-Form") !== "record") return false;
+    if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return null;
     const fragment = new DOMParser().parseFromString(await response.text(), "text/html");
     const parts = [...fragment.querySelectorAll("[data-record-part][id]")];
     if (accessLost) return null;
@@ -128,12 +129,11 @@
       });
       if (request !== controller) return;
       if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-        fields.replaceChildren();
-        dirty = false;
-        document.dispatchEvent(new Event("pandect:access-lost", {cancelable: true}));
-        if (dialog.open) recovery("This action is no longer available.", "All cases", dialog.dataset.casesUrl);
+        window.PandectPrivateSession.clearPrivatePage();
         return;
       }
+      if (response.headers.get("X-Pandect-Form") &&
+          !window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
       if (form && response.ok && response.headers.get("X-Pandect-Form") === "saved") {
         const result = await response.json();
         if (request !== controller) return;
@@ -238,7 +238,6 @@
     request = null;
     dirty = saving = false;
     fields.replaceChildren();
-    recovery("This action is no longer available.", "All cases", dialog.dataset.casesUrl);
   });
   document.addEventListener("pandect:check-navigation", event => {
     if (!dialog.open) return;

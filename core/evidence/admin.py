@@ -13,7 +13,6 @@ from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
 from django.urls import reverse
-from django.utils import timezone
 
 from cases.admin_access import CaseScopedAdmin
 from cases.permissions import get_case
@@ -29,6 +28,7 @@ from core.evidence.deletion import (
 )
 from core.evidence.forms import BaseEvidenceForm
 from core.evidence.queries import same_case_evidence
+from core.evidence.retention import refresh_archive_derivatives, set_archive_attribution
 from core.storage import retain_uploaded_originals, staged_file_upload
 
 
@@ -413,8 +413,7 @@ class EvidenceAdmin(CaseScopedAdmin):
                 and obj.is_archived != current.is_archived
             )
             if archive_changed:
-                obj.archive_changed_at = timezone.now()
-                obj.archive_changed_by = request.user
+                set_archive_attribution(obj, request.user, obj.is_archived)
             else:
                 obj.is_archived = current.is_archived
                 obj.archive_changed_at = current.archive_changed_at
@@ -425,11 +424,7 @@ class EvidenceAdmin(CaseScopedAdmin):
                 request.evidence_admin_originals.append(obj.file)
             start_added_evidence_analysis(request.user, case.pk, self.kind, obj.pk)
         if archive_changed:
-            from core.case_search.indexing import evidence_archive_changed
-
-            evidence_archive_changed(
-                case, request.user, self.kind, obj.pk, archived=obj.is_archived
-            )
+            refresh_archive_derivatives(case, request.user, self.kind, obj)
 
 
 def deletion_summary(plans):

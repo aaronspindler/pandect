@@ -71,6 +71,7 @@ def start_case_analysis(actor, case_id, *, submission_id, scope):
         raise ValidationError("Choose an analysis scope.")
     if scope.get("type") not in {
         "added",
+        "call-history",
         "reprocess",
         "instance_summaries",
         "search_generation",
@@ -81,14 +82,13 @@ def start_case_analysis(actor, case_id, *, submission_id, scope):
 
         if not imported_sources(case, scope)[1].exists():
             raise ValidationError("This import has no newly added evidence to check.")
-    existing = CaseAnalysisBatch.objects.filter(pk=submission_id).first()
+    existing = CaseAnalysisBatch.objects.filter(
+        case=case, requested_by=actor, submission_id=submission_id
+    ).first()
     if existing:
-        if (
-            existing.case_id != case.pk
-            or existing.requested_by_id != actor.pk
-            or {key: value for key, value in existing.scope.items() if key != "_cursor"}
-            != scope
-        ):
+        if {
+            key: value for key, value in existing.scope.items() if key != "_cursor"
+        } != scope:
             raise ValidationError(
                 "This submission was already used for another analysis."
             )
@@ -96,7 +96,7 @@ def start_case_analysis(actor, case_id, *, submission_id, scope):
     try:
         with transaction.atomic():
             batch = CaseAnalysisBatch.objects.create(
-                pk=submission_id, case=case, requested_by=actor, scope=scope
+                submission_id=submission_id, case=case, requested_by=actor, scope=scope
             )
     except IntegrityError:
         raise ValidationError(
@@ -245,7 +245,7 @@ def prepare_case_analysis_batch(batch_id):
                 from core.analysis.retries import prepare_failed_retries
 
                 has_more = prepare_failed_retries(batch, case)
-            elif scope_type == "reprocess":
+            elif scope_type in {"reprocess", "call-history"}:
                 from core.analysis.reprocessing import prepare_reprocessing
 
                 has_more = prepare_reprocessing(batch, case)

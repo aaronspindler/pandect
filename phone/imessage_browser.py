@@ -263,6 +263,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_text("Preparing message analysis", exact=True).first
                 ).to_be_visible()
+                expect(page.locator("#message-analysis-status")).to_contain_text(
+                    "0 of 2 imported messages prepared · 0 checks created"
+                )
                 self.capture(page, engine, "automatic-analysis-processing")
                 self.db(prepare_case_analysis_batch, batch.pk)
                 self.db(prepare_case_analysis_batch, batch.pk)

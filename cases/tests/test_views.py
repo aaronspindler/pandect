@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.admin import CaseAdmin
+from cases.invitations import InvitationUnavailable, resolve_invitation
 from cases.models import Case, CaseInvitation, CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
@@ -729,6 +730,19 @@ class CaseInterfaceTests(TestCase):
             CaseMembership.objects.filter(case=self.case, user=self.invitee).exists()
         )
 
+    def test_invitation_service_checks_current_account_status(self):
+        invitation, token = self.invite()
+        get_user_model().objects.filter(pk=self.invitee.pk).update(is_active=False)
+
+        with self.assertRaisesMessage(InvitationUnavailable, "wrong_email"):
+            resolve_invitation(self.invitee, token, accept=True)
+
+        invitation.refresh_from_db()
+        self.assertIsNone(invitation.accepted_at)
+        self.assertFalse(
+            CaseMembership.objects.filter(case=self.case, user=self.invitee).exists()
+        )
+
     def test_acceptance_does_not_change_existing_member_role(self):
         _, token = self.invite(role="editor")
         CaseMembership.objects.create(case=self.case, user=self.invitee, role="viewer")
@@ -816,7 +830,8 @@ class CaseInterfaceTests(TestCase):
     def test_email_failure_keeps_pending_invitation_and_can_retry(self):
         self.login()
         with patch(
-            "cases.views.EmailMessage.send", side_effect=OSError("synthetic failure")
+            "cases.invitations.EmailMessage.send",
+            side_effect=OSError("synthetic failure"),
         ):
             response = self.client.post(
                 self.url("invitation_create"),

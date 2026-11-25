@@ -10,17 +10,17 @@ from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.storage import file_integrity, retain_uploaded_originals, staged_file_upload
-from document.models import DocumentEvidence
 from geo.import_forms import VehicleImportReviewForm, VehicleImportUploadForm
 from geo.models import VehicleLocationImport
 from geo.vehicle_import_jobs import (
     ERROR_MESSAGES,
+    ImportSubmissionConflict,
     enqueue_completion,
     enqueue_preparation,
+    retain_import,
     retry_import,
 )
-from geo.vehicle_imports import MAX_BYTES, MAX_GROUPS, MAX_ROWS, PARSER_VERSION
+from geo.vehicle_imports import MAX_BYTES, MAX_GROUPS, MAX_ROWS
 from ui.live import render_live
 
 
@@ -46,74 +46,19 @@ def vehicle_import_upload(request, case_id):
         if getattr(request, "evidence_upload_too_large", False):
             form.add_error(None, "Choose a CSV within the displayed import size limit.")
         elif form.is_valid():
-            original = form.cleaned_data["file"]
-            vehicle = form.cleaned_data["vehicle"]
             try:
-                with (
-                    staged_file_upload(original, limit=MAX_BYTES),
-                    retain_uploaded_originals() as originals,
-                ):
-                    case = get_case(request.user, case_id, edit=True, lock=True)
-                    batch = (
-                        VehicleLocationImport.objects.filter(
-                            pk=form.cleaned_data["submission_id"]
-                        )
-                        .select_related("document")
-                        .first()
-                    )
-                    if batch:
-                        digest = file_integrity(DocumentEvidence(file=original).file)
-                        if (
-                            batch.case_id != case.pk
-                            or batch.uploaded_by_id != request.user.pk
-                            or batch.document.case_id != case.pk
-                            or batch.document.sha256 != digest["sha256"]
-                            or batch.timezone != form.cleaned_data["timezone"]
-                            or batch.selected_vehicle_id != getattr(vehicle, "pk", None)
-                        ):
-                            form.add_error(
-                                None,
-                                "This submission cannot be reused. Start a new import.",
-                            )
-                            status = 409
-                        else:
-                            return redirect(
-                                "geo:vehicle_import_review",
-                                case_id=case.pk,
-                                import_id=batch.pk,
-                            )
-                    else:
-                        document = DocumentEvidence(
-                            case=case,
-                            uploaded_by=request.user,
-                            title=f"Asset Location CSV: {original.name}"[:255],
-                            source=form.cleaned_data["source"],
-                            file=original,
-                        )
-                        document.full_clean()
-                        document.save()
-                        originals.append(document.file)
-                        batch = VehicleLocationImport(
-                            id=form.cleaned_data["submission_id"],
-                            case=case,
-                            uploaded_by=request.user,
-                            document=document,
-                            timezone=form.cleaned_data["timezone"],
-                            parser_version=PARSER_VERSION,
-                            selected_vehicle=vehicle,
-                        )
-                        batch.save()
-                        enqueue_preparation(request.user, case.pk, batch.pk)
-                if originals:
-                    messages.success(
-                        request,
-                        "CSV retained. Its review is being prepared in the background.",
-                    )
-                    return redirect(
-                        "geo:vehicle_import_review",
-                        case_id=case.pk,
-                        import_id=batch.pk,
-                    )
+                batch, created = retain_import(
+                    request.user,
+                    case_id,
+                    submission_id=form.cleaned_data["submission_id"],
+                    original=form.cleaned_data["file"],
+                    timezone=form.cleaned_data["timezone"],
+                    vehicle=form.cleaned_data["vehicle"],
+                    source=form.cleaned_data["source"],
+                )
+            except ImportSubmissionConflict as error:
+                form.add_error(None, error)
+                status = 409
             except OSError, ValidationError:
                 form.add_error(
                     None,
@@ -121,6 +66,15 @@ def vehicle_import_upload(request, case_id):
                     "no observations were imported.",
                 )
                 status = 503
+            else:
+                if created:
+                    messages.success(
+                        request,
+                        "CSV retained. Its review is being prepared in the background.",
+                    )
+                return redirect(
+                    "geo:vehicle_import_review", case_id=case.pk, import_id=batch.pk
+                )
     return render(
         request,
         "geo/import_upload.html",

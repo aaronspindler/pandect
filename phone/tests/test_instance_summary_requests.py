@@ -123,7 +123,12 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             "external_processing": "on",
         }
         response = self.client.post(url, payload)
-        batch = CaseAnalysisBatch.objects.get()
+        batch = CaseAnalysisBatch.objects.get(
+            case=self.case,
+            requested_by=self.users["editor"],
+            submission_id=payload["submission_id"],
+        )
+        self.assertNotEqual(str(batch.pk), str(payload["submission_id"]))
         self.assertIn(f"batch={batch.pk}", response.url)
         self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
         self.assertEqual(self.client.post(url, payload).url, response.url)

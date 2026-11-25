@@ -11,6 +11,7 @@ CASE_FILE_FORMS = {
     "core:evidence:create",
     "geo:vehicle_import_upload",
     "phone:add_attachment",
+    "phone:call_history_upload",
     "phone:imessage_upload",
 }
 
@@ -22,6 +23,10 @@ def file_limit(match):
         return min(settings.PANDECT_MAX_FILE_BYTES, MAX_BYTES)
     if match.view_name == "phone:imessage_upload":
         from phone.analysis.deterministic.imessage import import_file_limit
+
+        return import_file_limit()
+    if match.view_name == "phone:call_history_upload":
+        from phone.call_history import import_file_limit
 
         return import_file_limit()
     return settings.PANDECT_MAX_FILE_BYTES

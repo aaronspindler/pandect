@@ -32,7 +32,7 @@ class Evidence(models.Model):
     source_description = models.TextField(blank=True)
     collected_at = models.DateTimeField(null=True, blank=True)
     sha256 = models.CharField(max_length=64, editable=False, blank=True)
-    submission_id = models.UUIDField(null=True, blank=True, unique=True, editable=False)
+    submission_id = models.UUIDField(null=True, blank=True, editable=False)
     is_archived = models.BooleanField(default=False)
     archive_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
     archive_changed_by = models.ForeignKey(
@@ -56,6 +56,10 @@ class Evidence(models.Model):
         abstract = True
         ordering = ("-created_at", "-pk")
         constraints = [
+            models.UniqueConstraint(
+                fields=("case", "uploaded_by", "submission_id"),
+                name="%(app_label)s_%(class)s_submission_scope",
+            ),
             models.CheckConstraint(
                 condition=~models.Q(title=""),
                 name="%(app_label)s_%(class)s_title_present",
@@ -200,6 +204,7 @@ class PendingFileDeletion(models.Model):
     """Private default-storage work that survives deletion of its parent case."""
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case_id = models.UUIDField(null=True, editable=False)
     storage_key = models.CharField(max_length=500)
     created_at = models.DateTimeField(auto_now_add=True)
     last_attempted_at = models.DateTimeField(null=True)

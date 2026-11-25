@@ -5,7 +5,7 @@ from uuid import uuid4
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from cases.rerank_views import approval_context
+from cases.search_settings import rerank_approval_context
 from core.analysis.errors import AnalysisError
 from core.analysis.tests.test_gateway import response
 from core.case_search.rerank import (
@@ -41,7 +41,7 @@ class RerankTests(EvidenceViewTestMixin, TestCase):
         self.url = reverse("cases:case_passage_ranking", args=(self.case.pk,))
 
     def change(self, action, *, token=None):
-        review = approval_context(self.case, self.users["owner"])
+        review = rerank_approval_context(self.case, self.users["owner"])
         self.login("owner")
         result = self.client.post(
             self.url, {"action": action, "confirmation": token or review[action]}
@@ -85,7 +85,7 @@ class RerankTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(page, "Approve hosted passage ranking")
         self.assertContains(page, HOSTED_MODEL)
         self.assertFalse(rerank_scope(self.case))
-        stale = approval_context(self.case, self.users["owner"])["approve"]
+        stale = rerank_approval_context(self.case, self.users["owner"])["approve"]
         first = self.change("approve")
         self.assertFalse(self.case.search_embedding_approval)
         self.change("revoke")

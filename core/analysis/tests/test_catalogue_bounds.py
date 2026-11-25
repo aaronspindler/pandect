@@ -13,6 +13,7 @@ from django.test.utils import CaptureQueriesContext
 
 from core.analysis.catalogue import catalogue_page, project_result
 from core.models import AnalysisResult, AnalysisRun
+from core.storage import original_upload_path
 from core.testing import EvidenceTestMixin
 from image.models import ImageEvidence
 
@@ -20,7 +21,11 @@ from image.models import ImageEvidence
 class CatalogueBoundsTests(EvidenceTestMixin, TestCase):
     def test_maximum_file_backed_page_has_bounded_queries_and_checks(self):
         checksum = hashlib.sha256(b"synthetic").hexdigest()
-        (self.media_root / "catalogue-fixture.bin").write_bytes(b"synthetic")
+        filename = "catalogue-fixture.bin"
+        key = original_upload_path(ImageEvidence(case=self.case), filename)
+        fixture = self.media_root / key
+        fixture.parent.mkdir(parents=True)
+        fixture.write_bytes(b"synthetic")
         for _ in range(25):
             originals = ImageEvidence.objects.bulk_create(
                 [
@@ -28,8 +33,8 @@ class CatalogueBoundsTests(EvidenceTestMixin, TestCase):
                         case=self.case,
                         uploaded_by=self.owner,
                         title="Synthetic original",
-                        file="catalogue-fixture.bin",
-                        original_filename="catalogue-fixture.bin",
+                        file=key,
+                        original_filename=filename,
                         byte_size=9,
                         sha256=checksum,
                     )

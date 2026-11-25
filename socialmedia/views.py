@@ -7,13 +7,13 @@ from django.views.decorators.http import require_http_methods
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from people.models import Person
-from people.views import list_query
 from socialmedia.forms import (
     SocialAccountDeleteForm,
     SocialAccountForm,
     social_account_revision,
 )
 from socialmedia.models import SocialAccount
+from ui.navigation import list_query
 
 
 def person_accounts_url(request, person):

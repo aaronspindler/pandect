@@ -1,9 +1,5 @@
 """Choose one exact retained quotation and queue its private comparison."""
 
-import hashlib
-import json
-import re
-
 from django import forms
 from django.contrib import messages
 from django.core import signing
@@ -18,43 +14,15 @@ from django.views.decorators.http import require_POST
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.form_base import selection
 from core.analysis.navigation import current_comparison_origin, evidence_return_url
-from core.analysis.services import snapshot_and_resolve_sources, start_run
+from core.analysis.services import start_run
+from core.analysis.sources import selection
 from core.evidence.types import KIND_LABELS
 from phone.analysis.presentation import addition_label
-from text.analysis.claim_comparison import (
-    COMPARISON_KINDS,
-    MAX_QUOTE,
-    MAX_SOURCES,
-    selectable_claim,
-    validate_sources,
-)
+from text.analysis.claim_comparison import MAX_QUOTE, selectable_claim
+from text.claim_comparison_requests import quote_offsets, review_sources
 
 OPERATION = "claim_comparison"
-
-
-def _quote_offsets(text, quote):
-    # An HTML textarea normalizes line endings. Translate the match back to
-    # character offsets in the unchanged retained source.
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    quote = quote.replace("\r\n", "\n").replace("\r", "\n")
-    start = normalized.find(quote) if quote.strip() else -1
-    if start == -1:
-        raise ValidationError("Copy the exact wording from the selected claim source.")
-    if normalized.find(quote, start + 1) != -1:
-        raise ValidationError(
-            "This quotation occurs more than once. Include surrounding words "
-            "to identify the passage."
-        )
-    end = start + len(quote)
-    for line_end in re.finditer("\r\n", text):
-        if line_end.start() >= end:
-            break
-        end += 1
-        if line_end.start() < start:
-            start += 1
-    return start, end
 
 
 class ClaimForm(forms.Form):
@@ -82,7 +50,7 @@ class ClaimForm(forms.Form):
         source_id, quote = data.get("source_id"), data.get("quote")
         if source_id and quote:
             try:
-                start, end = _quote_offsets(
+                start, end = quote_offsets(
                     self.claim_sources[source_id]["source"].text, quote
                 )
             except ValidationError as error:
@@ -92,8 +60,9 @@ class ClaimForm(forms.Form):
         return data
 
 
-def _source_rows(sources):
+def _comparison_rows(sources):
     rows = {}
+    claim_sources = {}
     for source in sources:
         label = f"{KIND_LABELS[source.kind]} · {source.item.title}"
         if occurred_at := getattr(source.item, "occurred_at", None):
@@ -103,23 +72,11 @@ def _source_rows(sources):
             label += f" · {addition}"
         if source.derived_run_id:
             label += f" · Extraction {source.derived_run_id[:8]}"
-        rows[source.id] = {"source": source, "label": label}
-    return rows
-
-
-def _resolve(case, selections):
-    if not 2 <= len(selections) <= MAX_SOURCES:
-        raise ValidationError(f"Choose between 2 and {MAX_SOURCES} retained sources.")
-    snapshots, sources = snapshot_and_resolve_sources(
-        case, selections, allowed_kinds=COMPARISON_KINDS
-    )
-    validate_sources(sources)
-    rows = _source_rows(sources)
-    claim_sources = {
-        source.id: rows[source.id] for source in sources if selectable_claim(source)
-    }
-    digest = hashlib.sha256(json.dumps(snapshots, sort_keys=True).encode()).hexdigest()
-    return digest, rows, claim_sources
+        row = {"source": source, "label": label}
+        rows[source.id] = row
+        if selectable_claim(source):
+            claim_sources[source.id] = row
+    return rows, claim_sources
 
 
 def _salt(case, user):
@@ -163,11 +120,10 @@ def prepare(
 ):
     """Open the quotation step from the editor-authorized evidence picker."""
     try:
-        digest, rows, claim_sources = _resolve(
-            case, [selection(value) for value in tokens]
-        )
+        digest, sources = review_sources(case, [selection(value) for value in tokens])
     except Http404:
         raise AnalysisError("source_unavailable") from None
+    rows, claim_sources = _comparison_rows(sources)
     draft = {
         "digest": digest,
         "tokens": tokens,
@@ -206,9 +162,7 @@ def confirm(request, case_id):
     draft.update(chooser_query=current_chooser, result_query=result_query)
     selections = [selection(value) for value in draft["tokens"]]
     try:
-        digest, rows, claim_sources = _resolve(case, selections)
-        if digest != draft["digest"]:
-            raise AnalysisError("source_changed")
+        _, sources = review_sources(case, selections, expected_digest=draft["digest"])
     except (AnalysisError, ValidationError, Http404) as error:
         message = (
             " ".join(error.messages)
@@ -219,6 +173,7 @@ def confirm(request, case_id):
         )
         return _render(request, case, draft_data=draft, error=message)
 
+    rows, claim_sources = _comparison_rows(sources)
     form = ClaimForm(request.POST, claim_sources=claim_sources)
     if form.is_valid():
         try:

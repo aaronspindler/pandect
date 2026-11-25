@@ -186,6 +186,19 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(conflict.status_code, 409)
         self.assertEqual(DocumentEvidence.objects.count(), 1)
+        self.login("editor")
+        editor = self.client.post(self.upload_url(), payload())
+        self.assertEqual(editor.status_code, 302)
+        self.assertNotEqual(editor.url, first.url)
+        self.assertEqual(self.client.post(self.upload_url(), payload()).url, editor.url)
+        CaseMembership.objects.create(
+            case=self.other_case, user=self.users["editor"], role="editor"
+        )
+        other_case = self.client.post(self.upload_url(self.other_case), payload())
+        self.assertEqual(other_case.status_code, 302)
+        self.assertNotEqual(other_case.url, editor.url)
+        self.assertEqual(DocumentEvidence.objects.count(), 3)
+        self.assertEqual(AnalysisRun.objects.count(), 3)
 
     def test_csv_import_streaming_limit_does_not_reduce_ordinary_uploads(self):
         self.login("owner")
@@ -311,6 +324,13 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
                 self.new_people() | {"mode": "ai"},
             )
         self.assertEqual(changed_mode.url, first.url)
+        self.login("editor")
+        already_confirmed = self.client.post(
+            self.review_url(preview), self.new_people()
+        )
+        self.assertContains(
+            already_confirmed, "already has a confirmed import", status_code=409
+        )
         final.refresh_from_db()
         self.assertNotIn("analysis", final.parameters)
         self.assertEqual(

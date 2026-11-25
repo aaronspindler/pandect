@@ -4,7 +4,7 @@ from django.urls import reverse
 
 from core.evidence.types import KINDS
 
-from .admin_access import AdminCascadeMixin, CaseScopedReadOnlyAdmin
+from .admin_access import CaseAdminCascadeMixin, CaseScopedReadOnlyAdmin
 from .models import Case, CaseActivity, CaseInvitation, CaseMembership
 from .permissions import accessible_cases
 
@@ -44,7 +44,7 @@ class CaseMembershipInline(admin.StackedInline):
 
 
 @admin.register(Case)
-class CaseAdmin(AdminCascadeMixin, admin.ModelAdmin):
+class CaseAdmin(CaseAdminCascadeMixin, admin.ModelAdmin):
     list_display = ("__str__", "owner", "created_at")
     list_select_related = ("owner",)
     search_fields = ("name", "=id")

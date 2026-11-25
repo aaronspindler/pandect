@@ -170,6 +170,7 @@ output; keep fixtures synthetic.
 | `core.evidence.bulk_admin_browser` | `data/validation/browser` |
 | `core.evidence.packet_browser` | `data/validation/evidence-packet` |
 | Message CSV import | `data/validation/message-csv-browser` |
+| Call history CSV import | `data/validation/call-history-browser` |
 | `marketing.browser` | `data/validation/marketing-browser` |
 | `core.analysis.browser` | `data/validation/analysis-browser` |
 | `core.analysis.context_browser` | `data/validation/context-browser` |
@@ -201,6 +202,13 @@ use the same command and isolated database setup:
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings image.tests.test_previews --noinput
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
 ```
+
+When changing isolation boundaries, verify with synthetic records in separate
+cases, including two cases the same investigator can access. Cover account-only
+settings, case roles and revocation, normal and enhanced page loads, search and
+live activity, private file reads and exports, and worker retries or publication.
+Check both allowed results and rejected foreign references. Browser checks
+should exercise account changes and navigational history in one browser context.
 
 For the offline Instagram pilot, exercise PostgreSQL, fresh worker processes, and
 a loopback-only Chromium service with three scheduled checks against generated

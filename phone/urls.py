@@ -2,6 +2,7 @@ from django.urls import path
 
 from audio.views import play_attachment
 from phone import (
+    call_import_views,
     conversation_views,
     imessage_views,
     instance_summary_views,
@@ -54,6 +55,21 @@ urlpatterns = [
         "imessage/<uuid:run_id>/",
         imessage_views.imessage_review,
         name="imessage_review",
+    ),
+    path(
+        "call-history/new/",
+        call_import_views.call_history_upload,
+        name="call_history_upload",
+    ),
+    path(
+        "call-history/<uuid:import_id>/",
+        call_import_views.call_history_review,
+        name="call_history_review",
+    ),
+    path(
+        "<str:kind>/<uuid:evidence_id>/link-person/",
+        call_import_views.link_imported_person,
+        name="link_imported_person",
     ),
     path(
         "<str:kind>/<uuid:evidence_id>/attachments/<uuid:attachment_id>/play/",

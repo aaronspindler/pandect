@@ -1,44 +1,22 @@
 """Investigator-facing case and collaboration workflows."""
 
-import hashlib
-import secrets
-from copy import copy
-from datetime import timedelta
-
-from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib import messages
-from django.core.exceptions import ImproperlyConfigured, ValidationError
-from django.core.mail import EmailMessage
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import DatabaseError, transaction
+from django.db import transaction
 from django.db.models import Case as CaseExpression
 from django.db.models import Count, OuterRef, Q, Subquery, Value, When
+from django.db.models.deletion import ProtectedError, RestrictedError
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.crypto import constant_time_compare
 from django.views.decorators.http import require_http_methods, require_POST
 
 from config.access import product_login_required
-from core.analysis.approval import (
-    approve_scopes,
-    case_approval_confirmation,
-    case_approval_context,
-    pending_scopes,
-    revoke_case_execution,
-    revoke_destination,
-    scope_description,
-)
-from core.analysis.execution import GEOGRAPHIC, configured_external_executions
-from core.case_search.approval import (
-    approve_case_search,
-    revoke_case_search,
-    search_approval_context,
-    set_chat_queries,
-)
-from core.case_search.indexing import prepare_case_search
+from core.analysis.approval import case_approval_context, scope_description
+from core.case_search.approval import search_approval_context
 from core.evidence.types import KINDS
 from core.models import EvidenceChat, ImportantItem, ImportantNote
 from geo.models import PointOfInterest
@@ -46,6 +24,8 @@ from socialmedia import instagram_connector, monitor_jobs
 from socialmedia.models import SocialAccount
 from ui.live import render_live
 
+from .analysis_settings import change_ai_settings, change_external_approval
+from .deletion import CASCADE_CONFLICT, CaseDeletionBlocked, delete_case_record
 from .forms import (
     ANALYSIS_MODEL_LABELS,
     CaseAISettingsForm,
@@ -55,9 +35,18 @@ from .forms import (
     InvitationRoleForm,
     MembershipRoleForm,
 )
-from .models import Case, CaseInvitation, CaseMembership
+from .invitations import (
+    InvitationUnavailable,
+    create_invitation,
+    edit_invitation,
+    get_pending_invitation,
+    resend_invitation,
+    resolve_invitation,
+    revoke_invitation,
+)
+from .models import CaseMembership
 from .permissions import accessible_cases, case_context, get_case
-from .rerank_views import approval_context as rerank_approval_context
+from .search_settings import change_meaning_search, rerank_approval_context
 
 
 def _render_case(request, template, case, *, status=200, **context):
@@ -232,107 +221,48 @@ def _render_case_settings(
 
 @product_login_required
 @require_POST
-@transaction.atomic
 def case_ai_settings(request, case_id):
-    case = get_case(request.user, case_id, owner=True, lock=True)
-    action = request.POST.get("action", "save")
-    if action not in {"save", "review_current", "approve"}:
-        raise Http404("Case action not found.")
-    if action == "review_current":
-        initial = CaseAISettingsForm(case=case)
-        form = CaseAISettingsForm(initial.initial, case=case)
-    else:
-        form = CaseAISettingsForm(request.POST, case=case)
-    if not form.is_valid():
+    change = change_ai_settings(request.user, case_id, request.POST)
+    case, form, outcome = change.case, change.form, change.outcome
+    if outcome in {"invalid", "stale"}:
         return _render_case_settings(
-            request, case, status=409 if form.stale else 200, ai_settings_form=form
+            request,
+            case,
+            status=409 if outcome == "stale" else 200,
+            ai_settings_form=form,
         )
-    backend = form.cleaned_data["ai_backend"]
-    models = form.proposed_models()
-    proposed = copy(case)
-    proposed.external_analysis_models = models
-    routes = {}
-    if backend == Case.AIBackend.GATEWAY:
-        routes = {
-            op: route
-            for op, route in configured_external_executions(proposed).items()
-            if op in ANALYSIS_MODEL_LABELS
-        }
-        if not routes:
-            form.add_error(
-                "ai_backend",
-                "External AI needs at least one configured model destination.",
-            )
-            return _render_case_settings(request, case, ai_settings_form=form)
-    changed = {
-        op
-        for op in ANALYSIS_MODEL_LABELS
-        if op in form.data and form.cleaned_data[op] != form.initial[op]
-    }
-    # Manage can review declined destinations even when every assignment is unchanged.
-    if backend == case.ai_backend and (changed or action == "save"):
-        routes = {op: route for op, route in routes.items() if op in changed}
-    scopes = pending_scopes(case, routes)
-    if action == "review_current" and not scopes:
+    if outcome == "no_review":
         return redirect(
             reverse(
                 "cases:case_settings", args=(case.pk,), fragment="external-analysis"
             )
         )
-    confirmation = case_approval_confirmation(
-        case,
-        request.user,
-        "save",
-        [form.expected_confirmation, backend, models, scopes],
-    )
-    if action == "approve" or scopes:
-        error = ""
-        selected = set(request.POST.getlist("allow"))
-        ids = {str(i) for i in range(len(scopes))}
-        if action == "approve":
-            if not constant_time_compare(
-                request.POST.get("review_confirmation", ""), confirmation
-            ):
-                form.add_error(
-                    None, "The review changed. Check your settings and save again."
-                )
-                return _render_case_settings(
-                    request, case, status=409, ai_settings_form=form
-                )
-            if not selected or not selected <= ids:
-                error = "Select the destinations you want to approve."
-        if action != "approve" or error:
-            proposal = {
-                "ai_backend": backend,
-                "confirmation": form.expected_confirmation,
+    if outcome in {"review", "select_destinations"}:
+        proposal = {
+            "ai_backend": form.cleaned_data["ai_backend"],
+            "confirmation": form.expected_confirmation,
+        }
+        proposal.update(
+            {
+                op: form.cleaned_data[op] if op in form.data else form.initial[op]
+                for op in ANALYSIS_MODEL_LABELS
             }
-            proposal.update(
-                {
-                    op: form.cleaned_data[op] if op in form.data else form.initial[op]
-                    for op in ANALYSIS_MODEL_LABELS
-                }
-            )
-            return _render_case(
-                request,
-                "cases/ai_review.html",
-                case,
-                destinations=[
-                    scope_description(scope) | {"scope_id": str(i)}
-                    for i, scope in enumerate(scopes)
-                ],
-                proposal=proposal.items(),
-                review_confirmation=confirmation,
-                error=error,
-                selected_scope_ids=selected,
-            )
-        approve_scopes(
-            case,
-            request.user,
-            [scope for i, scope in enumerate(scopes) if str(i) in selected],
         )
-    case.ai_backend = backend
-    case.external_analysis_models = models
-    case.save(update_fields=("ai_backend", "external_analysis_models"))
+        return _render_case(
+            request,
+            "cases/ai_review.html",
+            case,
+            destinations=[
+                scope_description(scope) | {"scope_id": str(i)}
+                for i, scope in enumerate(change.scopes)
+            ],
+            proposal=proposal.items(),
+            review_confirmation=change.confirmation,
+            error="Select the destinations you want to approve."
+            if outcome == "select_destinations"
+            else "",
+            selected_scope_ids=change.selected_scope_ids,
+        )
     messages.success(request, "AI processing settings saved.")
     return redirect(
         reverse("cases:case_settings", args=(case.pk,), fragment="ai-processing")
@@ -341,102 +271,63 @@ def case_ai_settings(request, case_id):
 
 @product_login_required
 @require_POST
-@transaction.atomic
 def case_external_analysis(request, case_id):
-    case = get_case(request.user, case_id, owner=True, lock=True)
-    action = request.POST.get("action")
-    confirmation = request.POST.get("confirmation", "")
-    if action == "revoke_destination":
-        if revoke_destination(case, request.user, confirmation):
-            messages.success(request, "Destination approval revoked for this case.")
-        else:
-            messages.error(
-                request, "Settings changed. Review the current destinations."
-            )
-    elif action in {"approve", "revoke"}:
-        executions = (
-            {
-                op: route
-                for op, route in configured_external_executions(case=case).items()
-                if op in GEOGRAPHIC
-            }
-            if action == "approve"
-            else {}
-        )
-        if not constant_time_compare(
-            confirmation,
-            case_approval_confirmation(case, request.user, action, executions),
-        ):
-            messages.error(
-                request, "Settings changed. Review the current destinations."
-            )
-        elif action == "revoke":
-            revoke_case_execution(case)
-            messages.success(
-                request, "External analysis approval revoked for this case."
-            )
-        elif scopes := pending_scopes(case, executions):
-            approve_scopes(case, request.user, scopes)
-            messages.success(request, "Geographic destinations approved for this case.")
-    else:
-        raise Http404("Case action not found.")
+    outcome = change_external_approval(
+        request.user,
+        case_id,
+        request.POST.get("action"),
+        request.POST.get("confirmation", ""),
+    )
+    if outcome == "stale":
+        messages.error(request, "Settings changed. Review the current destinations.")
+    elif outcome == "destination_revoked":
+        messages.success(request, "Destination approval revoked for this case.")
+    elif outcome == "revoked":
+        messages.success(request, "External analysis approval revoked for this case.")
+    elif outcome == "geographic_approved":
+        messages.success(request, "Geographic destinations approved for this case.")
     return redirect(
-        reverse("cases:case_settings", args=(case.pk,), fragment="ai-processing")
+        reverse("cases:case_settings", args=(case_id,), fragment="ai-processing")
     )
 
 
 @product_login_required
 @require_POST
-@transaction.atomic
 def case_search_approval(request, case_id):
-    case = get_case(request.user, case_id, owner=True, lock=True)
-    action = request.POST.get("action")
-    if action not in {"approve", "revoke", "enable_chat", "disable_chat"}:
-        raise Http404("Case action not found.")
-    review = search_approval_context(case, request.user)
-    if not constant_time_compare(
-        request.POST.get("confirmation", ""), review[f"{action}_confirmation"]
-    ):
+    outcome = change_meaning_search(
+        request.user,
+        case_id,
+        request.POST.get("action"),
+        request.POST.get("confirmation", ""),
+    )
+    if outcome == "stale":
         messages.error(
             request, "Settings changed. Review the meaning search destination."
         )
-    elif action == "revoke" and review["saved_destination"]:
-        revoke_case_search(case)
+    elif outcome == "queue_failed":
+        messages.error(
+            request,
+            "Indexing could not be queued. Review the destination and try again.",
+        )
+    elif outcome == "revoke":
         messages.success(request, "Meaning search approval revoked for this case.")
-    elif (
-        action == "enable_chat"
-        and review["approved"]
-        and not review["chat_queries_enabled"]
-    ):
-        set_chat_queries(case, enabled=True)
+    elif outcome == "enable_chat":
         messages.success(
             request, "Hosted meaning search enabled for new chat questions."
         )
-    elif action == "disable_chat" and review["chat_queries_enabled"]:
-        set_chat_queries(case, enabled=False)
+    elif outcome == "disable_chat":
         messages.success(request, "Hosted meaning search disabled for Evidence chat.")
-    elif action == "approve" and review["destination"] and not review["approved"]:
-        try:
-            with transaction.atomic():
-                approve_case_search(case, request.user, review)
-                if not prepare_case_search(case, request.user, retry=True):
-                    raise ValidationError("The reviewed search configuration changed.")
-        except DatabaseError, ValidationError:
-            messages.error(
-                request,
-                "Indexing could not be queued. Review the destination and try again.",
+    elif outcome == "approve":
+        messages.success(request, "Meaning search approved. Indexing is queued.")
+        return redirect(
+            reverse(
+                "core:analysis:processing",
+                args=(case_id,),
+                fragment="case-search-index",
             )
-        else:
-            messages.success(request, "Meaning search approved. Indexing is queued.")
-            return redirect(
-                reverse(
-                    "core:analysis:processing",
-                    args=(case.pk,),
-                    fragment="case-search-index",
-                )
-            )
+        )
     return redirect(
-        reverse("cases:case_settings", args=(case.pk,), fragment="meaning-search")
+        reverse("cases:case_settings", args=(case_id,), fragment="meaning-search")
     )
 
 
@@ -468,17 +359,23 @@ def case_instagram_monitoring(request, case_id):
 @require_http_methods(["GET", "POST"])
 def case_delete(request, case_id):
     form = ConfirmForm(request.POST if request.method == "POST" else None)
+    status = 200
     if request.method == "POST":
         with transaction.atomic():
             case = get_case(request.user, case_id, owner=True, lock=True)
             if form.is_valid():
-                case.delete()
-                messages.success(request, "Case deleted. Your account is unchanged.")
-                return redirect("cases:case_list")
+                try:
+                    delete_case_record(case, case.pk)
+                except CaseDeletionBlocked, ProtectedError, RestrictedError:
+                    form.add_error(None, CASCADE_CONFLICT)
+                    status = 409
+                else:
+                    messages.success(
+                        request, "Case deleted. Your account is unchanged."
+                    )
+                    return redirect("cases:case_list")
     else:
         case = get_case(request.user, case_id, owner=True)
-    # Deletion removes every case record, including inconsistent relationships
-    # hidden from readers. Count those records without retrieving their details.
     evidence_counts = [
         _archive_counts(model.objects.filter(case=case)) for model in KINDS.values()
     ]
@@ -493,78 +390,30 @@ def case_delete(request, case_id):
         "important_item_count": ImportantItem.objects.filter(case=case).count(),
         "important_note_count": ImportantNote.objects.filter(item__case=case).count(),
     }
-    return _render_case(request, "cases/delete.html", case, form=form, **counts)
-
-
-def _issue_token(invitation):
-    token = secrets.token_urlsafe(32)
-    invitation.token_digest = hashlib.sha256(token.encode("ascii")).hexdigest()
-    invitation.expires_at = timezone.now() + timedelta(
-        days=settings.PANDECT_INVITATION_DAYS
+    return _render_case(
+        request, "cases/delete.html", case, form=form, status=status, **counts
     )
-    invitation.delivery_failed = False
-    invitation.last_sent_at = None
-    return token
 
 
-def _deliver_invitation(request, invitation, token):
-    link = settings.PANDECT_PUBLIC_ORIGIN + reverse("invitation_accept", args=(token,))
-    try:
-        email = EmailMessage(
-            subject=f"Invitation to {invitation.case.name}",
-            body=(
-                f"You have been invited to the Pandect case {invitation.case.name} "
-                f"with {invitation.get_role_display()} access.\n\n"
-                f"Sign in or create an account, verify this email address, then "
-                f"accept the invitation:\n{link}\n\n"
-                f"This link expires on {invitation.expires_at:%d %b %Y at %H:%M UTC}.\n"
-                "If you did not expect this invitation, you can ignore it."
-            ),
-            to=[invitation.email],
-        )
-        if not email.send():
-            raise OSError("The mailer did not accept the invitation.")
-    except OSError, ImproperlyConfigured, ValueError:
-        CaseInvitation.objects.filter(
-            pk=invitation.pk, token_digest=invitation.token_digest
-        ).update(delivery_failed=True)
+def _invitation_sent(request, case_id, delivered):
+    if delivered:
+        messages.success(request, "Invitation sent.")
+    else:
         messages.error(
             request,
             "Invitation saved, but the email could not be sent. Check email "
             "configuration and use Resend invitation to try again.",
         )
-    else:
-        CaseInvitation.objects.filter(
-            pk=invitation.pk, token_digest=invitation.token_digest
-        ).update(delivery_failed=False, last_sent_at=timezone.now())
-        messages.success(request, "Invitation sent.")
+    return redirect("cases:case_settings", case_id=case_id)
 
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def invitation_create(request, case_id):
     if request.method == "POST":
-        with transaction.atomic():
-            case = get_case(request.user, case_id, owner=True, lock=True)
-            form = InvitationForm(request.POST, case=case)
-            if form.is_valid():
-                now = timezone.now()
-                case.invitations.filter(
-                    email__iexact=form.cleaned_data["email"],
-                    accepted_at__isnull=True,
-                    revoked_at__isnull=True,
-                    expires_at__lte=now,
-                ).update(revoked_at=now)
-                invitation = form.save(commit=False)
-                invitation.case = case
-                invitation.invited_by = request.user
-                token = _issue_token(invitation)
-                invitation.save()
-            else:
-                invitation = None
-        if invitation:
-            _deliver_invitation(request, invitation, token)
-            return redirect("cases:case_settings", case_id=case.pk)
+        case, form, delivered = create_invitation(request.user, case_id, request.POST)
+        if delivered is not None:
+            return _invitation_sent(request, case.pk, delivered)
     else:
         case = get_case(request.user, case_id, owner=True)
         form = InvitationForm(case=case)
@@ -582,27 +431,14 @@ def invitation_create(request, case_id):
 @require_http_methods(["GET", "POST"])
 def invitation_edit(request, case_id, invitation_id):
     if request.method == "POST":
-        with transaction.atomic():
-            case = get_case(request.user, case_id, owner=True, lock=True)
-            invitation = get_object_or_404(
-                case.invitations.select_for_update(), pk=invitation_id
-            )
-            if not invitation.is_pending:
-                raise Http404("Pending invitation not found.")
-            form = InvitationRoleForm(request.POST, instance=invitation)
-            if form.is_valid():
-                token = _issue_token(invitation)
-                form.save()
-            else:
-                token = None
-        if token:
-            _deliver_invitation(request, invitation, token)
-            return redirect("cases:case_settings", case_id=case.pk)
+        case, invitation, form, delivered = edit_invitation(
+            request.user, case_id, invitation_id, request.POST
+        )
+        if delivered is not None:
+            return _invitation_sent(request, case.pk, delivered)
     else:
         case = get_case(request.user, case_id, owner=True)
-        invitation = get_object_or_404(case.invitations, pk=invitation_id)
-        if not invitation.is_pending:
-            raise Http404("Pending invitation not found.")
+        invitation = get_pending_invitation(case, invitation_id)
         form = InvitationRoleForm(instance=invitation)
     return _render_case(
         request,
@@ -617,34 +453,20 @@ def invitation_edit(request, case_id, invitation_id):
 @product_login_required
 @require_http_methods(["POST"])
 def invitation_resend(request, case_id, invitation_id):
-    with transaction.atomic():
-        case = get_case(request.user, case_id, owner=True, lock=True)
-        invitation = get_object_or_404(
-            case.invitations.select_for_update(), pk=invitation_id
-        )
-        if not invitation.is_pending:
-            raise Http404("Pending invitation not found.")
-        token = _issue_token(invitation)
-        invitation.save()
-    _deliver_invitation(request, invitation, token)
-    return redirect("cases:case_settings", case_id=case.pk)
+    delivered = resend_invitation(request.user, case_id, invitation_id)
+    return _invitation_sent(request, case_id, delivered)
 
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def invitation_revoke(request, case_id, invitation_id):
     form = ConfirmForm(request.POST if request.method == "POST" else None)
-    with transaction.atomic():
-        case = get_case(
-            request.user, case_id, owner=True, lock=request.method == "POST"
-        )
-        invitation = get_object_or_404(case.invitations, pk=invitation_id)
-        if request.method == "POST" and form.is_valid():
-            if invitation.is_pending:
-                invitation.revoked_at = timezone.now()
-                invitation.save(update_fields=["revoked_at"])
-            messages.success(request, "Invitation revoked.")
-            return redirect("cases:case_settings", case_id=case.pk)
+    if request.method == "POST" and form.is_valid():
+        revoke_invitation(request.user, case_id, invitation_id)
+        messages.success(request, "Invitation revoked.")
+        return redirect("cases:case_settings", case_id=case_id)
+    case = get_case(request.user, case_id, owner=True)
+    invitation = get_object_or_404(case.invitations, pk=invitation_id)
     return _render_case(
         request,
         "cases/access_confirm.html",
@@ -714,88 +536,42 @@ def membership_remove(request, case_id, membership_id):
     )
 
 
-def _invitation_unavailable(request, reason, status=400, *, account_help=False):
-    return render(
-        request,
-        "cases/invitation_unavailable.html",
-        {"reason": reason, "account_help": account_help},
-        status=status,
-    )
+_INVITATION_UNAVAILABLE = {
+    "invalid": "This invitation link is not valid.",
+    "wrong_email": (
+        "This invitation is for a different verified email address. "
+        "Sign in with the invited account, or verify the invited email "
+        "in your account settings."
+    ),
+    "revoked": "This invitation was revoked. Ask the case owner for a new invitation.",
+    "used": "This invitation was already used. Ask the case owner if you need access.",
+    "expired": "This invitation expired. Ask the case owner to resend it.",
+    "owner": "The owner already has access to this case.",
+}
 
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def invitation_accept(request, token):
-    is_post = request.method == "POST"
-    if len(token) > 128:
-        return _invitation_unavailable(
-            request, "This invitation link is not valid.", 404
+    try:
+        invitation, accepted = resolve_invitation(
+            request.user, token, accept=request.method == "POST"
         )
-    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    candidate = (
-        CaseInvitation.objects.filter(token_digest=digest).values("case_id").first()
-    )
-    if not candidate:
-        return _invitation_unavailable(
-            request, "This invitation link is not valid.", 404
-        )
-    with transaction.atomic():
-        # Acceptance cannot use get_case: the invitee does not have access yet.
-        cases = Case.objects.all()
-        invitations = CaseInvitation.objects.all()
-        if is_post:
-            cases = cases.select_for_update()
-            invitations = invitations.select_for_update()
-        case = get_object_or_404(cases, pk=candidate["case_id"])
-        invitation = get_object_or_404(invitations, token_digest=digest, case=case)
-        recipient_matches = EmailAddress.objects.filter(
-            user=request.user, email__iexact=invitation.email, verified=True
-        ).exists()
-        if not recipient_matches:
+    except InvitationUnavailable as exc:
+        account_help = exc.reason == "wrong_email"
+        if account_help:
             request.session["pending_invitation_path"] = request.path
-            return _invitation_unavailable(
-                request,
-                "This invitation is for a different verified email address. "
-                "Sign in with the invited account, or verify the invited email "
-                "in your account settings.",
-                403,
-                account_help=True,
-            )
-        if invitation.revoked_at:
-            return _invitation_unavailable(
-                request,
-                "This invitation was revoked. Ask the case owner for a new invitation.",
-            )
-        existing = CaseMembership.objects.filter(case=case, user=request.user).first()
-        if invitation.accepted_at:
-            if invitation.accepted_by_id == request.user.pk and existing:
-                return redirect("core:analysis:index", case_id=case.pk)
-            return _invitation_unavailable(
-                request,
-                "This invitation was already used. "
-                "Ask the case owner if you need access.",
-            )
-        if invitation.expires_at <= timezone.now():
-            return _invitation_unavailable(
-                request, "This invitation expired. Ask the case owner to resend it."
-            )
-        if request.user.pk == case.owner_id:
-            return _invitation_unavailable(
-                request, "The owner already has access to this case."
-            )
-        if is_post:
-            if not existing:
-                # The case lock serializes product mutations. get_or_create also
-                # tolerates a concurrent authorized admin insert without changing
-                # the role chosen by that operation.
-                CaseMembership.objects.get_or_create(
-                    case=case,
-                    user=request.user,
-                    defaults={"role": invitation.role},
-                )
-            invitation.accepted_at = timezone.now()
-            invitation.accepted_by = request.user
-            invitation.save(update_fields=["accepted_at", "accepted_by"])
-            messages.success(request, "Invitation accepted. You can now open the case.")
-            return redirect("core:analysis:index", case_id=case.pk)
+        return render(
+            request,
+            "cases/invitation_unavailable.html",
+            {
+                "reason": _INVITATION_UNAVAILABLE[exc.reason],
+                "account_help": account_help,
+            },
+            status={"invalid": 404, "wrong_email": 403}.get(exc.reason, 400),
+        )
+    if accepted:
+        messages.success(request, "Invitation accepted. You can now open the case.")
+    if invitation.accepted_at:
+        return redirect("core:analysis:index", case_id=invitation.case_id)
     return render(request, "cases/invitation_accept.html", {"invitation": invitation})

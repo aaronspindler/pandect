@@ -33,6 +33,15 @@ and archive/restore evidence. Owners manage access and delete people, vehicles,
 or the case, subject to retained-evidence protections. Product users need no staff
 status or model permissions. See [maps](maps.md) for Map coverage and privacy.
 
+When the workspace detects a session or role change, it clears the previous
+case contents and offers a link to **All cases**. Reopening a private page with
+Back or Forward checks the current session and access before displaying it.
+
+Private pages are served without caching. Going back to a private page in the
+browser checks access again. If an open workspace detects a sign-in change or a
+changed case role, it discards the previous page and offers **All cases** to
+continue under the current access rules.
+
 ### Important items
 
 Owners and editors can choose **Mark important** in an evidence reader's
@@ -215,7 +224,8 @@ roles. Model validation/admin reject owner membership; no cross-table database
 constraint enforces this. ORM callers must call `full_clean()` before saving.
 
 Case deletion cascades to memberships, people, vehicles, and evidence, with
-post-commit file cleanup. Deleting a collaborator removes memberships and retains
+post-commit file cleanup. A deletion stops if it would affect a related record or
+file linked outside the case. Deleting a collaborator removes memberships and retains
 cases; protected attribution, including uploads/invitations, may block account
 deletion. The owner foreign key uses `PROTECT`, including admin/queryset deletion.
 
@@ -257,6 +267,9 @@ Owners need `cases.view_casemembership` or `cases.change_casemembership` to insp
 membership inlines. Assign permissions through user/group admin. Case deletion
 also requires permissions for contained records, such as `people.delete_person`
 and `vehicle.delete_vehicle`, as listed on confirmation.
+Account deletion summarizes the selected accounts. Retained case records can
+block deletion. The confirmation includes details of those records only when
+the operator currently has access to their cases.
 
 Choose **Add case → Save and continue editing**. The server assigns ownership.
 Existing case details are read-only in admin. To rename a case, use

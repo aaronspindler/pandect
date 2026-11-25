@@ -7,13 +7,34 @@ from django.http import Http404
 from core.evidence.types import FILE_KINDS, KINDS
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from people.models import Person
-from phone.models import CommunicationEvidence
+from phone.models import CallEvidence, CommunicationEvidence
 
 
 def same_case_evidence(queryset):
     """Exclude inconsistent related records; callers still authorize case access."""
     model = queryset.model
-    if issubclass(model, CommunicationEvidence):
+    if issubclass(model, CallEvidence):
+        queryset = queryset.filter(
+            Q(
+                import_row__isnull=True,
+                sender__case_id=F("case_id"),
+                recipient__case_id=F("case_id"),
+            )
+            | (
+                Q(
+                    import_row__kind=model.communication_kind,
+                    import_row__batch__case_id=F("case_id"),
+                    import_row__batch__source__case_id=F("case_id"),
+                    import_row__batch__document__case_id=F("case_id"),
+                    import_row__batch__document__sha256=F(
+                        "import_row__batch__source_sha256"
+                    ),
+                )
+                & (Q(sender__isnull=True) | Q(sender__case_id=F("case_id")))
+                & (Q(recipient__isnull=True) | Q(recipient__case_id=F("case_id")))
+            )
+        )
+    elif issubclass(model, CommunicationEvidence):
         queryset = queryset.filter(
             sender__case_id=F("case_id"), recipient__case_id=F("case_id")
         )

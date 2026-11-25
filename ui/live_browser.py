@@ -307,7 +307,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 overview = page.get_by_role("region", name="Processing overview")
                 cards = overview.locator("dd")
                 expect(overview.locator("dt")).to_have_text(
-                    ["Queued", "Processing", "Processed", "Failed"]
+                    ["Queued work items", "Processing", "Processed", "Failed"]
                 )
                 expect(cards).to_have_text(["1", "0", str(saved_runs), "0"])
                 self.capture(page, engine, "processing-overview")
@@ -417,9 +417,10 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     ).delete
                 )
                 page.get_by_role("link", name="Refresh status", exact=True).click()
-                expect(page.locator("[data-live-message]")).to_contain_text(
-                    "access may have changed"
-                )
+                expect(
+                    page.get_by_role("heading", name="Your session or access changed")
+                ).to_be_focused()
+                expect(page.locator("#analysis-result")).to_have_count(0)
                 expect(
                     page.get_by_role("link", name="All cases", exact=True).last
                 ).to_be_visible()
@@ -824,17 +825,14 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 search.fill("Synthetic case")
                 page.clock.run_for(300)
                 expect(
-                    page.get_by_text(
-                        "Your session or access may have changed.", exact=False
-                    )
-                ).to_be_visible()
+                    page.get_by_role("heading", name="Your session or access changed")
+                ).to_be_focused()
                 recovery = page.locator("main").get_by_role(
                     "link", name="All cases", exact=True
                 )
                 expect(recovery).to_be_visible()
-                expect(search).to_be_focused()
+                expect(search).to_have_count(0)
                 self.capture(page, engine, "collection-access-recovery")
-                search.fill("Another query")
                 page.clock.run_for(1000)
                 self.assertEqual(len(requests), 1)
                 recovery.click()
@@ -891,16 +889,16 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 search = page.get_by_role("searchbox", name="Filter evidence")
                 search.fill("Synthetic query")
                 page.clock.run_for(300)
-                feedback = page.locator("[data-activity-feedback]")
                 recovery = page.locator("main").get_by_role(
                     "link", name="All cases", exact=True
                 )
-                expect(feedback.get_by_role("status")).to_contain_text(
-                    "Your session or access may have changed."
-                )
+                expect(
+                    page.get_by_role("heading", name="Your session or access changed")
+                ).to_be_focused()
                 expect(recovery).to_have_count(1)
                 expect(recovery).to_be_visible()
-                expect(search).to_be_focused()
+                expect(search).to_have_count(0)
+                expect(page.get_by_text("Synthetic live source")).to_have_count(0)
 
                 page.evaluate("window.releaseActivity()")
                 page.clock.run_for(61000)

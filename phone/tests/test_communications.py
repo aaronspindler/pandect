@@ -379,7 +379,7 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
         self.login("owner")
         payload = self.payload("phone-call", transcript="Initial transcript")
         with patch(
-            "phone.forms.CallEvidenceAttachment.objects.create",
+            "phone.call_attachments.CallEvidenceAttachment.objects.create",
             side_effect=OSError("private storage detail"),
         ):
             response = self.client.post(
@@ -453,7 +453,13 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(changed.json()["code"], "submission_conflict")
         self.assertEqual(self.add(other, submission_id=submission).status_code, 409)
         self.login("owner")
-        self.assertEqual(self.add(item, submission_id=submission).status_code, 409)
+        owner_addition = self.add(item, submission_id=submission)
+        self.assertEqual(owner_addition.status_code, 201)
+        self.assertEqual(
+            item.attachments.get(uploaded_by=self.users["owner"]).submission_id,
+            item.attachments.get(uploaded_by=self.users["editor"]).submission_id,
+        )
+        self.assertEqual(self.add(item, submission_id=submission).status_code, 200)
         for role, status in (("viewer", 403), ("outsider", 404)):
             self.login(role)
             self.assertEqual(
@@ -489,7 +495,7 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
         ):
             self.assertIn(self.add(item, **values).status_code, (400, 413))
         with patch(
-            "phone.forms.CallEvidenceAttachment.objects.create",
+            "phone.call_attachments.CallEvidenceAttachment.objects.create",
             side_effect=OSError("private error"),
         ):
             failed = self.add(item, transcript="abc")

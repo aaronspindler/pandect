@@ -177,7 +177,8 @@ class QuickFormBrowserTests(BrowserTestCase):
                 note.fill("Cannot save this draft.")
                 self.db(membership.delete)
                 dialog.get_by_role("button", name="Add note").click()
-                expect(dialog.get_by_role("link", name="All cases")).to_be_visible()
+                expect(page.get_by_role("link", name="All cases")).to_be_visible()
+                expect(dialog).to_have_count(0)
                 expect(note).to_have_count(0)
                 self.assertEqual(
                     self.db(ImportantNote.objects.filter(item=item).count), 1

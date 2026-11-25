@@ -64,6 +64,7 @@
         signal:controller.signal, headers:{Accept:"application/json"}, cache:"no-store"
       });
       if (!response.ok) throw Error("Quick matches unavailable");
+      if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
       const {results} = await response.json();
       if (controller.signal.aborted || input.value.trim() !== query || document.activeElement !== input) return;
       for (const {url: path, title, label} of results) {
@@ -134,4 +135,5 @@
     }
   });
   window.addEventListener("pagehide", dismiss);
+  document.addEventListener("pandect:access-lost", dismiss);
 })();

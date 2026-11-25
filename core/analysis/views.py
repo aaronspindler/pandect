@@ -3,13 +3,12 @@
 import hashlib
 import json
 from urllib.parse import parse_qsl, urlencode
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import DatabaseError, transaction
-from django.db.models import Q
+from django.db import DatabaseError
 from django.http import Http404, HttpResponse, QueryDict
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -19,7 +18,7 @@ from django.views.decorators.http import (
     require_safe,
 )
 
-from audio.views import playback_response
+from audio.playback import playback_response
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.artifacts import MAX_ARTIFACT_BYTES
@@ -33,7 +32,6 @@ from core.analysis.findings import additional_operations, case_highlights, findi
 from core.analysis.form_base import (
     CALL_RECORDING_OPERATIONS,
     EXTRACTIONS_BY_KIND,
-    selection,
 )
 from core.analysis.forms import (
     EvidenceAnalysisForm,
@@ -72,14 +70,16 @@ from core.analysis.readiness import (
 from core.analysis.reports import REPORT_NAMES, report
 from core.analysis.reprocessing import start_reprocessing
 from core.analysis.result_views import focused_finding_context, result_view
-from core.analysis.retries import retry_route, retry_run
+from core.analysis.retries import retry_analysis, retry_route
 from core.analysis.services import (
     address_estimate,
     cancel_run,
+    case_run,
     require_current_geocode_reviews,
     resolve_active_inputs,
     set_address_estimate,
 )
+from core.analysis.sources import selection
 from core.evidence.collection import collection_context
 from core.evidence.navigation import collection_params, list_params
 from core.evidence.queries import get_evidence
@@ -89,6 +89,7 @@ from core.evidence.views import render_detail
 from core.important.navigation import return_params
 from core.important.reader import reader_context
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
+from core.storage import private_file
 from geo.analysis import presentation as geo_presentation
 from image.analysis.presentation import (
     finding_images,
@@ -106,20 +107,9 @@ def _context(request, case):
     return case_context(case, request.user) | {"nav_section": "analysis"}
 
 
-def _run(case, run_id):
-    try:
-        return (
-            AnalysisRun.objects.select_related("requested_by", "previous_run")
-            .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
-            .get(case=case, pk=run_id)
-        )
-    except AnalysisRun.DoesNotExist:
-        raise Http404("Processing not found.") from None
-
-
-def _url(case, run):
+def _url(run):
     return reverse(
-        "core:analysis:detail", kwargs={"case_id": case.pk, "run_id": run.pk}
+        "core:analysis:detail", kwargs={"case_id": run.case_id, "run_id": run.pk}
     )
 
 
@@ -635,9 +625,7 @@ def create(request, case_id, kind=None, evidence_id=None):
                 "Analysis queued." if created else "This analysis was already queued.",
             )
             if len(runs) == 1:
-                return redirect(
-                    _url(case, runs[0]) + analysis_query_suffix(result_query)
-                )
+                return redirect(_url(runs[0]) + analysis_query_suffix(result_query))
             return redirect(
                 reverse(
                     "core:analysis:processing",
@@ -861,7 +849,7 @@ def _add_import_rows(case, item, source_map):
 @require_safe
 def detail(request, case_id, run_id):
     case = get_case(request.user, case_id)
-    run = _run(case, run_id)
+    run = case_run(case, run_id)
     source_error = None
     source_review_changed = False
     try:
@@ -1241,70 +1229,35 @@ def cancel(request, case_id, run_id):
         ),
     )
     return redirect(
-        _url(run.case, run)
-        + analysis_query_suffix(result_navigation(request.GET, case_id))
+        _url(run) + analysis_query_suffix(result_navigation(request.GET, case_id))
     )
 
 
 @product_login_required
 @require_POST
-@transaction.atomic
 def retry(request, case_id, run_id):
-    case = get_case(request.user, case_id, edit=True, lock=True)
-    prior = _run(case, run_id)
-    if prior.status in {"queued", "running"}:
-        messages.error(
-            request,
-            (
-                "Cancel the earlier run before starting another attempt. Confirm a "
-                "stopped worker before recovering abandoned work."
-            ),
-        )
-        return redirect(
-            _url(case, prior)
-            + analysis_query_suffix(result_navigation(request.GET, case_id))
-        )
-    try:
-        submission_id = (
-            UUID(request.POST["submission_id"])
-            if request.POST.get("submission_id")
-            else uuid4()
-        )
-        existing = AnalysisRun.objects.filter(
-            submission_id=submission_id,
-            case=case,
-            requested_by=request.user,
-            previous_run=prior,
-        ).first()
-        if existing is not None:
-            return redirect(
-                _url(case, existing)
-                + analysis_query_suffix(result_navigation(request.GET, case_id))
-            )
-        run, _ = retry_run(
-            request.user,
-            case,
-            prior,
-            submission_id=submission_id,
-        )
-    except (ValueError, ValidationError, AnalysisError) as error:
+    run, created, issue = retry_analysis(
+        request.user, case_id, run_id, submission_id=request.POST.get("submission_id")
+    )
+    if issue:
         reason = (
             "The inputs changed or are no longer available. Start a new analysis "
             "and review its source selection."
         )
-        if isinstance(error, AnalysisError):
-            if error.code == "original_route_unavailable":
-                reason = "The service for this run is unavailable."
-            elif error.code == "source_archived":
-                reason = error_message(error.code)
+        if issue == "prior_run_active":
+            reason = (
+                "Cancel the earlier run before starting another attempt. Confirm a "
+                "stopped worker before recovering abandoned work."
+            )
+        elif issue in {"original_route_unavailable", "source_archived"}:
+            reason = error_message(issue)
         messages.error(request, reason)
-        return redirect(
-            _url(case, prior)
-            + analysis_query_suffix(result_navigation(request.GET, case_id))
+    elif created:
+        messages.success(
+            request, "A new run is queued; the earlier history is retained."
         )
-    messages.success(request, "A new run is queued; the earlier history is retained.")
     return redirect(
-        _url(case, run) + analysis_query_suffix(result_navigation(request.GET, case_id))
+        _url(run) + analysis_query_suffix(result_navigation(request.GET, case_id))
     )
 
 
@@ -1341,7 +1294,7 @@ def select_estimate(request, case_id, run_id, item_index):
 @require_safe
 def download(request, case_id, run_id):
     case = get_case(request.user, case_id)
-    run = _run(case, run_id)
+    run = case_run(case, run_id)
     try:
         sources = resolve_active_inputs(run, case, require_current_review=False)
         result = AnalysisResult.objects.get(case=case, run=run)
@@ -1375,7 +1328,7 @@ def download(request, case_id, run_id):
 @require_safe
 def audio(request, case_id, run_id, source_id):
     case = get_case(request.user, case_id)
-    run = _run(case, run_id)
+    run = case_run(case, run_id)
     try:
         source = next(
             x
@@ -1400,13 +1353,13 @@ def audio(request, case_id, run_id, source_id):
 @require_safe
 def artifact(request, case_id, run_id, artifact_id):
     case = get_case(request.user, case_id)
-    run = _run(case, run_id)
+    run = case_run(case, run_id)
     try:
         resolve_active_inputs(run, case, require_current_review=False)
         retained = AnalysisArtifact.objects.get(
             pk=artifact_id, case=case, result__case=case, result__run=run
         )
-        with retained.file.open("rb") as original:
+        with private_file(retained, case.pk).open("rb") as original:
             content = original.read(MAX_ARTIFACT_BYTES + 1)
         if (
             str(retained.source_id) not in {x["id"] for x in run.inputs}

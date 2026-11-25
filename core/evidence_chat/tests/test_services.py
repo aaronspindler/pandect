@@ -8,6 +8,7 @@ from django.core.management.base import CommandError
 from django.http import Http404
 from django.test import TestCase
 
+from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.evidence.deletion import plan_deletion
 from core.evidence_chat import corpus, services
@@ -60,6 +61,23 @@ class ChatServiceTests(EvidenceViewTestMixin, TestCase):
         following = self.ask("editor", chat_id=first.chat_id)
         self.assertEqual(following.ordinal, 2)
         self.assertFalse(following.include_archived)
+
+    def test_same_key_has_an_independent_turn_for_each_user_and_case(self):
+        key = uuid4()
+        first = self.ask(submission_id=key)
+        editor = self.ask("editor", submission_id=key)
+        CaseMembership.objects.create(
+            case=self.other_case, user=self.users["editor"], role="editor"
+        )
+        other_case = services.submit_turn(
+            self.users["editor"],
+            self.other_case.pk,
+            "Other case question?",
+            submission_id=key,
+        )
+        self.assertEqual(len({first.pk, editor.pk, other_case.pk}), 3)
+        self.assertEqual(self.ask("editor", submission_id=key).pk, editor.pk)
+        self.assertEqual(self.enqueue.call_count, 3)
 
     def test_legacy_archived_question_cannot_resume_processing(self):
         turn = self.ask()
@@ -151,7 +169,7 @@ class ChatServiceTests(EvidenceViewTestMixin, TestCase):
 
     def test_interrupted_delivery_requires_current_token_and_eligible_requester(self):
         turn = self.ask()
-        with self.assertRaises(CommandError):
+        with self.assertRaisesMessage(CommandError, "its token changed"):
             call_command(
                 "recover_evidence_chat",
                 str(turn.pk),
@@ -177,3 +195,15 @@ class ChatServiceTests(EvidenceViewTestMixin, TestCase):
             ).status,
             ChatTurn.Status.QUEUED,
         )
+
+        revoked = self.ask("editor")
+        CaseMembership.objects.filter(case=self.case, user=revoked.asked_by).delete()
+        self.enqueue.reset_mock()
+        with self.assertRaisesMessage(CommandError, "no longer authorized"):
+            call_command(
+                "recover_evidence_chat",
+                str(revoked.pk),
+                "--confirm-interrupted",
+                str(revoked.delivery_token),
+            )
+        self.enqueue.assert_not_called()

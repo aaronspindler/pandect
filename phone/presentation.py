@@ -9,6 +9,24 @@ from phone.conversations import conversation_url
 from phone.models import CommunicationContext
 
 
+def call_party_labels(call, *, reported_only=False):
+    """Display both parties without treating a source identifier as a person."""
+    if call.import_row_id is None:
+        return str(call.sender), str(call.recipient)
+    row = call.import_row
+    account = row.batch.source_label
+    other = row.identifier or "Unknown caller"
+    sender, recipient = (
+        (other, account) if row.direction == "incoming" else (account, other)
+    )
+    if reported_only:
+        return sender, recipient
+    return (
+        str(call.sender) if call.sender_id else sender,
+        str(call.recipient) if call.recipient_id else recipient,
+    )
+
+
 def message_excerpt(body):
     excerpt = " ".join(body[:80].split()) or "Text message"
     if len(body) > 80:
@@ -58,6 +76,16 @@ def reader_context(
         context["attachments"] = item.attachments.filter(case=case).select_related(
             "uploaded_by"
         )
+        if item.import_row_id:
+            context["call_import_row"] = item.import_row
+            context["reported_sender"], context["reported_recipient"] = (
+                call_party_labels(item, reported_only=True)
+            )
+            context["call_person_links"] = (
+                item.import_row.person_links.filter(person__case=case)
+                .select_related("linked_by", "person")
+                .order_by("role")
+            )
     if kind == "text-message":
         context["display_title"] = message_evidence_label(
             item.body, item.sender, item.occurred_at

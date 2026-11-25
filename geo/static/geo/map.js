@@ -179,6 +179,7 @@ window.addEventListener("load", () => {
     if (!response.ok && !(params.recheck && response.status === 409)) {
       throw new Error(response.status === 409 ? "changed" : "unavailable");
     }
+    if (response.ok && !window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) throw new Error("Access changed");
     return response;
   };
   const replay = async () => {
@@ -355,6 +356,7 @@ window.addEventListener("load", () => {
     if (target.origin === window.location.origin && (target.pathname !== window.location.pathname || target.search !== window.location.search)) stop();
   });
   window.addEventListener("pagehide", stop);
+  document.addEventListener("pandect:access-lost", stop);
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) { stopped = false; scheduleReplay(); }
   });

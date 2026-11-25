@@ -7,7 +7,7 @@ from django.db.models.functions import Substr
 from core.evidence.queries import scoped_evidence
 from core.evidence.source_clocks import date_only_message_dates
 from core.evidence.types import COMMUNICATION_KINDS, FILE_KINDS, LOCATION_KINDS
-from phone.presentation import message_excerpt
+from phone.presentation import call_party_labels, message_excerpt
 
 PERSON_FIELDS = ("first_name", "last_name", "email", "phone_number")
 VEHICLE_FIELDS = ("make", "model", "year", "license_plate", "vin")
@@ -27,8 +27,12 @@ def _page_records(case, kind, ids):
                 .only(*fields)
                 .annotate(label_body=Substr("body", 1, 81))
             )
-        return records.select_related("sender", "recipient").only(
-            *fields, *_related_fields("recipient", PERSON_FIELDS)
+        return records.select_related("sender", "recipient", "import_row__batch").only(
+            *fields,
+            *_related_fields("recipient", PERSON_FIELDS),
+            "import_row__identifier",
+            "import_row__direction",
+            "import_row__batch__source_label",
         )
     if kind == "location":
         return records.only("observed_at", "address", "latitude", "longitude")
@@ -51,9 +55,10 @@ def _details(kind, record):
     if kind == "text-message":
         return "Sender", str(record.sender)
     if kind in COMMUNICATION_KINDS:
-        names = str(record.sender)
-        if record.recipient_id != record.sender_id:
-            names = f"{names}, {record.recipient}"
+        sender, recipient = call_party_labels(record)
+        names = sender
+        if not record.sender_id or record.recipient_id != record.sender_id:
+            names = f"{sender}, {recipient}"
         return "Participants", names
     if kind == "person-location":
         return "Linked person", str(record.person)

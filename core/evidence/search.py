@@ -14,6 +14,11 @@ from phone.models import CallEvidenceAttachment
 
 TEXT_KINDS = ("text", "text-message")
 CALL_PARENTS = {"phone-call": "phone_call", "facetime": "facetime"}
+CALL_HISTORY_SEARCH_FIELDS = (
+    "import_row__raw__Number",
+    "import_row__raw__Contact",
+    "import_row__batch__source_label",
+)
 EXCERPT_LENGTH = 300
 
 
@@ -28,9 +33,10 @@ def retained_content_condition(queryset, *, case, kind, query):
             case=case,
             **{f"{parent}_id": OuterRef("pk"), f"{parent}__case": case},
         )
-        return queryset.alias(matching_call_content=Exists(additions)), Q(
-            matching_call_content=True
-        )
+        condition = Q(matching_call_content=True)
+        for field in CALL_HISTORY_SEARCH_FIELDS:
+            condition |= Q(**{f"{field}__icontains": query})
+        return queryset.alias(matching_call_content=Exists(additions)), condition
     return queryset, Q(pk__in=[])
 
 

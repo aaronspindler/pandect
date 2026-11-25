@@ -39,7 +39,7 @@ class LocalOCRTests(SimpleTestCase):
         ):
             with self.subTest(expected=expected):
                 source = file_source(content, "image")
-                source.item.file.name = "iphone-export.jpeg"
+                source.item.original_filename = "iphone-export.jpeg"
                 with patch("core.analysis.gateway.GatewayClient.request") as gateway:
                     result = ocr([source], {}, authorize=Mock())
                 gateway.assert_not_called()

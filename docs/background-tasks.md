@@ -5,8 +5,8 @@ asynchronously even with `DEBUG=true`. Ordinary work uses the `default` queue.
 There is no Redis, scheduler or external queue. `core` owns diagnostics/AI
 integration; its `core.analysis` subpackage owns case analysis.
 
-The nonce diagnostic, [analysis](analysis.md) and
-[vehicle CSV imports](vehicle-location-imports.md) share this queue. Domain records
+The nonce diagnostic, [analysis](analysis.md), [vehicle CSV imports](vehicle-location-imports.md),
+and [call CSV imports](evidence.md#call-history-csv-import) share this queue. Domain records
 retain case-scoped progress/recovery independently. Eligible evidence and its
 checks commit together; original retention, invitations and file cleanup remain
 synchronous. Other lengthy ingestion must implement authorization, idempotency
@@ -41,21 +41,29 @@ in an automatic batch can finish, and earlier publications remain available.
 ## Investigator progress and completed imports
 
 **Processing** separates active work/history and preparation/execution.
-The overview at the top counts analysis checks, batch preparation, vehicle
-imports, trip preparation and address lookups (one count per trip generation),
-Instagram checks, and meaning-based search indexing when configured. **Processed**
-includes checks that finished with partial results, no findings, insufficient
-evidence, or unsupported input. **Failed** includes retained failures, including
-earlier attempts. Vehicle imports awaiting investigator action, cancelled work,
-and superseded work are excluded from the cards.
-**Checks queued** means preparation finished; runs/follow-ups may still be active.
+The overview counts work items, including one per preparation batch, as well as
+individual analysis checks, evidence chats, call and vehicle imports, trip generations,
+Instagram checks, and meaning-based search indexing when configured. Trip
+generations count once across trip preparation and address lookup phases. Counts
+include earlier attempts. **Processed** includes checks that finished with partial
+results, no findings, insufficient evidence, or unsupported input. Vehicle imports
+or call imports awaiting investigator action, cancelled work, and superseded work are excluded
+from the cards.
+
+Message analysis adds checks as preparation advances. Each check can cover several
+messages, and each message can contribute to several checks. Active message import
+batches show how many imported messages have been prepared, the retained import
+total when available, and the initial checks created so far. Check statuses track
+execution separately. A batch with the **Checks queued** status has finished
+preparation, and its checks and follow-ups may still be active.
+
 An individual check shows **Queued**, **Checking sources**, **Running analysis**,
 or **Saving results**. Running checks show their start time. The progress bar is
 indeterminate while the worker runs a method or saves its result. The outcome
 appears once publication commits. Imports and batch preparation show measured
 row, source, or check counts as they become available.
 **Needs attention** shows work that requires an investigator to act.
-It includes saved vehicle CSVs awaiting preparation or review, stopped attempts,
+It includes saved vehicle and call CSVs awaiting preparation or review, stopped attempts,
 and current trip or address preparation failures. **In progress** shows queued
 or running work. Earlier attempts remain inspectable in history.
 
@@ -79,6 +87,14 @@ and reused rows start no batch. Vehicle trip preparation is independent. Bounded
 continuations retain each run's scope and distinguish preparation from execution.
 Processing groups do not limit the number of rows an import can publish within
 the existing file and row constraints.
+
+Call history preparation and publication show progress on the import review.
+Preparation checks the retained CSV and stores the reviewed rows. Publication
+rechecks current edit access, source integrity, people and possible overlaps
+before committing calls. Changed overlap candidates return the import to review.
+Retry a failed phase from its status page. Recover work marked running only
+after confirming the original worker has stopped. New calls with two confirmed
+people can queue bounded conversation checks after publication.
 
 On upgrade, apply the case approval migration before serving with matching web
 and worker versions. Finish earlier authorized external work before cutover if
@@ -168,9 +184,12 @@ case-scoped recovery. Live scheduling requires a qualified roster source.
 Authorized evidence/import/archive changes invalidate the revision and atomically
 queue rebuilding. Each task handles 500 observations at most, committing staged
 output, cursor/token and continuation together. Trips use active observations.
-Processing rechecks verified edit access, source relationships and
-revision; only complete current generations publish. Failed/superseded work stays
-unpublished. Total history has no 100/500-observation cutoff.
+Processing rechecks verified edit access, source relationships and revision.
+Before resuming a trip, it verifies the checkpoint against the generation's
+retained inputs. Address preparation uses current, verified originals for the
+published generation. Only complete current generations publish.
+Failed or superseded work stays unpublished. Total history has no
+100/500-observation cutoff.
 
 Map/report/vehicle pages read saved trips. **Prepare trips** initializes existing
 evidence through an authorized idempotent POST; GET/startup remain read-only.

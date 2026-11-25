@@ -5,9 +5,13 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import Q
 from django.http import Http404
+from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
 
+from cases.permissions import get_case
 from core.analysis.errors import AnalysisError
 from core.analysis.projection import identifier_key
 from core.analysis.sources import Source, output, source_id
@@ -18,6 +22,7 @@ from geo.analysis.deterministic.locations import distance_m, number
 
 MAX_CANDIDATES = 25
 MAX_SELECTION = 12
+ANCHOR_KINDS = ("image", *LOCATION_KINDS)
 ASSOCIATIONS = {"person-location": "person_id", "vehicle-location": "vehicle_id"}
 SPATIAL_METHODS = {"spatial_groups", "colocation"}
 REVIEW_DECISIONS = {
@@ -27,8 +32,38 @@ REVIEW_DECISIONS = {
 }
 
 
+def sighting_runs(case):
+    return AnalysisRun.objects.filter(case=case, operation="sighting_group").filter(
+        Q(previous_run__isnull=True) | Q(previous_run__case=case)
+    )
+
+
 def sighting_reviews(case, result):
     return result.reviews.filter(case=case, item_index__isnull=True)
+
+
+@transaction.atomic
+def review_sighting(actor, case_id, run_id, *, decision=None, revision=None):
+    """Append a decision only against the reviewed revision and current sources."""
+    from core.analysis.services import validate_current_sighting
+
+    case = get_case(actor, case_id, edit=True, lock=True)
+    run = get_object_or_404(sighting_runs(case), pk=run_id, result__case=case)
+    result = run.result
+    if decision not in REVIEW_DECISIONS:
+        return case, run, "invalid_decision"
+    latest = sighting_reviews(case, result).first()
+    if revision != (latest.pk if latest else None):
+        return case, run, "review_changed"
+    try:
+        _, _, sources = saved_group(case, run)
+        validate_current_sighting(run, case, sources)
+    except AnalysisError:
+        return case, run, "source_changed"
+    AnalysisReview.objects.create(
+        case=case, result=result, reviewed_by=actor, decision=decision
+    )
+    return case, run, ""
 
 
 def review_outcome(review):
@@ -563,6 +598,32 @@ def prepare_proposal(case, anchor, links, supporting, contrary):
         "finding_refs": list(selection.refs.values()),
         "_sighting_selection": selected,
     }
+
+
+@transaction.atomic
+def start_sighting(actor, case_id, anchor, links, selection, *, submission_id):
+    """Freeze exact proposal inputs and queue their processing with edit access."""
+    from core.analysis.services import start_run
+
+    case = get_case(actor, case_id, edit=True, lock=True)
+    if _choice(anchor)["kind"] not in ANCHOR_KINDS:
+        raise ValidationError("Choose an available observation.")
+    choices, parameters = prepare_proposal(
+        case,
+        anchor,
+        links,
+        [token for token, role in selection.items() if role == "supporting"],
+        [token for token, role in selection.items() if role == "contrary"],
+    )
+    run, _ = start_run(
+        actor,
+        case.pk,
+        "sighting_group",
+        choices,
+        parameters=parameters,
+        submission_id=submission_id,
+    )
+    return run
 
 
 def build_sighting_group(sources, parameters):

@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.http import Http404
 from django.utils import timezone
 
@@ -20,7 +20,12 @@ from geo.trip_models import (
     VehicleTripInput,
     VehicleTripState,
 )
-from geo.trip_processing import METHOD_VERSION, READABLE_METHODS, _queue_geocoding
+from geo.trip_processing import (
+    METHOD_VERSION,
+    READABLE_METHODS,
+    _queue_geocoding,
+    state_generations,
+)
 
 
 class SupersededTrip(Exception):
@@ -54,10 +59,18 @@ def _database_limits():
 
 
 def _current(generation, *, geocode=False):
-    state = VehicleTripState.objects.select_for_update().get(pk=generation.state_id)
-    current = VehicleTripGeneration.objects.select_for_update().get(pk=generation.pk)
+    state = VehicleTripState.objects.select_for_update().get(
+        pk=generation.state_id,
+        case_id=generation.case_id,
+        vehicle_id=generation.vehicle_id,
+    )
+    current = (
+        state_generations(state).select_for_update(of=("self",)).get(pk=generation.pk)
+    )
     expected = (
-        current.status == "complete" and current.geocode_status == "running"
+        current.status == "complete"
+        and current.geocode_status == "running"
+        and state.current_generation_id == current.pk
         if geocode
         else current.status == "running"
     )
@@ -139,6 +152,8 @@ def process_trips(generation_id, token):
             _database_limits()
             case = _authorize(generation, lock=True)
             state, current = _current(generation)
+            segmenter = Segmenter(current)
+            segmenter.validate_carry()
             rows, complete = _next_sources(current, case)
             inputs = [
                 VehicleTripInput(
@@ -152,7 +167,6 @@ def process_trips(generation_id, token):
                 for index, item in enumerate(rows)
             ]
             VehicleTripInput.objects.bulk_create(inputs, batch_size=CHUNK_SIZE)
-            segmenter = Segmenter(current)
             for source in inputs:
                 snapshot = source.snapshot | {
                     "input_id": str(source.pk),
@@ -226,20 +240,42 @@ def prepare_addresses(generation_id, token):
                 return "disabled"
             query = (
                 current.inputs.filter(
+                    case=case,
                     ordinal__gt=current.geocode_cursor,
+                    memberships__case=case,
+                    memberships__ordinal=F("ordinal"),
+                    memberships__trip__case=case,
+                    memberships__trip__vehicle_id=current.vehicle_id,
+                    memberships__trip__generation=current,
                     memberships__trip__kind="trip",
                     memberships__trip__evidence_state="active",
-                    observation__is_archived=False,
                 )
                 .distinct()
                 .order_by("ordinal")
             )
-            sources = list(
-                query[: min(CHUNK_SIZE, settings.PANDECT_ANALYSIS_MAX_SOURCES)]
+            source_ids = list(
+                query.values_list("pk", flat=True)[
+                    : min(CHUNK_SIZE, settings.PANDECT_ANALYSIS_MAX_SOURCES)
+                ]
             )
+            originals = scoped_evidence(case, "vehicle-location").filter(
+                vehicle_id=current.vehicle_id, is_archived=False
+            )
+            sources = list(
+                current.inputs.filter(
+                    case=case,
+                    pk__in=source_ids,
+                    observation__in=originals,
+                    sha256=F("observation__sha256"),
+                )
+                .select_related("observation")
+                .order_by("ordinal")
+            )
+            if len(sources) != len(source_ids):
+                raise ValueError("invalid_trip_sources")
             rows, addresses, handled = [], set(), []
             for source in sources:
-                value = source.snapshot
+                value = _snapshot(source.observation)
                 if (
                     value["latitude"] is None
                     and value["address"].strip()

@@ -1,0 +1,1 @@
+{{ batch.processed_sources|floatformat:'0g' }}{% if batch.scope.source_count %} of {{ batch.scope.source_count|floatformat:'0g' }}{% endif %} imported message{{ batch.scope.source_count|default:batch.processed_sources|pluralize }} prepared · {{ batch.queued_runs|floatformat:'0g' }} check{{ batch.queued_runs|pluralize }} created

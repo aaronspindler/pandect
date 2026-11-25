@@ -73,6 +73,7 @@ window.PandectPage((signal) => {
   const newBatch = form.querySelector("[data-new-batch]");
   const uploadActions = form.querySelector("[data-upload-actions]");
   let running = false, stopRequested = false, blocked = false;
+  signal.addEventListener("abort", () => { blocked = true; }, {once: true});
 
   const refreshControls = () => {
     const unknown = entries.some((entry) => entry.state === "unknown");
@@ -241,6 +242,9 @@ window.PandectPage((signal) => {
     xhr.timeout = 180000;
     xhr.setRequestHeader("Accept", "application/json");
     xhr.setRequestHeader("X-CSRFToken", csrf);
+    const abort = () => xhr.abort();
+    signal.addEventListener("abort", abort, {once: true});
+    xhr.addEventListener("loadend", () => signal.removeEventListener("abort", abort), {once: true});
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
         entry.progress.value = event.loaded / event.total * 100;
@@ -250,13 +254,17 @@ window.PandectPage((signal) => {
     xhr.addEventListener("load", () => {
       let result;
       try {result = JSON.parse(xhr.responseText);} catch {result = null;}
+      if (result && [200, 201, 400, 409].includes(xhr.status) &&
+          !window.PandectPrivateSession.matches(xhr.getResponseHeader("X-Pandect-Session"))) {
+        resolve();
+        return;
+      }
       if ((xhr.status === 200 || xhr.status === 201) && result?.detail_url) {
         setStatus(entry, "added", "Added to this case.");
         const link = element("a", "View evidence", {href:result.detail_url, class:"record-link"});
         entry.node.append(link); announce(`${entry.file.name} added.`);
       } else if ([401,403,404].includes(xhr.status)) {
-        blocked = true;
-        setStatus(entry, "blocked", result?.message || "Access is unavailable. Sign in again or ask the case owner for access before continuing.");
+        window.PandectPrivateSession.clearPrivatePage();
       } else if (xhr.status === 409 && result?.code === "duplicate_evidence") {
         entry.frozen = null;
         entry.duplicateConfirmation = result.confirmation;
