@@ -13,7 +13,7 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.evidence.retention import set_evidence_archive
-from core.evidence_chat import ai, corpus, jobs
+from core.evidence_chat import ai, corpus, decisions_approval, jobs
 from core.models import ChatSource, ChatTurn, EvidenceChat, ImportantItem
 from core.testing import EvidenceViewTestMixin
 
@@ -202,6 +202,36 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
             self.form_data["route"] = stale.context["route_token"]
             turn = self._ask()
             self.assertEqual(turn.plan["hosted_search"], scope)
+
+    @override_settings(PANDECT_DIRECT_AI={"openai_api_key": "synthetic-direct-key"})
+    def test_decisions_transfer_is_visible_and_bound_to_the_submitted_form(self):
+        owner = self.users["owner"]
+        initial = self.client.get(self.index)
+        self.assertNotContains(initial, "OpenAI Decisions")
+        review = decisions_approval.approval_context(self.case, owner)
+        decisions_approval.change_approval(
+            owner, self.case.pk, "approve", review["approve"]
+        )
+        stale = self.client.post(self.index, self.form_data)
+        self.assertContains(stale, "processing destination changed")
+        self.assertContains(stale, "OpenAI Decisions")
+        self.assertContains(stale, "up to eight short source previews")
+        self.assertFalse(ChatTurn.objects.exists())
+        self.form_data["route"] = stale.context["route_token"]
+        turn = self._ask()
+        self.assertEqual(
+            turn.plan["decisions_scope"], decisions_approval.scope(self.case)
+        )
+        review = decisions_approval.approval_context(self.case, owner)
+        decisions_approval.change_approval(
+            owner, self.case.pk, "revoke", review["revoke"]
+        )
+        stale = self.client.post(
+            self.index, self.form_data | {"submission_id": uuid4()}
+        )
+        self.assertContains(stale, "processing destination changed")
+        self.assertNotContains(stale, "OpenAI Decisions")
+        self.assertEqual(ChatTurn.objects.count(), 1)
 
     def test_pending_chat_status_is_case_scoped_and_contains_only_progress(self):
         turn = self._ask()

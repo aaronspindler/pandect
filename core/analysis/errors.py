@@ -13,6 +13,9 @@ MODEL_CITATION_FAILURE = (
 )
 
 MODEL_VALIDATION_MESSAGES = {
+    "chat_budget_exhausted": (
+        "This question reached its model usage limit. Ask a narrower follow-up."
+    ),
     "model_content_limit": (
         "The selected text exceeds the limit for this analysis. Choose fewer "
         "or shorter sources."

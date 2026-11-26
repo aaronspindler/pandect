@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Exists, F, OuterRef, Q
 from django.http import Http404, HttpResponse, JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST, require_safe
 
@@ -297,4 +297,27 @@ def prepare_trips(request, case_id):
         )
     return redirect(
         reverse("geo:case_map", args=(case_id,), query=map_query(request.GET))
+    )
+
+
+@product_login_required
+@require_GET
+def trip_citation(request, case_id, trip_id):
+    from geo.trip_citations import citation_fields, citation_inputs, citation_trips
+    from geo.trip_processing import format_source
+
+    case = get_case(request.user, case_id)
+    trip = get_object_or_404(citation_trips(case, retained=True), pk=trip_id)
+    inputs = citation_inputs(case, trip)
+    if not inputs:
+        raise Http404("The cited observations are unavailable.")
+    return render(
+        request,
+        "geo/trip_citation.html",
+        case_context(case, request.user)
+        | {
+            "trip": trip,
+            "fields": citation_fields(trip, inputs),
+            "sources": [format_source(case, item) for item in inputs],
+        },
     )

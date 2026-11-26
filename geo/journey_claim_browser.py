@@ -10,9 +10,12 @@ from playwright.sync_api import expect
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.services import process_run
-from geo.models import PersonLocationEvidence
+from geo.models import PersonLocationEvidence, VehicleLocationEvidence
+from geo.trip_jobs import process_trips
+from geo.trip_processing import prepare_case_trips, saved_trips
 from people.models import Person
 from text.models import TextEvidence
+from vehicle.models import Vehicle
 
 
 class JourneyClaimBrowserTests(BrowserTestCase):
@@ -191,3 +194,50 @@ class JourneyClaimBrowserTests(BrowserTestCase):
                     "Enter"
                 )
                 expect(page).to_have_url(reader_url + "#evidence-reader")
+
+    def test_cited_trip_observations_without_javascript(self):
+        van = Vehicle.objects.create(case=self.case, model="Delivery van")
+        for minute, place in [(3, "Harbour office"), (15, "Dock gate")]:
+            VehicleLocationEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                vehicle=van,
+                title=place,
+                address=place,
+                observed_at=datetime(2026, 11, 10, 14, minute, tzinfo=UTC),
+            )
+        (generation,) = prepare_case_trips(self.owner, self.case.pk)
+        for _ in range(3):
+            process_trips(generation.pk, generation.token)
+            generation.refresh_from_db()
+            if generation.status == "complete":
+                break
+        self.assertEqual(generation.status, "complete", generation.error_code)
+        trip = saved_trips(self.case).get()
+        url = self.url("geo:trip_citation", case_id=self.case.pk, trip_id=trip.pk)
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(url)
+                expect(
+                    page.get_by_role("heading", name="Saved possible trip")
+                ).to_be_visible()
+                observation = page.get_by_role("link", name="Dock gate", exact=True)
+                expect(observation).to_be_visible()
+                self.capture_screen(page, engine, "cited-trip")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "cited-trip-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                observation.focus()
+                expect(observation).to_be_focused()
+                self.capture(page, engine, "cited-trip-focused")
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 391
+                )
+                observation.press("Enter")
+                expect(page.get_by_role("heading", name="Dock gate")).to_be_visible()

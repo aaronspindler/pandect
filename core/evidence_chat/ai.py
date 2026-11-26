@@ -49,5 +49,6 @@ def infer(turn, authorize, prompt, schema):
             authorize,
             turn.execution,
             authorize_metadata=lambda: authorize(metadata=True),
+            chat_turn=turn,
         )
     return client.infer(prompt, schema)

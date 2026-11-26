@@ -97,7 +97,14 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   deletion reviews, and concurrent dependency indexes. Migrations `core.0028`
   through `core.0030` index saved chat activity, ordered processing history,
   and exact analysis-batch scope lookups. `core.0031_chat_turn_activity` adds
-  bounded live milestones to saved turns. The `phone` and `geo` chronology
+  bounded live milestones to saved turns. `core.0032_chat_turn_model_usage`
+  records cumulative model reservations on each ordinary turn.
+  `core.0033_chat_routing_approval` stores the case owner's separate approval
+  for OpenAI source selection. `core.0034_approved_chat_extraction` links the
+  proposed PDF extraction, its approval, the analysis run and the follow-up
+  answer. It also records submission IDs for reused analyses. Apply these
+  migrations before starting the matching web and worker versions.
+  The `phone` and `geo` chronology
   migrations add partial indexes for active communications and location evidence
   by case and event time. Each new index builds concurrently in a separate
   migration. If a build is interrupted, check the named index for invalid state
@@ -203,6 +210,14 @@ recall an earlier topic and reopen its cited originals.
 Migration `core.0025_search_parent_inventory` advances the case activity
 revision when search outlines enter or leave a deletion inventory.
 
+Migrations `core.0035` through `core.0037` add a searchable projection of
+published analysis measurements, per-turn matching record identities and a
+link to an approved deeper review. Apply them with the normal release
+migration command before starting matching web and worker processes. The
+report migration indexes existing saved outputs in batches. New structured
+queries freeze selected identities and versions in PostgreSQL. Previously saved
+replies retain the verification rules for their recorded selections.
+
 Case Search and Evidence chat share the case-scoped passage and outline
 indexes in `core.case_search`. An outline stores its version, coverage,
 original source references, offsets and excerpt digests. Query-time checks
@@ -240,7 +255,9 @@ including bulk writes. Each new evidence or processing model registers the
 collections it affects in a migration. A transactional notification wakes a
 shared PostgreSQL listener in each ASGI web worker. The same-origin
 `/events/cases/<uuid>/` endpoint sends an invalidation signal to visible,
-authorized case tabs. The browser reconciles current counts and revisions on
+authorized case tabs. The browser checks current counts, revisions and case
+access when a tab becomes visible. If an earlier check is still running, the
+tab requests a fresh snapshot after it finishes. It also reconciles on stream
 connection and after changes. Existing authorized HTML fragments use
 `X-Pandect-Live: 1` for progress and `X-Pandect-Live: collection` for
 collection results. Lists offer an in-place refresh while processing status

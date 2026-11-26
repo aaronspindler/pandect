@@ -31,11 +31,18 @@
     canvas.hidden = false;
     const map = L.map(canvas, {
       scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false,
-      markerZoomAnimation: false, worldCopyJump: true,
+      markerZoomAnimation: false, worldCopyJump: true, trackResize: false,
     });
     map.attributionControl.setPrefix(false);
     const bounds = L.latLngBounds([...groups.values()].map(([point]) => point.coordinates));
     map.fitBounds(bounds, {padding: [32, 32], maxZoom: 16, animate: false});
+    const resize = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width && entry.contentRect.height) {
+        map.invalidateSize({debounceMoveend: true});
+      }
+    });
+    resize.observe(canvas);
+    map.once("unload", () => resize.disconnect());
     for (const group of groups.values()) {
       const [first] = group;
       const labels = [...new Set(group.map(point => point.label))];
@@ -93,9 +100,7 @@
   const observer = new MutationObserver(syncMaps);
   observer.observe(result, {childList: true});
   result.addEventListener("toggle", ({target}) => {
-    if (!target.matches("[data-observation-map][open]")) return;
-    if (maps.has(target)) maps.get(target)?.invalidateSize();
-    else syncMaps();
+    if (target.matches("[data-observation-map][open]")) syncMaps();
   }, true);
   document.addEventListener("pandect:access-lost", () => {
     observer.disconnect();

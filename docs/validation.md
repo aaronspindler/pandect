@@ -133,6 +133,49 @@ CI runs after upload. On failure, keep material local and remove it from every
 outgoing commit before pushing; later deletion is insufficient. Do not force-push
 or rewrite shared history as routine validation.
 
+## Evidence Chat qualification
+
+Run the opt-in comparison on a loopback Ollama with a pinned local model digest
+and server version. The workload generates all evidence in a disposable test
+database. It checks a direct record, a factual lookup, conflicting accounts,
+a message-to-register chronology and a missing attribution at 1,000 and
+10,000 unrelated records.
+
+```sh
+PANDECT_QUALIFY_CHAT=1 uv run --locked --env-file .env python manage.py test \
+  core.evidence_chat.qualification --settings=config.test_settings --noinput
+```
+
+Use identical settings on the comparison revisions. Each required fact needs
+its expected original and an exact citation. Adding unrelated evidence must
+preserve those answers with the same number of generation calls and at most
+5% growth in total input and output tokens. When comparing revisions, assess
+newly answerable questions separately. For previously supported questions the
+target is a 20% median token reduction with no increase at the 95th percentile.
+A small fixture measures that workload only. Each result includes model input
+and output tokens, evidence-bearing request bytes (including prompt rendering),
+generation calls, source count, SQL queries and PostgreSQL backend counters.
+Hosted services are outside this local qualification.
+
+For the dense-case acceptance test, run the following command against a
+disposable PostgreSQL test database. It generates 100,000 messages, with topics
+occurring 10, 1,000 and 20,000 times. Each topic has a low-frequency contrary
+account, repeated forwards and a missing timestamp. The test verifies totals,
+coverage, retrieval and attribution of both times. It records elapsed time,
+SQL query counts, rows read, buffer activity, model calls and prompt bytes.
+The default deterministic answer fixture can cite only records the worker supplies.
+On the 20,000-match topic it also checks both deeper-review estimates, worker
+interruption, an approved two-request limit and resuming the outstanding work.
+
+```sh
+PANDECT_QUALIFY_DENSE_CHAT=1 uv run --locked --env-file .env python manage.py test \
+  core.evidence_chat.dense_qualification --settings=config.test_settings --noinput
+```
+
+Add `PANDECT_QUALIFY_DENSE_CHAT_LIVE=1` to use the pinned loopback Ollama
+and measure provider-reported tokens with the same questions and citations.
+Deeper-review generation stays mocked so interruption and resumption are reproducible.
+
 ## Browser checks
 
 Install the locked developer tools and browser engines, then run the focused

@@ -1,9 +1,12 @@
 """Case-scoped, progressively enhanced readers for saved evidence questions."""
 
+from datetime import datetime
+
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import OuterRef, Subquery
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import (
@@ -40,12 +43,14 @@ def _route_context(case, *, turn=None):
         selected = services.submission_route(case, turn=turn)
     except AnalysisError as exc:
         return {"unavailable": error_message(exc.code), "route_token": ""}
-    execution, revision, search, ranking = selected
+    execution, revision, search, ranking, routing = selected
+    binding = [str(case.pk), revision, search, ranking]
+    if routing:
+        binding.append(routing)
     return {
         "selected_route": selected,
-        "route_token": execution_confirmation(
-            "chat.submit", [str(case.pk), revision, search, ranking], execution
-        ),
+        "route_token": execution_confirmation("chat.submit", binding, execution),
+        "decisions_destination": routing,
         "ranking_destination": ranking
         if ranking.get("provider") == "workers-ai"
         else {},
@@ -59,6 +64,24 @@ def _route_context(case, *, turn=None):
 def _row(request, case, turn):
     url = reverse("core:chat:reply", args=[case.pk, turn.chat_id, turn.pk])
     row = {"turn": turn, "url": url}
+    if (
+        turn.review_of_id
+        and turn.review_of.case_id == case.pk
+        and turn.review_of.chat_id == turn.chat_id
+    ):
+        row["deep_origin"] = reverse(
+            "core:chat:reply", args=(case.pk, turn.chat_id, turn.review_of_id)
+        )
+
+    parent_check = getattr(turn, "approved_check", None)
+    if (
+        parent_check
+        and parent_check.parent.case_id == case.pk
+        and parent_check.parent.chat_id == turn.chat_id
+    ):
+        row["origin_reply"] = reverse(
+            "core:chat:reply", args=[case.pk, turn.chat_id, parent_check.parent_id]
+        )
     if turn.status == ChatTurn.Status.FAILED:
         row["error"] = error_message(turn.error_code)
     if turn.status != ChatTurn.Status.COMPLETE:
@@ -71,9 +94,35 @@ def _row(request, case, turn):
             if code
             else "Reply unavailable because its sources could not be verified."
         }
+    from .deep_review import offer
+
+    if offer(turn):
+        child = getattr(turn, "deeper_review", None)
+        if child and child.case_id == case.pk and child.chat_id == turn.chat_id:
+            row["deep_child"] = reverse(
+                "core:chat:reply", args=(case.pk, turn.chat_id, child.pk)
+            )
+        else:
+            row["deep_offer"] = True
+    check = getattr(turn, "analysis_proposal", None)
+    if (
+        check
+        and check.document.case_id == case.pk
+        and (not check.run_id or check.run.case_id == case.pk)
+    ):
+        row["proposal"] = check
+        if (
+            check.continuation_id
+            and check.continuation.case_id == case.pk
+            and check.continuation.chat_id == turn.chat_id
+        ):
+            row["linked_reply"] = reverse(
+                "core:chat:reply", args=[case.pk, turn.chat_id, check.continuation_id]
+            )
     references = []
     claims = []
-    for claim in answer.get("claims", ()):
+    support = turn.plan.get("claim_support", [])
+    for index, claim in enumerate(answer.get("claims", ())):
         numbers = []
         for citation in claim["citations"]:
             if citation not in references:
@@ -81,7 +130,13 @@ def _row(request, case, turn):
             numbers.append(
                 {"number": references.index(citation) + 1, "citation": citation}
             )
-        claims.append({"text": claim["text"], "references": numbers})
+        claims.append(
+            {
+                "text": claim["text"],
+                "references": numbers,
+                "support": support[index] if index < len(support) else None,
+            }
+        )
     return row | {
         "answer": answer,
         "activity": activity.describe(turn),
@@ -154,20 +209,37 @@ def chat(request, case_id, chat_id=None):
         return render(request, "core/evidence_chat/index.html", context)
     turns = (
         thread.turns.filter(case=case)
-        .select_related("asked_by", "case")
+        .select_related(
+            "asked_by",
+            "case",
+            "deeper_review",
+            "review_of",
+            "analysis_proposal__document",
+            "analysis_proposal__run",
+            "analysis_proposal__continuation",
+            "approved_check__parent",
+        )
         .order_by("ordinal")
     )
     paginator = Paginator(turns, 10)
     page = paginator.get_page(request.GET.get("page") or paginator.num_pages)
     rows = [_row(request, case, turn) for turn in page]
+    active_turn = turns.filter(
+        status__in=(ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING)
+    ).exists()
     context.update(
         thread=thread,
         rows=rows,
         page_obj=page,
         recent_chats=chats[:10],
-        pending=turns.filter(
-            status__in=(ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING)
-        ).exists(),
+        active_turn=active_turn,
+        pending=active_turn
+        or any(
+            row.get("proposal")
+            and row["proposal"].status == "approved"
+            and not row.get("linked_reply")
+            for row in rows
+        ),
     )
     return render_live(request, "core/evidence_chat/detail.html", context)
 
@@ -184,7 +256,49 @@ def _get_turn(case, chat_id, turn_id):
 
 @product_login_required
 @require_safe
+def selection(request, case_id, chat_id, turn_id):
+    from django.db import transaction
+    from django.http import Http404
+
+    from . import selections
+
+    with transaction.atomic():
+        case = get_case(request.user, case_id, lock=True)
+        turn = _get_turn(case, chat_id, turn_id)
+        if (
+            not turn.plan.get("recorded_selection")
+            or services.inspect_turn(turn) is None
+        ):
+            raise Http404("Matching records unavailable.")
+        group = request.GET.get("group", "")
+        groupings = selections.grouping_choices(turn.plan["recorded_selection"])
+        if group and group not in groupings:
+            raise Http404("Unknown selection grouping.")
+        page = selections.page(turn, request.GET.get("page", 1), group)
+        if page is None:
+            raise Http404("Matching records unavailable.")
+        return render(
+            request,
+            "core/evidence_chat/selection.html",
+            case_context(case, request.user)
+            | {
+                "thread": turn.chat,
+                "turn": turn,
+                "page": page,
+                "selection": turn.plan["recorded_selection"],
+                "group": group,
+                "groupings": groupings,
+                "group_label": groupings.get(group, ""),
+                "filters": selections.filter_labels(turn),
+            },
+        )
+
+
+@product_login_required
+@require_safe
 def reply(request, case_id, chat_id, turn_id):
+    from .usage import interaction_usage
+
     case = get_case(request.user, case_id)
     turn = _get_turn(case, chat_id, turn_id)
     row = _row(request, case, turn)
@@ -192,9 +306,15 @@ def reply(request, case_id, chat_id, turn_id):
         "thread": turn.chat,
         "turn": turn,
         "row": row,
-        "pending": turn.status in (ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING),
+        "pending": turn.status in (ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING)
+        or bool(
+            row.get("proposal")
+            and row["proposal"].status == "approved"
+            and not row.get("linked_reply")
+        ),
     }
     if "answer" in row:
+        context["interaction_usage"] = interaction_usage(turn)
         if turn.mode == "full":
             context["matches_page"] = services.match_page(
                 turn, request.GET.get("page", 1)
@@ -237,3 +357,138 @@ def retry(request, case_id, chat_id, turn_id):
             else " ".join(exc.messages),
         )
     return redirect("core:chat:reply", case.pk, chat_id, turn.pk)
+
+
+@product_login_required
+@require_http_methods(["GET", "HEAD", "POST"])
+def proposal(request, case_id, chat_id, turn_id):
+    from core.models import ChatAnalysisProposal
+
+    from . import proposals
+
+    case = get_case(request.user, case_id, edit=True)
+    turn = _get_turn(case, chat_id, turn_id)
+    check = get_object_or_404(
+        ChatAnalysisProposal.objects.select_related("document", "parent__chat"),
+        parent=turn,
+        document__case=case,
+    )
+    reply_url = reverse("core:chat:reply", args=(case.pk, chat_id, turn.pk))
+    if check.status != "offered":
+        return redirect(reply_url)
+    unavailable = ""
+    if request.method == "POST":
+        try:
+            proposals.respond(
+                request.user,
+                case_id,
+                chat_id,
+                turn_id,
+                request.POST.get("action"),
+                request.POST.get("confirmation", ""),
+            )
+        except (AnalysisError, ValidationError) as error:
+            unavailable = (
+                error_message(error.code)
+                if isinstance(error, AnalysisError)
+                else " ".join(error.messages)
+            )
+        else:
+            return redirect(reply_url)
+    if not unavailable:
+        try:
+            proposals.check_offer(check)
+        except AnalysisError as error:
+            unavailable = error_message(error.code)
+    return render(
+        request,
+        "core/evidence_chat/proposal.html",
+        case_context(case, request.user)
+        | {
+            "thread": turn.chat,
+            "turn": turn,
+            "proposal": check,
+            "reply_url": reply_url,
+            "unavailable": unavailable,
+            "confirmation": proposals.reviewed_token(check, request.user),
+            "external_destination": execution_destination(turn.execution)
+            if turn.execution["location"] == "external"
+            else "",
+        },
+        status=409 if unavailable and request.method == "POST" else 200,
+    )
+
+
+@product_login_required
+@require_http_methods(["GET", "HEAD", "POST"])
+def deep_review(request, case_id, chat_id, turn_id):
+    from . import deep_review as reviews
+    from .forms import DeeperReviewForm
+
+    case = get_case(request.user, case_id, edit=True)
+    parent = _get_turn(case, chat_id, turn_id)
+    if not reviews.offer(parent):
+        raise Http404
+    reply_url = reverse("core:chat:reply", args=(case.pk, chat_id, turn_id))
+    existing = ChatTurn.objects.filter(
+        review_of=parent, case=case, chat_id=chat_id
+    ).first()
+    if existing:
+        return redirect("core:chat:reply", case.pk, chat_id, existing.pk)
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "keep":
+            return redirect(reply_url)
+        if action != "approve":
+            raise Http404
+    unavailable = ""
+    context = case_context(case, request.user) | {
+        "thread": parent.chat,
+        "turn": parent,
+        "reply_url": reply_url,
+    }
+    try:
+        if request.method == "POST":
+            form = DeeperReviewForm(request.POST)
+            if form.is_valid():
+                child = reviews.approve(
+                    request.user,
+                    case.pk,
+                    chat_id,
+                    parent.pk,
+                    form.cleaned_data["question"],
+                    form.cleaned_data["confirmation"],
+                    form.cleaned_data["request_limit"],
+                )
+                return redirect("core:chat:reply", case.pk, chat_id, child.pk)
+        scope, expected, token = reviews.estimate(parent, request.user)
+        if request.method != "POST":
+            form = DeeperReviewForm(
+                initial={
+                    "question": parent.question,
+                    "confirmation": token,
+                    "request_limit": min(expected * 2, scope["limit"]),
+                }
+            )
+        if scope.get("resume"):
+            form.fields["question"].widget.attrs["readonly"] = True
+        form.fields["request_limit"].widget.attrs["max"] = scope["limit"]
+        context.update(
+            scope=scope,
+            expected=expected,
+            cutoff=datetime.fromisoformat(scope["through"]),
+            form=form,
+            destination=execution_destination(parent.execution),
+        )
+    except (AnalysisError, ValidationError) as error:
+        unavailable = (
+            error_message(error.code)
+            if isinstance(error, AnalysisError)
+            else " ".join(error.messages)
+        )
+    return render(
+        request,
+        "core/evidence_chat/deeper_review.html",
+        context | {"unavailable": unavailable},
+        status=409 if unavailable and request.method == "POST" else 200,
+    )

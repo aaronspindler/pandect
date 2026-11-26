@@ -49,7 +49,11 @@ def pinned_model(client, *, capability, families):
 def infer(client, prompt, schema):
     config = client.execution
     try:
-        messages = evidence_messages(prompt, schema)
+        # Ollama receives the complete output grammar in its format field.
+        # Ordinary chat describes the requested actions and their arguments in
+        # the task. Repeating the grammar as evidence spends input tokens again.
+        ordinary_chat = client.chat_turn is not None and client.chat_turn.mode != "full"
+        messages = evidence_messages(prompt, None if ordinary_chat else schema)
     except ValueError, TypeError, RecursionError:
         raise AnalysisError("local_ai_invalid_input") from None
     model = pinned_model(
@@ -88,7 +92,7 @@ def infer(client, prompt, schema):
     if prompt_bound + config["max_output_tokens"] > config["context_tokens"]:
         raise AnalysisError("local_ai_context_limit")
     _version(client)
-    result = client._request("/api/chat", payload)
+    result = client._request("/api/chat", payload, input_bound=prompt_bound)
     _version(client)
     try:
         message = result["message"]

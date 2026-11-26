@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.db.models import Case, CharField, Exists, F, Func, OuterRef, Value, When
+from django.db.models import Case, CharField, Exists, F, Func, OuterRef, Q, Value, When
 from django.db.models.functions import Length, Substr
 from django.http import Http404
 from django.urls import reverse
@@ -26,6 +26,7 @@ from core.evidence.types import (
     KIND_LABELS,
     KINDS,
 )
+from core.models import AnalysisFindingSource
 from core.storage import private_file
 from phone.conversations import message_url
 from phone.models import CallEvidenceAttachment
@@ -56,7 +57,21 @@ def body_field(surface, kind):
     return {"attachment": "transcript", "passage": "text"}.get(surface)
 
 
-def rows(case, surface, kind, include_archived, through=None, *, retained=False):
+def _restored_sources(case, after, through):
+    restored = Q(pk__in=[])
+    for kind in KINDS:
+        originals = scoped_evidence(case, kind).filter(
+            is_archived=False, archive_changed_at__gt=after
+        )
+        if through:
+            originals = originals.filter(archive_changed_at__lte=through)
+        restored |= Q(kind=kind, evidence_id__in=originals.values("pk"))
+    return restored
+
+
+def rows(
+    case, surface, kind, include_archived, through=None, *, retained=False, after=None
+):
     """Use current results for searches and pinned versions for saved citations."""
     if surface in ("original", "attachment"):
         originals = scoped_evidence(case, kind)
@@ -103,6 +118,27 @@ def rows(case, surface, kind, include_archived, through=None, *, retained=False)
         date_field = "result__created_at"
     if through:
         qs = qs.filter(**{date_field + "__lte": through})
+    if after:
+        added = Q(**{date_field + "__gt": after})
+        if surface in ("original", "attachment"):
+            prefix = "" if surface == "original" else parent + "__"
+            restored = Q(**{prefix + "archive_changed_at__gt": after})
+            if through:
+                restored &= Q(**{prefix + "archive_changed_at__lte": through})
+            added |= restored
+        else:
+            restored = _restored_sources(case, after, through)
+            # A previously published result becomes available again when
+            # its original is restored. Keep this set in PostgreSQL.
+            restored_results = (
+                AnalysisFindingSource.objects.filter(restored, case=case)
+                .order_by()
+                .values("finding__result_id")
+            )
+            added |= Q(result_id__in=restored_results)
+            if surface == "passage":
+                added |= restored
+        qs = qs.filter(added)
     return qs.order_by("pk")
 
 
@@ -142,6 +178,9 @@ def clipped(queryset, field, start=0, size=0, *, review=False, verified_body=Non
                 When(body_revision=revision, then=Value(verified_body["length"])),
                 default=length,
             )
+    if queryset.model is KINDS["text-message"]:
+        # Keep full message bodies out of result rows even for marked forwards.
+        queryset = queryset.annotate(wording_prefix=Substr(field, 1, 512))
     queryset = queryset.defer(field).annotate(body_length=length, body_digest=digest)
     if size:
         queryset = queryset.annotate(body_window=Substr(field, start + 1, size))
@@ -307,7 +346,7 @@ class Material:
     literal_ranges: tuple[tuple[int, int], ...] = ()
 
 
-def _make_material(
+def make_material(
     surface,
     kind,
     evidence_id,
@@ -424,7 +463,7 @@ def _original_material(
         url += "#location-heading"
     elif kind in CALL_KINDS:
         url += "#communication-heading"
-    return _make_material(
+    found = make_material(
         surface,
         kind,
         original.pk,
@@ -440,11 +479,21 @@ def _original_material(
         value_ranges=value_ranges,
     )
 
+    if kind == "text-message" and surface == "original":
+        from .lineage import message_lineage
 
-def _result_sources(case, item, include_archived):
+        found.locator["message_lineage"] = message_lineage(item)
+    return found
+
+
+def result_sources(case, run, include_archived):
     try:
         sources = resolve_inputs(
-            item.result.run, case, cache=SourceResolutionCache(case, with_content=False)
+            run,
+            case,
+            cache=SourceResolutionCache(
+                case, with_content=False, active_only=not include_archived
+            ),
         )
     except AnalysisError, Http404, ValidationError, TypeError, KeyError, ValueError:
         return []
@@ -482,7 +531,8 @@ def _has_usable_passage(case, kind, original, attachment_id, include_archived, t
         .distinct("result_id")
     )
     return any(
-        _passage_original(p, _result_sources(case, p, include_archived)) is not None
+        _passage_original(p, result_sources(case, p.result.run, include_archived))
+        is not None
         for p in versions.iterator(chunk_size=25)
     )
 
@@ -532,7 +582,7 @@ def material(
             value_ranges,
         )
     if sources is None:
-        sources = _result_sources(case, item, include_archived)
+        sources = result_sources(case, item.result.run, include_archived)
     if not sources:
         return None
     run = item.result.run
@@ -571,7 +621,7 @@ def material(
             # and the JSON used to present structured method output.
             first = len(stored["label"]) + 1
             value_ranges.append((first, first + len(finding_body)))
-    found = _make_material(
+    found = make_material(
         surface,
         kind,
         evidence_id,
@@ -599,25 +649,37 @@ def discover(
     *,
     through=None,
     original_kinds=None,
+    count_filters=None,
     review=False,
     filters=None,
+    selected_rows=None,
 ):
     """Stream the evidence inventory without loading whole text bodies or recordings."""
     from .search_scope import scope_rows
 
-    for surface, kind in surfaces():
-        if original_kinds is not None and (
-            surface != "original" or kind not in original_kinds
-        ):
-            continue
-        queryset = scope_rows(
-            rows(case, surface, kind, include_archived, through),
-            case,
-            surface,
-            kind,
-            filters,
-            include_recordings=True,
-        )
+    def ordinary_rows():
+        for surface, kind in surfaces():
+            if original_kinds is not None and (
+                surface != "original" or kind not in original_kinds
+            ):
+                continue
+            queryset = scope_rows(
+                rows(case, surface, kind, include_archived, through),
+                case,
+                surface,
+                kind,
+                filters,
+                include_recordings=True,
+            )
+            if count_filters:
+                from .engine_counts import count_candidates
+
+                queryset = count_candidates(queryset, kind, count_filters)
+            yield surface, kind, queryset
+
+    for surface, kind, queryset in (
+        ordinary_rows() if selected_rows is None else selected_rows
+    ):
         sources, last_result = None, None
         if surface in ("passage", "finding"):
             queryset = queryset.order_by("result_id", "item_index", "pk")
@@ -626,7 +688,7 @@ def discover(
         ).iterator(chunk_size=50):
             if getattr(item, "result_id", None) != last_result:
                 last_result = item.result_id
-                sources = _result_sources(case, item, include_archived)
+                sources = result_sources(case, item.result.run, include_archived)
             found = material(
                 case,
                 surface,
@@ -661,26 +723,37 @@ def read_window(
         return None
     surface = locator.get("surface")
     kind = locator.get("kind") if surface in ("original", "attachment") else ""
-    if (surface, kind) not in surfaces():
-        return None
     try:
         pk = UUID(locator["pk"])
     except ValueError, KeyError, AttributeError, TypeError:
         return None
-    queryset = rows(case, surface, kind, include_archived, retained=True).filter(pk=pk)
-    item = clipped(
-        queryset,
-        body_field(surface, kind),
-        start,
-        size,
-        review=review,
-        verified_body=locator.get("verified_body"),
-    ).first()
-    if item is None:
-        return None
-    found = material(
-        case, surface, kind, item, include_archived, start, size, literal=literal
-    )
+    if surface == "trip":
+        from .trips import read_trip_material
+
+        found = read_trip_material(case, pk, start, size)
+    elif surface == "report":
+        from .analysis_reports import read_analysis_material
+
+        found = read_analysis_material(case, pk, start, size)
+    else:
+        if (surface, kind) not in surfaces():
+            return None
+        queryset = rows(case, surface, kind, include_archived, retained=True).filter(
+            pk=pk
+        )
+        item = clipped(
+            queryset,
+            body_field(surface, kind),
+            start,
+            size,
+            review=review,
+            verified_body=locator.get("verified_body"),
+        ).first()
+        if item is None:
+            return None
+        found = material(
+            case, surface, kind, item, include_archived, start, size, literal=literal
+        )
     if found is None or any(
         found.locator[k] != locator.get(k)
         for k in (
@@ -693,8 +766,15 @@ def read_window(
             "dependencies",
             "result_id",
             "metadata_start",
+            "selected_count",
+            "start_at",
+            "end_at",
         )
         if k in found.locator
+    ):
+        return None
+    if "message_lineage" in locator and locator["message_lineage"] != found.locator.get(
+        "message_lineage"
     ):
         return None
     result = {
@@ -752,11 +832,16 @@ def rank(
     include_archived=False,
     limit=10,
     through=None,
+    after=None,
     related=None,
     hints=(),
     filters=None,
     stamp_body=False,
     semantic_hints=None,
+    surfaces_to_search=None,
+    stats=None,
+    independent_of=(),
+    message_topics=(),
 ):
     from .corpus_search import ranked_windows
 
@@ -767,9 +852,14 @@ def rank(
         include_archived,
         limit,
         through,
+        after=after,
         related=related,
         hints=hints,
         filters=filters,
         stamp_body=stamp_body,
         semantic_hints=semantic_hints,
+        surfaces_to_search=surfaces_to_search,
+        stats=stats,
+        independent_of=independent_of,
+        message_topics=message_topics,
     )

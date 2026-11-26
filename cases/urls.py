@@ -2,12 +2,17 @@ from django.urls import path
 
 from cases.generation_views import update as search_generation
 
-from . import activity, rerank_views, views
+from . import activity, chat_routing_views, rerank_views, views
 
 app_name = "cases"
 
 urlpatterns = [
     path("", views.case_list, name="case_list"),
+    path(
+        "<uuid:case_id>/settings/chat-routing/",
+        chat_routing_views.change,
+        name="case_chat_routing",
+    ),
     path(
         "<uuid:case_id>/settings/passage-ranking/",
         rerank_views.change,

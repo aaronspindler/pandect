@@ -1,7 +1,7 @@
 """Count explicit structured record filters using reported case data."""
 
 import re
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -19,6 +19,9 @@ KINDS = {
     "phone calls": ["phone-call"],
     "facetime calls": ["facetime"],
     "calls": list(CALL_KINDS),
+    "communications": list(COMMUNICATION_KINDS),
+    "observations": list(LOCATION_KINDS),
+    "recorded events": [*COMMUNICATION_KINDS, *LOCATION_KINDS],
     "images": ["image"],
     "photos": ["image"],
     "documents": ["document"],
@@ -33,7 +36,8 @@ QUERY = re.compile(
     r"(?:how many|(?:what is |what's )?(?:the )?(?:total )?(?:number|count) of"
     r"|count(?: all)?|(?:show|list|find) (?:me )?(?:all|every)) "
     r"(?P<kind>" + "|".join(KINDS) + r")"
-    r"(?: (?:are (?:there|recorded)|do we have|were recorded))?"
+    r"(?: (?:are (?:there|recorded)|do we have"
+    r"|were (?P<verb>recorded|sent|exchanged)))?"
     r"(?: (?:in|for|across) (?:the|this|my) case)?"
     r"(?: between (?P<first>[^?.,]+?) and (?P<second>[^?.,]+?))?"
     r"(?: on (?P<day>\d{4}-\d{2}-\d{2}|monday|tuesday|wednesday|thursday"
@@ -123,6 +127,10 @@ def structured_question(turn, question):
     if not match:
         return None, ""
     kinds = KINDS[match["kind"].lower()]
+    if (match["verb"] or "").lower() in ("sent", "exchanged") and kinds != [
+        "text-message"
+    ]:
+        return None, ""
     filters = {"kinds": kinds}
     if match["first"]:
         if not set(kinds) <= set(COMMUNICATION_KINDS):
@@ -156,6 +164,45 @@ def structured_question(turn, question):
     return filters, ""
 
 
+def is_filtered_count(question, filters):
+    return bool(
+        ("parties" in filters or "day" in filters)
+        and not question.lstrip().casefold().startswith(("list ", "show ", "find "))
+    )
+
+
+def day_bounds(filters):
+    day = date.fromisoformat(filters["day"])
+    zone = ZoneInfo(filters["timezone"])
+    bounds = {"start": datetime.combine(day, time.min, zone)}
+    if day < date.max:
+        bounds["end"] = datetime.combine(day + timedelta(days=1), time.min, zone)
+    return bounds
+
+
+def _clock(kind):
+    if kind in COMMUNICATION_KINDS:
+        return "occurred_at"
+    return "observed_at" if kind in LOCATION_KINDS else "collected_at"
+
+
+def count_candidates(rows, kind, filters):
+    """Freeze only eligible matches and unknown dates for a scoped count."""
+    if parties := filters.get("parties"):
+        a, b = parties
+        rows = rows.filter(
+            Q(sender_id=a, recipient_id=b) | Q(sender_id=b, recipient_id=a)
+        )
+    if "day" in filters:
+        clock = _clock(kind)
+        date_range = day_bounds(filters)
+        bounds = Q(**{clock + "__gte": date_range["start"]})
+        if "end" in date_range:
+            bounds &= Q(**{clock + "__lt": date_range["end"]})
+        rows = rows.filter(bounds | Q(**{clock + "__isnull": True}))
+    return rows
+
+
 def evaluate(case, sources, filters):
     """Classify each frozen original, using case-enforced participant relationships."""
     result = {}
@@ -172,13 +219,7 @@ def evaluate(case, sources, filters):
         if "day" not in filters:
             result.update((pk, "match") for pk in qs.values_list("pk", flat=True))
             continue
-        date_field = (
-            "occurred_at"
-            if kind in COMMUNICATION_KINDS
-            else "observed_at"
-            if kind in LOCATION_KINDS
-            else "collected_at"
-        )
+        date_field = _clock(kind)
         zone = ZoneInfo(filters["timezone"])
         day = date.fromisoformat(filters["day"])
         for pk, timestamp in qs.values_list("pk", date_field):

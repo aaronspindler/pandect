@@ -38,6 +38,7 @@ from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
     VehicleLocationImportRow,
+    VehicleTrip,
     VehicleTripGeneration,
 )
 from phone.models import (
@@ -76,6 +77,8 @@ INVENTORY_LABELS = {
     "importantitem": "Important item",
     "importantnote": "Important item note",
     "chatturn": "Evidence chat question and reply",
+    "chatanalysisproposal": "Evidence chat analysis proposal",
+    "extractionreuse": "Shared extraction request",
     "chatsource": "Chat review source",
     "chatmatch": "Chat match and citation",
     "evidencechat": "Evidence chat",
@@ -348,12 +351,41 @@ def plan_deletions(items, kind):
             marked_evidence |= Q(
                 evidence_kind=root_kind, evidence_id__in=[obj.pk for obj in objects]
             )
+    if vehicle_ids:
+        # Removing a contributing original retires its whole trip generation.
+        marked_evidence |= Q(
+            evidence_kind="possible-trip",
+            evidence_id__in=VehicleTrip.objects.filter(
+                generation__in=generations
+            ).values("pk"),
+        )
     # Every derived surface retains its analysis result. Deleting one of its
     # inputs also deletes that result through the dependency walk above.
     affected_sources = ChatSource.objects.filter(
         marked_evidence | Q(result_id__in=runs.values("result__pk"))
     )
-    affected_turns = ChatTurn.objects.filter(pk__in=affected_sources.values("turn_id"))
+    affected = Q(pk__in=affected_sources.values("turn_id"))
+    from core.models import ChatSelectionMember
+
+    selected_roots = Q()
+    for root_kind, objects in roots.items():
+        if objects:
+            selected_roots |= Q(
+                kind=root_kind, evidence_id__in=[obj.pk for obj in objects]
+            )
+    if selected_roots:
+        # All later answers from this thread are included below, including
+        # replies that reused the original selection for a new comparison.
+        affected |= Q(
+            pk__in=ChatSelectionMember.objects.filter(
+                selected_roots, turn__case=item.case, turn__chat__case=item.case
+            ).values("turn_id")
+        )
+    if message_ids:
+        from core.evidence_chat.recorded import deletion_dependencies
+
+        affected |= Q(pk__in=deletion_dependencies(item.case, message_ids))
+    affected_turns = ChatTurn.objects.filter(affected)
     # A follow-up may quote or paraphrase its earlier conversation.
     downstream = ChatTurn.objects.filter(
         Exists(

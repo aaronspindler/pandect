@@ -54,8 +54,11 @@ def date_only_messages(case):
     return _date_only_contexts(case).order_by().values("message_id")
 
 
-def is_date_only_message(case):
-    return Exists(_date_only_contexts(case).filter(message_id=OuterRef("pk")))
+def is_date_only_message(case, *, through=None):
+    contexts = _date_only_contexts(case).filter(message_id=OuterRef("pk"))
+    if through is not None:
+        contexts = contexts.filter(created_at__lte=through)
+    return Exists(contexts)
 
 
 def date_only_message_dates(case, message_ids):

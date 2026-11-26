@@ -1,0 +1,10 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Saved possible trip · {{ case.name }}{% endblock %}
+{% block content %}
+<header class="page-heading"><div><h1>Saved possible trip</h1><p>{{ trip.generation.method_version }} · Published {{ trip.generation.finished_at|date:"d M Y, H:i T" }}</p></div></header>
+<dl class="metadata-grid">{% for label,value in fields %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl>
+<h2>Supporting observations</h2>
+<ol class="source-list">
+{% for row in sources %}<li><a class="record-link" href="{{ row.url }}">{{ row.label }}</a> · {{ row.time|date:"d M Y, H:i:s T" }}{% if row.place != row.label %} · {{ row.place }}{% endif %}{% if row.row %} · Source row {{ row.row }}{% endif %}</li>{% endfor %}
+</ol>
+{% endblock %}

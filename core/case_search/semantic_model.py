@@ -132,7 +132,7 @@ def embed(texts, authorize, *, case=None, purpose="index", chat_turn=None):
         raise AnalysisError("local_ai_not_configured")
     if not 0 < len(texts) <= BATCH_SIZE:
         raise AnalysisError("local_ai_input_limit")
-    client = LocalClient(authorize, config)
+    client = LocalClient(authorize, config, chat_turn=chat_turn)
     model = pinned_model(client, capability="embedding", families={"bert"})
     result = client._request(
         "/api/embed",

@@ -8,6 +8,18 @@
 <div id="chat-reply" tabindex="-1" data-live-region data-live-poll="{{ pending|yesno:'true,false' }}"{% if not pending %} data-live-outcome="Reply updated."{% endif %}>
   <div class="chat-reading-column">
     {% include 'core/evidence_chat/turn.html' with single=True %}
+    {% if interaction_usage %}
+    <details class="content-section">
+      <summary>Model usage for this question and check</summary>
+      <p>Reported tokens include input and output. Reserved tokens are estimates for requests with missing usage.</p>
+      <dl class="metadata-list">
+        {% for stage in interaction_usage %}
+        <dt>{{ stage.label }}</dt>
+        <dd>{{ stage.requests }} request{{ stage.requests|pluralize }} · {{ stage.bytes }} bytes sent · {{ stage.reported }} reported tokens{% if stage.reserved %} · {{ stage.reserved }} reserved tokens{% endif %}</dd>
+        {% endfor %}
+      </dl>
+    </details>
+    {% endif %}
   </div>
   {% if matches_page %}
   <section class="content-section" id="matches" aria-labelledby="match-heading">

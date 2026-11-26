@@ -194,3 +194,124 @@ class ConversationRecallTests(EvidenceViewTestMixin, TestCase):
             str(old.sources.get(evidence_id=item.pk).pk)
         ]
         self.assertIsNone(services.inspect_turn(unrelated))
+
+    def test_updates_since_numbered_answer_rank_new_material_in_its_scope(self):
+        from datetime import UTC, datetime, timedelta
+
+        from core.evidence.retention import set_evidence_archive
+        from phone.models import TextMessageEvidence
+
+        day = datetime(2026, 4, 12, 12, tzinfo=UTC)
+        question = (
+            "What do the harbour logs say about the Kestrel? type:text on:2026-04-12"
+        )
+        old = "Kestrel harbour logs record the original quay."
+        revised = "Kestrel moved."
+        restored = "Kestrel returned to the inlet."
+
+        def record(body, when=day):
+            return TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title="Harbour logs",
+                body=body,
+                collected_at=when,
+            )
+
+        record(old)
+        for n in range(35):
+            record(f"{old} Entry {n}.")
+        recovered = record(restored)
+        set_evidence_archive(
+            self.users["owner"], self.case.pk, "text", recovered.pk, archived=True
+        )
+        parent = self.ask(question)
+
+        def cite(payload, quotes):
+            claims = []
+            for quote in quotes:
+                row = next(row for row in payload["records"] if quote in row["text"])
+                claims.append(
+                    {
+                        "text": quote,
+                        "citations": [
+                            {
+                                "id": row["id"],
+                                "quote": quote,
+                                "start": row["text"].index(quote),
+                            }
+                        ],
+                    }
+                )
+            return decision("answer", claims=claims)
+
+        with patch.object(
+            ai,
+            "infer",
+            side_effect=lambda active, authorize, prompt, schema: cite(
+                json.loads(prompt.split("\n", 1)[1]), [old]
+            ),
+        ):
+            self.finish(parent)
+        self.assertEqual(parent.status, "complete", parent.error_code)
+        unchanged = services.inspect_turn(parent)
+        self.saved_turn(parent.chat, 2, "Unrelated dinner question")
+        # One later, lower-ranked match, one restored record, and two attractive
+        # new rows that disagree with the original event date or type.
+        record(revised)
+        record(old + " Wrong date.", day + timedelta(days=2))
+        TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Harbour logs",
+            body=old + " Wrong type.",
+            sender=self.person,
+            recipient=self.person,
+            occurred_at=day,
+        )
+        set_evidence_archive(
+            self.users["owner"], self.case.pk, "text", recovered.pk, archived=False
+        )
+        turn = self.ask("Has anything else turned up since answer 1?", parent.chat_id)
+
+        def updates(active, authorize, prompt, schema):
+            authorize()
+            data = json.loads(prompt.split("\n", 1)[1])
+            self.assertEqual(len(data["records"]), 2)
+            self.assertNotIn("Wrong date", prompt)
+            self.assertNotIn("Wrong type", prompt)
+            self.assertNotIn("Unrelated dinner", prompt)
+            return cite(data, [revised, restored])
+
+        with patch.object(ai, "infer", side_effect=updates) as calls:
+            self.finish(turn)
+        self.assertEqual(turn.status, "complete", turn.error_code)
+        self.assertEqual(calls.call_count, 1)
+        self.assertEqual(
+            [c["text"] for c in services.inspect_turn(turn)["claims"]],
+            [revised, restored],
+        )
+        self.assertEqual(services.inspect_turn(parent), unchanged)
+        # No newly eligible candidates warrant another model call.
+        empty = self.ask("What's new?", parent.chat_id)
+        with patch.object(
+            ai, "infer", side_effect=AssertionError("Expected no inference")
+        ):
+            self.finish(empty)
+        self.assertEqual(empty.status, "complete", empty.error_code)
+        self.assertIn(
+            "bounded search found no relevant new excerpts",
+            services.inspect_turn(empty)["summary"],
+        )
+        # Withholding one of the old answer's actual citations blocks its reuse.
+        cited = parent.sources.filter(
+            key=parent.answer["claims"][0]["citations"][0]["key"]
+        ).get()
+        set_evidence_archive(
+            self.users["owner"], self.case.pk, "text", cited.evidence_id, archived=True
+        )
+        withheld = self.ask("What's new since answer 1?", parent.chat_id)
+        with patch.object(ai, "infer", side_effect=AssertionError("Withheld history")):
+            self.finish(withheld)
+        self.assertEqual(withheld.status, "complete", withheld.error_code)
+        self.assertIn("earlier answer is unavailable", withheld.answer["clarification"])

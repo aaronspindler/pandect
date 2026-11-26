@@ -147,8 +147,24 @@ def raw_finding_item(data_field="result__data"):
 @transaction.atomic
 def project_result(result):
     """Publish a rebuildable projection atomically alongside its canonical result."""
+    from core.analysis.report_index import measurements_v1, timing_values_v1
+    from core.models import AnalysisReportIndex
+
+    metrics = result.data.get("metrics")
+    AnalysisReportIndex.objects.update_or_create(
+        result=result,
+        defaults={
+            "text": measurements_v1(result.run.operation, metrics),
+            "timing_values": timing_values_v1(result.run.operation, metrics),
+        },
+    )
     inputs = {source["id"]: source for source in result.run.inputs}
     operation = result.run.operation
+    if operation == "comm_patterns":
+        from phone.analysis.saved_timing import INLINE_MEMBERS, timing_members
+
+        if len(inputs) > INLINE_MEMBERS:
+            timing_members(result.case, result)
     items = (
         (index, item)
         for index, item in enumerate(result.data.get("items", []))

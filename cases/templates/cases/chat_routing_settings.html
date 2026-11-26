@@ -1,0 +1,24 @@
+{% if chat_routing.destination or chat_routing.saved %}
+<section class="content-section" id="chat-routing" aria-labelledby="chat-routing-heading">
+  <h2 id="chat-routing-heading">Evidence chat source selection</h2>
+  {% if chat_routing.destination %}
+    <p class="prose">For harder questions, chat can send the investigator’s question and up to eight source descriptions to OpenAI to choose what to read next. Descriptions include the source type, label and a short excerpt. This can send case material to OpenAI even when answers use local AI.</p>
+    <p class="prose">OpenAI Decisions · {{ chat_routing.destination.model }} · {{ chat_routing.destination.url }}. Your OpenAI account’s billing and retention policies apply.</p>
+    {% if chat_routing.approved %}
+      <p><strong>Approved for this case.</strong></p>
+    {% else %}
+      <form method="post" action="{% url 'cases:case_chat_routing' case.pk %}">
+        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ chat_routing.approve }}">
+        <button class="button button-secondary" type="submit" name="action" value="approve">Approve OpenAI source selection</button>
+      </form>
+    {% endif %}
+  {% endif %}
+  {% if chat_routing.saved %}
+    {% if not chat_routing.approved %}<p>The previous approval for {{ chat_routing.saved.model }} at {{ chat_routing.saved.url }} is inactive.</p>{% endif %}
+    <form method="post" action="{% url 'cases:case_chat_routing' case.pk %}">
+      {% csrf_token %}<input type="hidden" name="confirmation" value="{{ chat_routing.revoke }}">
+      <button class="button button-secondary" type="submit" name="action" value="revoke">Revoke OpenAI source selection</button>
+    </form>
+  {% endif %}
+</section>
+{% endif %}

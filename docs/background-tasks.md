@@ -107,15 +107,48 @@ work or disable external services. Older workers cannot enforce case approval.
 
 Evidence chat uses the default queue. Each delivery rechecks the investigator's
 access and selected execution settings. When an ordinary answer needs a
-targeted follow-up search, the worker checkpoints the missing fact, search
-terms, cited provisional answer and its original references. A retry resumes
+targeted follow-up, the worker checkpoints the operation, missing fact, search
+terms, selected source when applicable, cited provisional answer and its
+original references. A retry resumes
 from that checkpoint and rechecks sources used from earlier turns. If the
 search finds no relevant new material, the worker verifies the provisional
 citations again and publishes the qualified answer.
+
+Each ordinary turn shares a cumulative allowance across deliveries, including
+evidence-bearing model requests, transport retries, local prompt rendering,
+query embedding, passage reranking and optional OpenAI source selection.
+The worker reserves each transfer before
+dispatch. A turn allows up to 12 attempts, 256 KiB transferred, 98,304 input
+tokens and 32,768 output tokens. When exact token counts are unavailable, the
+worker charges a conservative bound. An interrupted attempt keeps its
+reservation. If the answer model reaches a limit, chat publishes any previously
+verified claims with a coverage notice. Explicit full reviews retain their own
+batch processing and authorization. A turn can send at most one Decisions
+request across all deliveries. Decisions has no output-token limit parameter.
+Pandect reserves an estimate for that request, limits the response it reads
+to 4 KiB and reconciles reported token usage. After an interrupted send, the
+next delivery can continue with ordinary source selection using the remaining
+allowance.
+
+A PDF extraction approved in chat uses the existing analysis queue. Manual,
+automatic and chat requests can share the same in-flight single-PDF extraction.
+Pandect records the requesting and approving investigators separately. Automatic
+requests retain their scheduled follow-ups. Result publication and allocation of
+a linked reply share a database transaction. If the conversation has an active
+turn, its terminal transition picks up the waiting reply. Subsequent deliveries
+recheck the original investigator, active sources and approved answer route.
+Use the extraction link in the original reply to inspect a stopped check.
+
 Worker milestones and a bounded sample of currently available source references
 drive the live activity disclosure. The worker saves these milestones separately
 from recovery checkpoints. Completed replies draw their sample from the saved
 source ledger.
+Ordinary chat reserves a local lookup before executing it. An initial search,
+two refinements and one interrupted attempt share a four-attempt limit across
+deliveries. Indexed discovery and recorded-field queries run with bounded SQL
+timeouts. The reply for an approved PDF check also shows model usage for the
+original question, local extraction and linked answer. It separates reported
+tokens from estimates retained for missing usage.
 A full review saves its source versions, window positions, matches and progress
 before queuing its continuation. The worker reads adjacent windows together
 and reuses a verified body digest while the case evidence revision matches.
@@ -133,6 +166,16 @@ After verifying the worker has stopped, add `--confirm-interrupted TOKEN`
 with the displayed token to resume that delivery from its last checkpoint.
 A late worker cannot publish under the replaced token. An interrupted external
 call can incur provider usage again when its unfinished checkpoint is retried.
+
+An approved deeper review has a frozen scope and a maximum number of generation
+requests. The estimate uses the matched entries, their text lengths, excerpt
+overlap and a final answer call. It is an estimate of model work. Provider
+billing depends on actual token usage. The worker checks the case and
+destination again and reserves each generation, including retries, before
+dispatch. At the approved limit it verifies the cited matches already found
+and records remaining entries as incomplete. The linked reply can offer a
+further review from unfinished positions under a new approval. Each completed
+reply keeps its own scope and coverage.
 
 ## Meaning search indexing
 

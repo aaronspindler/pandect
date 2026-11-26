@@ -72,8 +72,9 @@ def related_for_turn(turn, query, authorize, *, filters=None):
         # authorization failures still stop the turn.
         if exc.code == "execution_changed":
             authorize()
-        elif exc.code != "embedding_approval_required" and not exc.code.startswith(
-            ("gateway_", "local_ai_")
-        ):
+        elif exc.code not in {
+            "embedding_approval_required",
+            "chat_budget_exhausted",
+        } and not exc.code.startswith(("gateway_", "local_ai_")):
             raise
         return local_parents()

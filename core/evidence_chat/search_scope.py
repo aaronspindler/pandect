@@ -10,6 +10,37 @@ QUOTED_TEXT = re.compile(r"""“[^”]*”|‘[^’]*’|"[^"]*"|(?<!\w)'[^']*'(
 TYPE = re.compile(r"(?<!\S)type:([\w-]+)\b", re.I)
 DATE = re.compile(r"(?<!\S)(from|through|on):(\d{4}-\d{2}-\d{2})\b", re.I)
 FIELDS = {"passage": "extraction", "finding": "finding"}
+REQUEST_PREFIX = r"^\s*(?:(?:please|can you|could you)\s+)?"
+ENUMERATED = re.compile(
+    REQUEST_PREFIX
+    + r"(?P<after>after\s+)?(?:check|review|search|inspect)(?P<gerund>ing)?\s+"
+    r"(?:all(?:\s+the)?|every|each)\s+"
+    r"(?P<population>records?|sources?|(?:text\s+)?messages?|items?)\b",
+    re.I,
+)
+FULL_REVIEW = re.compile(
+    REQUEST_PREFIX + r"(?:(?:do|run|start|perform)\s+)?(?:a\s+)?(?:full|exhaustive)\s+"
+    r"(?:review|search)\b"
+    r"(?:\s+(?:of|through|across)\s+(?:(?:all(?:\s+the)?|every|each|the)\s+)?"
+    r"(?P<messages>(?:text\s+)?messages?)\b)?",
+    re.I,
+)
+
+
+def review_population(question, *, direct_only=False):
+    """Identify the population the investigator explicitly asked chat to review."""
+    question = QUOTED_TEXT.sub(" ", question)
+    if match := ENUMERATED.match(question):
+        if direct_only and (match["after"] or match["gerund"]):
+            return ""
+        return "text-message" if "message" in match["population"].lower() else "all"
+    if not direct_only and (match := FULL_REVIEW.match(question)):
+        return "text-message" if match["messages"] else "all"
+    return ""
+
+
+def normalize_date_filters(question):
+    return re.sub(r"\b(on|from|through)\s+(?=\d{4}-\d)", r"\1:", question, flags=re.I)
 
 
 def search_filters(question, timezone_name):

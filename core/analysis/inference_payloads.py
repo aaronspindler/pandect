@@ -32,6 +32,10 @@ def evidence_messages(prompt, schema):
         },
         {
             "role": "user",
-            "content": encode_json({"task": prompt, "schema": schema}).decode(),
+            "content": (
+                encode_json({"task": prompt, "schema": schema}).decode()
+                if schema is not None
+                else prompt
+            ),
         },
     ]

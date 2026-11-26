@@ -7,3 +7,6 @@
 {% if ranking_destination %}
 <p class="help-text">For questions that need a broader search, reranking can send your question and up to 24 evidence excerpts to {{ ranking_destination.model }} through Cloudflare gateway <strong>{{ ranking_destination.gateway }}</strong>.</p>
 {% endif %}
+{% if decisions_destination %}
+<p class="help-text">For a harder question, chat can send your question and up to eight short source previews to <strong>OpenAI Decisions</strong> ({{ decisions_destination.model }}) to choose a source to read.</p>
+{% endif %}

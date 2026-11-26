@@ -301,6 +301,8 @@
       if (document.hidden) closeStream();
       else if (!stopped) {
         openStream(activity);
+        // An in-flight snapshot can predate the return to this tab.
+        snapshotDue = true;
         refresh();
       }
     }, listeners);
