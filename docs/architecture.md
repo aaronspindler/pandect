@@ -210,6 +210,14 @@ recall an earlier topic and reopen its cited originals.
 Migration `core.0025_search_parent_inventory` advances the case activity
 revision when search outlines enter or leave a deletion inventory.
 
+Migrations `core.0035` through `core.0037` add a searchable projection of
+published analysis measurements, per-turn matching record identities and a
+link to an approved deeper review. Apply them with the normal release
+migration command before starting matching web and worker processes. The
+report migration indexes existing saved outputs in batches. New structured
+queries freeze selected identities and versions in PostgreSQL. Previously saved
+replies retain the verification rules for their recorded selections.
+
 Case Search and Evidence chat share the case-scoped passage and outline
 indexes in `core.case_search`. An outline stores its version, coverage,
 original source references, offsets and excerpt digests. Query-time checks

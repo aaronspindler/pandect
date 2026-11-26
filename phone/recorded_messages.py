@@ -1,16 +1,26 @@
 """Indexed, case-scoped field queries over retained message originals."""
 
 from django.contrib.postgres.aggregates import BitXor
-from django.db.models import BigIntegerField, CharField, Count, Func, Q, Value
-from django.db.models.functions import Cast, Concat, StrIndex
+from django.db.models import (
+    BigIntegerField,
+    Case,
+    CharField,
+    Count,
+    Func,
+    Q,
+    Value,
+    When,
+)
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast, Coalesce, Concat, StrIndex
 
 from core.case_search.documents import FIELDS, searchable
+from core.case_search.sources import name
 from core.evidence.queries import scoped_evidence
 from core.evidence.source_clocks import is_date_only_message
 from phone.conversations import pair_messages
 
 GROUP_LIMIT = 12
-SELECTION_IDS = 256
 
 
 def matching(case, selection, *, archived=False):
@@ -62,9 +72,7 @@ def matching(case, selection, *, archived=False):
     )
 
 
-def membership(rows):
-    # Order-independent and constant space on PostgreSQL, even when thousands
-    # of originals share one destination. Recheck on collection revision changes.
+def source_version():
     key = Concat(
         Cast("pk", CharField()),
         "sha256",
@@ -77,26 +85,84 @@ def membership(rows):
         Cast("occurred_at", CharField()),
         output_field=CharField(),
     )
-    signature = Func(
+    return Func(
         key, Value(0), function="hashtextextended", output_field=BigIntegerField()
     )
+
+
+def membership(rows):
+    """Revalidate the aggregate signature from previously saved replies."""
     return rows.aggregate(
         count=Count("pk"),
         undated=Count("pk", filter=Q(occurred_at__isnull=True, calendar_only=False)),
         date_only=Count("pk", filter=Q(calendar_only=True)),
-        digest=BitXor(signature),
+        digest=BitXor(source_version()),
+    )
+
+
+def from_snapshot(case, members):
+    from django.db.models import Exists, OuterRef
+
+    stored = members.filter(kind="text-message")
+    rows = scoped_evidence(case, "text-message").filter(
+        is_archived=False, pk__in=stored.values("evidence_id")
+    )
+    return rows.annotate(
+        calendar_only=Exists(stored.filter(evidence_id=OuterRef("pk"), date_only=True))
+    )
+
+
+def _party_keys(rows, operation):
+    if operation == "senders":
+        return rows, ("sender_id",)
+    # The export identifies the provenance. Distinct named sessions or native
+    # threads within one export must remain distinguishable.
+    chat_name = KeyTextTransform(
+        "Chat Session",
+        KeyTransform("raw_fields", "communication_context__source_context"),
+    )
+    rows = rows.annotate(
+        session_name=Case(
+            When(
+                group_source__isnull=False,
+                then=Coalesce(chat_name, Value(""), output_field=CharField()),
+            ),
+            default=Value(""),
+            output_field=CharField(),
+        ),
+        thread_name=Case(
+            When(
+                group_source__isnull=False,
+                then="communication_context__native_thread_id",
+            ),
+            default=Value(""),
+            output_field=CharField(),
+        ),
+    )
+    return rows, ("recipient_id", "group_source_id", "session_name", "thread_name")
+
+
+def party_totals(case, members, operation):
+    rows, keys = _party_keys(from_snapshot(case, members), operation)
+    role = "sender" if operation == "senders" else "recipient"
+    columns = ["person_name", *keys]
+    if role == "recipient":
+        columns.append("group_source__title")
+    return (
+        rows.annotate(person_name=name(role + "__"))
+        .values(*columns)
+        .annotate(n=Count("pk"))
+        .order_by(*columns)
     )
 
 
 def representatives(rows, selection):
     operation = selection["field"]
     rows = rows.annotate(phrase_offset=StrIndex("body", Value(selection["phrase"])))
+    if selection.get("count_day"):
+        rows = rows.filter(calendar_only=False, occurred_at__isnull=False)
     if operation in ("senders", "recipients"):
-        group = (
-            ("sender_id",)
-            if operation == "senders"
-            else ("recipient_id", "group_source_id")
-        )
+        rows, group = _party_keys(rows, operation)
         rows = rows.order_by(*group, "occurred_at", "pk").distinct(*group)
     elif operation in ("first", "last"):
         dated = rows.filter(occurred_at__isnull=False, calendar_only=False)
@@ -106,29 +172,9 @@ def representatives(rows, selection):
             occurred_at=dated.order_by(clock).values("occurred_at")[:1]
         ).order_by("pk")
     else:
-        if selection.get("count_day"):
-            rows = rows.filter(calendar_only=False, occurred_at__isnull=False)
         rows = rows.order_by("pk")[:1]
-    return list(
-        rows.values_list("pk", "phrase_offset", "calendar_only")[: GROUP_LIMIT + 1]
-    )
-
-
-def retention_scope(case, selection, rows, count):
-    """Record exact deletion dependencies without retaining every large match set."""
-    if count <= SELECTION_IDS:
-        return {
-            "included": [
-                str(pk) for pk in rows.order_by("pk").values_list("pk", flat=True)
-            ]
-        }
-    # Immutable originals, their admission cutoff and these archived exceptions
-    # determine which of the matching identities belonged to the initial set.
-    exclusions = list(
-        matching(case, selection, archived=True)
-        .order_by("pk")
-        .values_list("pk", flat=True)[: SELECTION_IDS + 1]
-    )
-    if len(exclusions) <= SELECTION_IDS:
-        return {"excluded": [str(pk) for pk in exclusions]}
-    return None
+    columns = ["pk", "phrase_offset", "calendar_only"]
+    if operation == "recipients":
+        # PostgreSQL DISTINCT ON needs the named grouping expressions in SELECT.
+        columns.extend(("session_name", "thread_name"))
+    return [row[:3] for row in rows.values_list(*columns)[: GROUP_LIMIT + 1]]

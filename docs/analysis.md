@@ -256,13 +256,14 @@ after the browser is closed or another investigator has asked a question. Open
 the linked reply to inspect its page citations. Partial and empty extractions
 show the coverage available.
 
-Chat can also read a saved message-timing report, even when it produced no
-catalogue findings. It checks up to three recent eligible selections, each
-containing at most 64 direct messages. The cited value applies to the messages
-selected in that report. The citation opens its **Processing summary**.
-A follow-up lookup can open up to four of those messages for context.
-A question with explicit type or date filters skips this whole-selection
-lookup. Reading a saved report does not start a new analysis.
+Chat searches published analysis by method and named measurement, including
+successful runs with zero catalogue findings. A saved result can identify its
+method, version, selected population, outcome and published measurements. The
+citation opens the owning result. Some methods publish only a status or findings.
+A message-timing report can provide a saved median for thousands of messages.
+Chat checks that the selection is still eligible and can open individual supporting
+messages without rerunning the method. Whole-report metrics retain their original
+population when the investigator requests a narrower scope.
 
 For a question about recorded message fields, chat can query exact wording,
 sender, recipient and event-date bounds in PostgreSQL. It can count matching
@@ -288,11 +289,32 @@ and date or evidence-type filters before selecting excerpts. Older originals
 can still supply the provenance for a new result. An empty update reports the
 limits of that search and leaves the earlier reply intact.
 
-A saved exact total becomes unavailable if its underlying membership changes.
-Chat retains up to 256 matching identities or, for a larger active set, up to
-256 archived exclusions. If both sets exceed that limit, it asks for a narrower
-query. Permanent deletion includes dependent aggregate replies even when the
-deleted message was a repeated match outside the cited examples.
+Open **Inspect matching records** on a structured reply to inspect the full selection.
+PostgreSQL stores its record identities, versions and recorded times at the
+question's cutoff. Chat can count, group by week or evidence type, and compare
+first or last times using that selection. For messages, the inspection page can
+show every recorded sender or destination with its message count, including
+groups beyond the twelve examples in the answer. Later additions can be
+examined in a follow-up. Archiving or permanently
+deleting a selected source also affects replies that depended on its membership.
+
+For an interpretive question with many matches, chat can select uncommon
+wording, different senders, or the edges of a requested timeline before opening
+excerpts. A search for independent support can exclude previously inspected
+originals and explicitly marked forwards. An original and a finding derived from
+it can share a source. Identical wording and a forwarding marker are reported
+separately because neither establishes the identity of the author. The reply
+shows how many excerpts the answer model inspected. Structured coverage also
+shows the size of the defined selection and records with missing or date-only
+times. Ranked excerpts alone do not establish how often an event occurred.
+
+When additional interpretation would help, **Review more matching material**
+lets an owner or editor inspect the exact selection or the proposed search words,
+cutoff, destination and estimated generation requests. They can set a maximum
+before approving. One approval covers up to 100,000 candidate entries and
+10,000 generation requests. The worker checkpoints the review in the background and adds
+a linked reply with citations and any unfinished work. The earlier reply remains
+available.
 
 A follow-up can refer to an older topic or a numbered reply such as “answer
 3.” Chat searches completed turns in the same conversation, carries at most
@@ -321,10 +343,9 @@ messages. This scope carries through a clarification. If an older review
 could have included other record types, ask the question again. Earlier reviews
 whose recorded type filter already restricted them to text messages remain available.
 A filtered count of messages can run directly from recorded fields. A count
-between two people includes both directions. Dated totals exclude and report
-unplaced times. Other filtered counts freeze dated matches and records with
-unknown dates in the review inventory. Requests for an explicit record list,
-unfiltered structured counts and recognized requests for every record containing
+between two people includes both directions. Dated totals report unplaced times separately. Supported typed counts can use
+the exact selection without an interpretive review. Requests for an explicit record list
+and recognized requests for every record containing
 literal wording start a full review directly.
 Processing and the reply show progress against a frozen set of source entries.
 One record may contribute several entries, such as a document and its OCR passages.

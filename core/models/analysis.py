@@ -7,6 +7,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from core.analysis.report_index import report_words
 from core.storage import original_upload_path
 
 
@@ -203,6 +204,24 @@ class AnalysisResult(models.Model):
         super().clean()
         if self.run_id and self.run.case_id != self.case_id:
             raise ValidationError("The result must belong to its processing case.")
+
+
+class AnalysisReportIndex(models.Model):
+    """Searchable measurements and checked message membership for a saved result."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    result = models.OneToOneField(
+        AnalysisResult, on_delete=models.CASCADE, related_name="report_index"
+    )
+    text = models.TextField()
+    timing_values = models.JSONField(null=True)
+    verified_messages = models.JSONField(default=dict)
+
+    class Meta:
+        indexes = [GinIndex(report_words(), name="analysis_report_words")]
+
+    def __str__(self):
+        return f"Saved measurements for result {self.result_id}"
 
 
 class AnalysisFinding(models.Model):

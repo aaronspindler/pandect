@@ -39,6 +39,10 @@ def review_population(question, *, direct_only=False):
     return ""
 
 
+def normalize_date_filters(question):
+    return re.sub(r"\b(on|from|through)\s+(?=\d{4}-\d)", r"\1:", question, flags=re.I)
+
+
 def search_filters(question, timezone_name):
     # A date inside a quotation or in the narrative may be a claim to verify.
     # Only a filter explicitly supplied by the investigator constrains retrieval.

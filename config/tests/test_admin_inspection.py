@@ -66,6 +66,8 @@ class AdminInspectionTests(TestCase):
         without_standalone_admin = {
             "cases.CaseMembership",  # Case inline
             "core.ChatAnalysisProposal",  # Reviewed in Evidence chat
+            "core.ChatSelectionMember",  # Source-bound matching records
+            "core.AnalysisReportIndex",  # Derived report discovery and validation cache
             "core.ExtractionReuse",  # Extraction submission attribution
             "core.ChatRoutingApproval",  # Owner approval in Case Settings
             "core.DeletionReview",  # Evidence confirmation

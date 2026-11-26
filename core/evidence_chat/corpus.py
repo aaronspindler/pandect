@@ -178,6 +178,9 @@ def clipped(queryset, field, start=0, size=0, *, review=False, verified_body=Non
                 When(body_revision=revision, then=Value(verified_body["length"])),
                 default=length,
             )
+    if queryset.model is KINDS["text-message"]:
+        # Keep full message bodies out of result rows even for marked forwards.
+        queryset = queryset.annotate(wording_prefix=Substr(field, 1, 512))
     queryset = queryset.defer(field).annotate(body_length=length, body_digest=digest)
     if size:
         queryset = queryset.annotate(body_window=Substr(field, start + 1, size))
@@ -460,7 +463,7 @@ def _original_material(
         url += "#location-heading"
     elif kind in CALL_KINDS:
         url += "#communication-heading"
-    return make_material(
+    found = make_material(
         surface,
         kind,
         original.pk,
@@ -476,11 +479,21 @@ def _original_material(
         value_ranges=value_ranges,
     )
 
+    if kind == "text-message" and surface == "original":
+        from .lineage import message_lineage
+
+        found.locator["message_lineage"] = message_lineage(item)
+    return found
+
 
 def result_sources(case, run, include_archived):
     try:
         sources = resolve_inputs(
-            run, case, cache=SourceResolutionCache(case, with_content=False)
+            run,
+            case,
+            cache=SourceResolutionCache(
+                case, with_content=False, active_only=not include_archived
+            ),
         )
     except AnalysisError, Http404, ValidationError, TypeError, KeyError, ValueError:
         return []
@@ -639,27 +652,34 @@ def discover(
     count_filters=None,
     review=False,
     filters=None,
+    selected_rows=None,
 ):
     """Stream the evidence inventory without loading whole text bodies or recordings."""
     from .search_scope import scope_rows
 
-    for surface, kind in surfaces():
-        if original_kinds is not None and (
-            surface != "original" or kind not in original_kinds
-        ):
-            continue
-        queryset = scope_rows(
-            rows(case, surface, kind, include_archived, through),
-            case,
-            surface,
-            kind,
-            filters,
-            include_recordings=True,
-        )
-        if count_filters:
-            from .engine_counts import count_candidates
+    def ordinary_rows():
+        for surface, kind in surfaces():
+            if original_kinds is not None and (
+                surface != "original" or kind not in original_kinds
+            ):
+                continue
+            queryset = scope_rows(
+                rows(case, surface, kind, include_archived, through),
+                case,
+                surface,
+                kind,
+                filters,
+                include_recordings=True,
+            )
+            if count_filters:
+                from .engine_counts import count_candidates
 
-            queryset = count_candidates(queryset, kind, count_filters)
+                queryset = count_candidates(queryset, kind, count_filters)
+            yield surface, kind, queryset
+
+    for surface, kind, queryset in (
+        ordinary_rows() if selected_rows is None else selected_rows
+    ):
         sources, last_result = None, None
         if surface in ("passage", "finding"):
             queryset = queryset.order_by("result_id", "item_index", "pk")
@@ -712,9 +732,9 @@ def read_window(
 
         found = read_trip_material(case, pk, start, size)
     elif surface == "report":
-        from .reports import read_timing_material
+        from .analysis_reports import read_analysis_material
 
-        found = read_timing_material(case, pk, start, size)
+        found = read_analysis_material(case, pk, start, size)
     else:
         if (surface, kind) not in surfaces():
             return None
@@ -746,10 +766,15 @@ def read_window(
             "dependencies",
             "result_id",
             "metadata_start",
+            "selected_count",
             "start_at",
             "end_at",
         )
         if k in found.locator
+    ):
+        return None
+    if "message_lineage" in locator and locator["message_lineage"] != found.locator.get(
+        "message_lineage"
     ):
         return None
     result = {
@@ -815,6 +840,8 @@ def rank(
     semantic_hints=None,
     surfaces_to_search=None,
     stats=None,
+    independent_of=(),
+    message_topics=(),
 ):
     from .corpus_search import ranked_windows
 
@@ -833,4 +860,6 @@ def rank(
         semantic_hints=semantic_hints,
         surfaces_to_search=surfaces_to_search,
         stats=stats,
+        independent_of=independent_of,
+        message_topics=message_topics,
     )

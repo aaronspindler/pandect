@@ -1,0 +1,36 @@
+{% extends 'core/evidence_chat/base.html' %}
+{% block title %}Matching records · {{ case.name }}{% endblock %}
+{% block chat_content %}
+<a class="back-link" href="{% url 'core:chat:reply' case.pk thread.pk turn.pk %}">Back to reply</a>
+<header class="page-header"><h1>Matching records</h1></header>
+<p>{{ turn.question }}</p>
+<p>{{ selection.coverage.matched }} record{{ selection.coverage.matched|pluralize }} matched the recorded filters.
+{% if selection.count_day %}Records with missing or imprecise times are listed for coverage and excluded from the dated total.{% endif %}</p>
+<dl class="metadata-list">{% for label, value in filters %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+<nav class="actions" aria-label="Selection grouping">
+<a href="?"{% if not group %} aria-current="page"{% endif %}>Individual records</a>
+{% for key, label in groupings.items %}<a href="?group={{ key }}"{% if group == key %} aria-current="page"{% endif %}>Totals by {{ label|lower }}</a>{% endfor %}
+</nav>
+{% if group == 'weeks' %}<p>Weeks begin on Monday in {{ turn.plan.timezone|default:"UTC" }}. Only precise recorded times enter the weekly totals.</p>{% endif %}
+{% if page %}
+{% if group %}
+<table><caption>Matching records by {{ group_label|lower }}</caption>
+<thead><tr><th>{% if group == 'weeks' %}Week beginning{% else %}{{ group_label }}{% endif %}</th><th>Records</th></tr></thead>
+<tbody>{% for item in page %}<tr><th scope="row">{% if item.url %}<a href="{{ item.url }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</th><td>{{ item.count }}</td></tr>{% endfor %}</tbody></table>
+{% else %}
+<ol class="record-list" start="{{ page.start_index }}">
+{% for item in page %}<li class="record-row"><div>
+<a class="record-link" href="{{ item.url }}">{{ item.title|default:item.kind }}</a>
+<small>{{ item.kind }} · {{ item.clock }} · {% if item.date_only %}Source supplies only a date{% elif item.event_at %}<time datetime="{{ item.event_at|date:'c' }}">{{ item.event_at|date:'j M Y, H:i T' }}</time>{% else %}Recorded time unavailable{% endif %}{% if item.uncertain %} · Excluded from dated total{% endif %}</small>
+</div></li>{% endfor %}
+</ol>
+{% endif %}
+{% if page.has_other_pages %}
+<nav aria-label="Matching record pages" class="pagination">
+  {% if page.has_previous %}<a class="button button-secondary" href="{% querystring page=page.previous_page_number %}">Previous</a>{% endif %}
+  <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a class="button button-secondary" href="{% querystring page=page.next_page_number %}">Next</a>{% endif %}
+</nav>
+{% endif %}
+{% else %}<p>No records in this selection.</p>{% endif %}
+{% endblock %}

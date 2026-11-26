@@ -2,26 +2,20 @@
 
 from datetime import timedelta
 
-from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models import Case, F, Func, IntegerField, OuterRef, Q, Subquery, When
+from django.db.models.functions import Cast, Coalesce
 from django.urls import reverse
 
 from core.analysis.catalogue import SUCCESSFUL
+from core.analysis.report_index import TIMING_FIELDS
 from core.models import AnalysisResult
+from phone.analysis.saved_timing import INLINE_MEMBERS, timing_members
 
 from . import corpus
 
-# Store all original identities for attribution and resolve at most 192 selected
-# messages in one lookup. Reports with larger selections remain in Processing.
-MAX_INPUTS = 64
+# Existing small reports keep their full original attribution and citation text.
+# Large reports pin the entire selection by result and expose a bounded sample.
 MAX_REPORTS = 3
-METRICS = (
-    "records",
-    "timed_records",
-    "first_recorded_at",
-    "last_recorded_at",
-    "response_interval_count",
-    "median_response_interval_seconds",
-)
 
 
 def _results(case):
@@ -37,10 +31,7 @@ def _metrics(results):
     # PostgreSQL projects just these scalars. The rest of data can contain every
     # original message as well as long lists of individual measurements.
     return (
-        results.filter(
-            run__inputs__0__isnull=False, **{f"run__inputs__{MAX_INPUTS}__isnull": True}
-        )
-        .select_related("run")
+        results.select_related("run")
         .only(
             "pk",
             "created_at",
@@ -48,9 +39,28 @@ def _metrics(results):
             "run__operation",
             "run__method_version",
             "run__status",
-            "run__inputs",
         )
-        .annotate(**{name: F(f"data__metrics__{name}") for name in METRICS})
+        .annotate(
+            input_count=Coalesce(
+                Cast(F("report_index__verified_messages__count"), IntegerField()),
+                Func(
+                    "run__inputs",
+                    function="jsonb_array_length",
+                    output_field=IntegerField(),
+                ),
+            ),
+            **{
+                name: Case(
+                    When(
+                        report_index__isnull=False,
+                        then=F(f"report_index__timing_values__{name}"),
+                    ),
+                    default=F(f"data__metrics__{name}"),
+                )
+                for name in TIMING_FIELDS
+            },
+        )
+        .filter(input_count__gt=0)
     )
 
 
@@ -58,17 +68,35 @@ def _material(case, result, *, start=0, size=corpus.MAX_WINDOW):
     run = result.run
     # This method operates on original direct messages only. Other snapshot
     # types would need their own source/coverage contract.
-    if not all(
-        isinstance(s, dict)
-        and s.get("kind") == "text-message"
-        and not s.get("result_id")
-        and not s.get("attachment_id")
-        for s in run.inputs
-    ):
-        return None
-    sources = corpus.result_sources(case, run, include_archived=False)
-    if not sources:
-        return None
+    if result.input_count > INLINE_MEMBERS:
+        member_keys = timing_members(case, result)
+        if not member_keys:
+            return None
+        participants = "See the full selection in Processing."
+    else:
+        if not all(
+            isinstance(s, dict)
+            and s.get("kind") == "text-message"
+            and not s.get("result_id")
+            and not s.get("attachment_id")
+            for s in run.inputs
+        ):
+            return None
+        sources = corpus.result_sources(case, run, include_archived=False)
+        if not sources:
+            return None
+        people = {
+            person.pk: str(person)
+            for source in sources
+            for person in (source.item.sender, source.item.recipient)
+        }
+        participants = ", ".join(
+            name if len(name) <= 55 else name[:54] + "…"
+            for name in sorted(people.values())[:3]
+        )
+        if len(people) > 3:
+            participants += f" and {len(people) - 3} more"
+        member_keys = sorted({str(s.item.pk) for s in sources})
     records, timed, intervals = (
         result.records,
         result.timed_records,
@@ -77,7 +105,7 @@ def _material(case, result, *, start=0, size=corpus.MAX_WINDOW):
     median = result.median_response_interval_seconds
     if (
         any(type(n) is not int for n in (records, timed, intervals))
-        or records != len(sources)
+        or records != result.input_count
         or not 0 <= timed <= records
         or not 0 <= intervals <= max(0, timed - 1)
         or (intervals == 0) != (median is None)
@@ -93,18 +121,6 @@ def _material(case, result, *, start=0, size=corpus.MAX_WINDOW):
         return None
     if not timed and any(t is not None for t in times):
         return None
-    # A short list identifies the population without including message content.
-    people = {
-        person.pk: str(person)
-        for source in sources
-        for person in (source.item.sender, source.item.recipient)
-    }
-    participants = ", ".join(
-        name if len(name) <= 55 else name[:54] + "…"
-        for name in sorted(people.values())[:3]
-    )
-    if len(people) > 3:
-        participants += f" and {len(people) - 3} more"
     text = corpus.lines(
         (
             ("Selected messages", records),
@@ -125,10 +141,7 @@ def _material(case, result, *, start=0, size=corpus.MAX_WINDOW):
         )
     )
     label = f"Saved message timing · {result.created_at.isoformat()}"
-    dependencies = [
-        corpus.dependency("text-message", key)
-        for key in sorted({str(s.item.pk) for s in sources})
-    ]
+    dependencies = [corpus.dependency("text-message", key) for key in member_keys]
     found = corpus.make_material(
         "report",
         "comm_patterns",
@@ -149,6 +162,8 @@ def _material(case, result, *, start=0, size=corpus.MAX_WINDOW):
         size=size,
     )
     found.locator["result_id"] = str(result.pk)
+    if result.input_count > INLINE_MEMBERS:
+        found.locator["selected_count"] = result.input_count
     return found
 
 
@@ -162,29 +177,17 @@ def timing_materials(case, *, through, sources=None, after=None):
     if after:
         matches = matches.filter(created_at__gt=after)
     if sources is not None:
-        message_ids = {
-            source["pk"]
-            for source in sources
-            if source.get("surface") == "original"
-            and source.get("kind") == "text-message"
-        }
-        for source in sources:
-            if source.get("surface") == "report" and source["kind"] == "comm_patterns":
-                message_ids.update(
-                    dep["id"]
-                    for dep in source["dependencies"]
-                    if dep["kind"] == "text-message"
-                )
-        if not message_ids:
-            return []
-        linked = Q()
-        for message_id in message_ids:
-            linked |= Q(
-                run__inputs__contains=[
-                    {"kind": "text-message", "evidence_id": message_id}
-                ]
-            )
-        matches = matches.filter(linked)
+        from .analysis_reports import overlapping_results
+
+        matches = overlapping_results(
+            matches,
+            case,
+            [
+                loc
+                for loc in sources
+                if loc.get("kind") in ("text-message", "comm_patterns")
+            ],
+        )
     candidates = _metrics(matches).order_by("-run__created_at", "-run_id")[:MAX_REPORTS]
     return [
         material for candidate in candidates if (material := _material(case, candidate))

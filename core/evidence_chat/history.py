@@ -90,6 +90,7 @@ def recalled_sources_available(turn, read):
 
 def updated_materials(turn, previous, after, filters):
     """Find later publications for the reports and possible trips the reply cited."""
+    from .analysis_reports import analysis_materials
     from .reports import timing_materials
     from .search_budget import reserve_lookup, timed_query
     from .trips import trip_materials
@@ -114,11 +115,25 @@ def updated_materials(turn, previous, after, filters):
     if reports and not filters:
         reserve_lookup(turn)
         with timed_query():
-            materials.extend(
-                timing_materials(
-                    turn.case, through=turn.started_at, after=after, sources=reports
+            timing = [loc for loc in reports if loc["kind"] == "comm_patterns"]
+            if timing:
+                materials.extend(
+                    timing_materials(
+                        turn.case, through=turn.started_at, after=after, sources=timing
+                    )
                 )
-            )
+            other = [loc for loc in reports if loc["kind"] != "comm_patterns"]
+            if other:
+                materials.extend(
+                    analysis_materials(
+                        turn.case,
+                        "",
+                        through=turn.started_at,
+                        after=after,
+                        sources=other,
+                        methods={loc["kind"] for loc in other},
+                    )
+                )
     if trips:
         reserve_lookup(turn)
         with timed_query():

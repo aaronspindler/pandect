@@ -157,6 +157,25 @@ and output tokens, evidence-bearing request bytes (including prompt rendering),
 generation calls, source count, SQL queries and PostgreSQL backend counters.
 Hosted services are outside this local qualification.
 
+For the dense-case acceptance test, run the following command against a
+disposable PostgreSQL test database. It generates 100,000 messages, with topics
+occurring 10, 1,000 and 20,000 times. Each topic has a low-frequency contrary
+account, repeated forwards and a missing timestamp. The test verifies totals,
+coverage, retrieval and attribution of both times. It records elapsed time,
+SQL query counts, rows read, buffer activity, model calls and prompt bytes.
+The default deterministic answer fixture can cite only records the worker supplies.
+On the 20,000-match topic it also checks both deeper-review estimates, worker
+interruption, an approved two-request limit and resuming the outstanding work.
+
+```sh
+PANDECT_QUALIFY_DENSE_CHAT=1 uv run --locked --env-file .env python manage.py test \
+  core.evidence_chat.dense_qualification --settings=config.test_settings --noinput
+```
+
+Add `PANDECT_QUALIFY_DENSE_CHAT_LIVE=1` to use the pinned loopback Ollama
+and measure provider-reported tokens with the same questions and citations.
+Deeper-review generation stays mocked so interruption and resumption are reproducible.
+
 ## Browser checks
 
 Install the locked developer tools and browser engines, then run the focused

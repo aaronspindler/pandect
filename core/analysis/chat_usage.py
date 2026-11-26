@@ -55,6 +55,11 @@ class Reservation:
 
 def reserve(turn, purpose, size, *, output_limit=0, input_bound=None):
     """Serialize reservations across dispatch, crash recovery and transport retries."""
+    if turn is not None and turn.review_of_id:
+        from core.evidence_chat.deep_review import reserve_request
+
+        reserve_request(turn, purpose)
+        return None
     if turn is None or turn.mode == "full":
         return None
     with transaction.atomic():

@@ -100,6 +100,10 @@ def _authorize(turn, windows=(), *, lock=False, metadata=False, review=False):
     if code := review_restart_code(turn):
         raise AnalysisError(code)
     ai.check_execution(turn, case)
+    if turn.review_of_id:
+        from .deep_review import parent_for
+
+        parent_for(turn)
     if turn.plan.get("approved_proposal"):
         from .proposals import check_continuation
 
@@ -408,6 +412,7 @@ def _rank(
 ):
     from core.case_search.rerank import rerank_order
 
+    from .corpus_search import RECORD_LOOKUP
     from .retrieval_route import related_for_turn
 
     scope = turn.plan.get("rerank_scope")
@@ -435,6 +440,12 @@ def _rank(
             semantic_hints=semantic_hints,
             stamp_body=True,
             stats=stats,
+            message_topics=turn.plan.get("message_topics", ()) if prior else (),
+            independent_of=(
+                [w.locator for w in prior]
+                if turn.plan.get("refinement", {}).get("independent_source")
+                else ()
+            ),
             surfaces_to_search=surfaces,
             related=lambda _: related_for_turn(
                 turn, semantic_query, lambda: _authorize(turn, prior), filters=filters
@@ -443,6 +454,12 @@ def _rank(
         turn.plan["candidate_reads"] = turn.plan.get("candidate_reads", 0) + stats.get(
             "candidates", 0
         )
+        if not prior and stats.get("message_topics"):
+            turn.plan["message_topics"] = stats["message_topics"]
+        if stats.get("forward_copies_skipped"):
+            turn.plan["forward_copies_skipped"] = True
+        if stats.get("ranked_scope_limited"):
+            turn.plan["ranked_scope_limited"] = True
         if stats.get("limited"):
             turn.plan["candidate_limit_reached"] = True
         windows = []
@@ -467,6 +484,24 @@ def _rank(
                             semantic_hints and (locator["key"], start) in semantic_hints
                         ),
                     )
+                )
+        if (
+            surfaces is None
+            and after is None
+            and not filters
+            and not prior
+            and not RECORD_LOOKUP.fullmatch(query.strip())
+        ):
+            from .analysis_reports import analysis_materials, answer_window
+
+            with timed_query():
+                saved = analysis_materials(
+                    turn.case, query, through=turn.started_at, automatic=True
+                )
+            if saved:
+                # Keep original passages beside the strongest saved measurement.
+                windows.insert(
+                    1 if windows else 0, answer_window(saved[0], query, WINDOW)
                 )
         if route_sources:
             selected = _choose_initial_source(turn, windows[:shortlist_limit], filters)
@@ -545,7 +580,16 @@ def _publish_answer(turn, result, windows):
                 raise AnalysisError("source_changed")
         _store_context(turn, windows)
         known = {w.locator["key"]: w.locator for w in windows}
+        from .lineage import corroboration, forwarded_origins
+
+        cited_keys = {
+            ref["key"] for claim in result["claims"] for ref in claim["citations"]
+        }
+        marked = forwarded_origins(case, (known[key] for key in cited_keys))
+        support = []
         for claim in result["claims"]:
+            cited = {ref["key"] for ref in claim["citations"]}
+            support.append(corroboration((known[key] for key in cited), marked))
             for cite in claim["citations"]:
                 if not corpus.cite(
                     case,
@@ -555,6 +599,8 @@ def _publish_answer(turn, result, windows):
                     include_archived=turn.include_archived,
                 ):
                     raise AnalysisError("source_changed")
+        if support:
+            turn.plan["claim_support"] = support
         turn.mode = "clarification" if result["clarification"] else "ordinary"
         entries = turn.sources.filter(case=case)
         turn.total = turn.reviewed = entries.count()
@@ -595,25 +641,30 @@ def _freeze(
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         case = _authorize(turn, context)
         _store_context(turn, context)
-        rows = (
-            _row(turn, locator, "pending")
-            for locator in corpus.discover(
-                case,
-                turn.include_archived,
-                through=turn.started_at,
-                original_kinds=filters.get("kinds"),
-                count_filters=filters
-                if engine_counts.is_filtered_count(question, filters)
-                else None,
-                review=True,
-                filters=explicit_scope,
+        if turn.review_of_id:
+            from .deep_review import manifest_rows
+
+            rows = manifest_rows(turn)
+        else:
+            rows = (
+                _row(turn, locator, "pending")
+                for locator in corpus.discover(
+                    case,
+                    turn.include_archived,
+                    through=turn.started_at,
+                    original_kinds=filters.get("kinds"),
+                    count_filters=filters
+                    if engine_counts.is_filtered_count(question, filters)
+                    else None,
+                    review=True,
+                    filters=explicit_scope,
+                )
             )
-        )
         for batch in batched(rows, 200, strict=False):
             ChatSource.objects.bulk_create(
                 batch,
                 update_conflicts=True,
-                update_fields=("status", "locator", "gap", "result_id"),
+                update_fields=("status", "locator", "gap", "result_id", "cursor"),
                 unique_fields=("turn", "key"),
             )
         if context and question != turn.question:
@@ -676,8 +727,10 @@ def _decide(turn):
         _publish_answer(turn, engine.empty_answer(clarification=clarification), [])
         return
     if filters:
-        if filters["kinds"] == ["text-message"] and engine_counts.is_filtered_count(
-            turn.question, filters
+        if (
+            not turn.question.lstrip()
+            .casefold()
+            .startswith(("list ", "show ", "find "))
         ):
             activity.record(turn, "query_records")
             answer, windows = recorded.execute(
@@ -715,6 +768,7 @@ def _decide(turn):
             else:
                 _finish_answer(turn, answer, windows)
                 return
+    recorded.prepare_context(turn)
     hints = []
     history = _history(turn, hints=hints)
     search = turn.question
@@ -841,6 +895,18 @@ def _lookup_windows(turn, query, semantic_query, hints, prior, scope):
             materials = trip_materials(
                 turn.case, query, through=turn.started_at, source=anchor, filters=scope
             )
+        elif lookup == "read_analysis":
+            from .analysis_reports import analysis_materials, answer_window
+
+            if scope:
+                return []
+            materials = analysis_materials(
+                turn.case,
+                query,
+                through=turn.started_at,
+                sources=[anchor] if anchor else None,
+            )
+            return [answer_window(material, query, WINDOW) for material in materials]
         elif lookup == "read_timing":
             # A whole saved metric cannot be narrowed to a new date/type filter.
             if scope:
@@ -1037,7 +1103,7 @@ def _finish_answer(turn, result, context):
 
 def _advances(target, windows, prior):
     """A new search must add material bearing on its outstanding question."""
-    from .corpus_search import terms_for
+    from .corpus_search import DISTRIBUTION, terms_for
 
     query_terms = set(terms_for(target["query"]))
     missing_terms = set(terms_for(target["missing_fact"])) - query_terms
@@ -1050,10 +1116,31 @@ def _advances(target, windows, prior):
         if not cited or old.locator["key"] in cited
         for origin in corpus.original_keys(old.locator)
     }
+    known_wording = {
+        word
+        for old in prior
+        if (not cited or old.locator["key"] in cited)
+        and (word := old.locator.get("message_lineage", {}).get("wording"))
+    }
     previous = sorted(prior, key=lambda w: w.start)
     for window in windows:
         origins = corpus.original_keys(window.locator)
-        if target.get("lookup") in ("follow_source", "read_timing", "read_trip"):
+        lineage = window.locator.get("message_lineage", {})
+        repeated_forward = (
+            lineage.get("forwarded") and lineage.get("wording") in known_wording
+        )
+        if repeated_forward and not DISTRIBUTION.search(target["missing_fact"]):
+            continue
+        if target["independent_source"] and (
+            lineage.get("forwarded") or lineage.get("wording") in known_wording
+        ):
+            continue
+        if target.get("lookup") in (
+            "follow_source",
+            "read_analysis",
+            "read_timing",
+            "read_trip",
+        ):
             if (
                 window in prior
                 or target["independent_source"]
@@ -1381,6 +1468,10 @@ def _verify_batch(turn):
     versions = _versions(case)
     accounted = turn.sources.filter(case=case).exclude(status="context")
     candidates = accounted.order_by("pk")
+    if turn.review_of_id and turn.plan.get("unreviewed"):
+        # An untouched entry has supplied no model input, claim or match.
+        # The saved reply still validates its manifest membership in PostgreSQL.
+        candidates = candidates.exclude(status="unread", cursor=0)
     cursor = turn.plan.get("verified_through")
     if cursor and turn.plan.get("verify_versions") == versions:
         candidates = candidates.filter(pk__gt=cursor)
@@ -1408,11 +1499,20 @@ def _verify_batch(turn):
 
 def _finish_review(turn, accounted):
     if (
-        turn.reviewed != turn.total
+        turn.reviewed + turn.plan.get("unreviewed", 0) != turn.total
         or accounted.filter(status__in=PENDING_REVIEW).exists()
     ):
         raise AnalysisError("source_changed")
     records = accounted.filter(status="match").values("record_key").distinct().count()
+    if turn.plan.get("unreviewed"):
+        # A long source can have durable cited hits even when its later excerpts
+        # were outside the approved generation budget.
+        records = (
+            turn.hits.filter(case=turn.case, source__turn=turn, source__case=turn.case)
+            .values("source__record_key")
+            .distinct()
+            .count()
+        )
     turn.plan["matched_records"] = records
     turn.plan["stage"] = "complete"
     total_records = accounted.values("record_key").distinct().count()
@@ -1423,6 +1523,15 @@ def _finish_review(turn, accounted):
             f"The review identified {records} distinct matching records "
             f"among {total_records} reviewed."
         )
+    if turn.review_of_id:
+        count = turn.plan["deep_scope"]["count"]
+        summary = (
+            f"Fully reviewed {turn.reviewed} of {turn.total} verified source entries "
+            f"from {count} selected entries. "
+            f"{records} distinct records have cited matches."
+        )
+        if turn.plan.get("approved_limit_reached"):
+            summary += " The approved generation limit was reached."
     if turn.gaps:
         summary += f" Coverage is incomplete for {turn.gaps} source entries."
     lead = "Review the sources with incomplete coverage." if turn.gaps else ""
@@ -1437,19 +1546,31 @@ def _finish_review(turn, accounted):
 def _run_stage(turn):
     try:
         _authorize(turn, review=turn.plan.get("stage") == "review")
-        if turn.plan.get("stage") == "approved_extraction":
+        if turn.plan.get("stage") == "prepare_deeper_review" and turn.review_of_id:
+            _freeze(turn, turn.question, {}, narrative=True)
+        elif turn.plan.get("stage") == "approved_extraction":
             from .proposals import finish_continuation
 
             finish_continuation(turn)
         elif turn.plan.get("stage") == "verify":
             _verify_batch(turn)
         elif turn.plan.get("stage") == "review":
+            if (
+                turn.review_of_id
+                and turn.review_requests >= turn.plan["deep_scope"]["limit"]
+            ):
+                raise AnalysisError("chat_deeper_review_limit")
             _review_batch(turn)
         elif turn.plan.get("stage") == "refine":
             _refine(turn)
         else:
             _decide(turn)
     except AnalysisError as error:
+        if error.code == "chat_deeper_review_limit" and turn.review_of_id:
+            from .deep_review import finish_at_limit
+
+            finish_at_limit(turn)
+            return
         if error.code != "chat_budget_exhausted" or turn.mode == "full":
             raise
         # A direct query or linked extraction can hit its limit before producing

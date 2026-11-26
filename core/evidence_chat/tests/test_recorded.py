@@ -6,20 +6,21 @@ from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from core.analysis.execution import configured_external_executions
 from core.analysis.testing import approve_case_execution
 from core.analysis.tests.test_openai_gateway import OPENAI
 from core.evidence.deletion import plan_deletion
 from core.evidence.retention import set_evidence_archive
-from core.evidence_chat import ai, corpus, jobs, services
+from core.evidence_chat import ai, corpus, jobs, recorded, selections, services
 from core.evidence_chat.tests.test_decisions_worker import answer_from_quotes
 from core.evidence_chat.tests.test_engine import decision
 from core.models import AnalysisRun, ChatTurn
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.models import CommunicationContext, TextMessageEvidence
+from phone.models import CommunicationContext, PhoneCallEvidence, TextMessageEvidence
 
 
 @override_settings(PANDECT_AI_GATEWAY=OPENAI)
@@ -254,8 +255,10 @@ class RecordedFieldTests(EvidenceViewTestMixin, TestCase):
             self.owner, self.case.pk, "text-message", changed.pk, archived=False
         )
         update, result = self.ask("Has anything changed?", original)
-        self.assertEqual(len(result["claims"]), 2)
-        self.assertIn("Earlier membership changed", result["summary"])
+        self.assertEqual(len(result["claims"]), 1)
+        self.assertIn(str(changed.pk), result["claims"][0]["citations"][0]["url"])
+        self.assertIn("new or restored matches", result["summary"])
+        self.assertIsNotNone(services.inspect_turn(original))
         self.assertEqual(
             update.plan["recorded_selection"]["sender_id"], str(self.iris.pk)
         )
@@ -390,7 +393,12 @@ class RecordedFieldTests(EvidenceViewTestMixin, TestCase):
         self.assertIn("1 without an event time", empty["summary"])
         self.assertEqual(no_matches.sources.count(), 0)
         self.assertEqual(
-            set(filtered.plan["recorded_selection"]["retention"]["included"]),
+            {
+                str(key)
+                for key in filtered.selection_members.values_list(
+                    "evidence_id", flat=True
+                )
+            },
             {str(row.pk) for row in (outbound, inbound, unknown)},
         )
         self.assertNotIn(
@@ -405,3 +413,303 @@ class RecordedFieldTests(EvidenceViewTestMixin, TestCase):
             filtered, plan_deletion(unknown, "text-message").collector.data[ChatTurn]
         )
         self.model.assert_not_called()
+
+    def test_inspect_large_selection_with_archived_matches_reuse_and_access(self):
+        phrase = "parcel allocated"
+        rows = [
+            TextMessageEvidence(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=f"Retained {i:03}",
+                sender=self.iris,
+                recipient=self.alex,
+                body=phrase,
+                sha256="e" * 64,
+                is_archived=(i >= 301),
+                archive_changed_at=datetime(2026, 10, 1, tzinfo=UTC)
+                if i >= 301
+                else None,
+                archive_changed_by=self.owner if i >= 301 else None,
+                occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+            )
+            for i in range(602)
+        ]
+        TextMessageEvidence.objects.bulk_create(rows)
+        parent, answer = self.ask(f'Who received "{phrase}"?')
+        self.assertIn("301 active text messages", answer["summary"])
+        self.assertEqual(parent.selection_members.count(), 301)
+        self.assertEqual(selections.member_ids(parent).count(), 301)
+        route = reverse(
+            "core:chat:selection", args=(self.case.pk, parent.chat_id, parent.pk)
+        )
+        self.login("viewer")
+        self.assertContains(self.client.get(route, {"page": 7}), "Page 7 of 7")
+        grouped = self.client.get(route, {"group": "weeks"})
+        self.assertContains(grouped, "Matching records by week")
+        self.assertContains(grouped, "<td>301</td>", html=True)
+        self.login("outsider")
+        self.assertEqual(self.client.get(route).status_code, 404)
+        with patch(
+            "phone.recorded_messages.matching",
+            side_effect=AssertionError("replayed frozen predicate"),
+        ):
+            first, answer = self.ask("Which of those came first?", parent)
+            self.assertEqual(first.selection_members.count(), 0)
+            self.assertEqual(selections.member_ids(first).count(), 301)
+            self.assertEqual(len(answer["claims"]), 12)
+        removed = rows[20]
+        set_evidence_archive(
+            self.owner, self.case.pk, "text-message", removed.pk, archived=True
+        )
+        self.login("viewer")
+        self.assertEqual(self.client.get(route).status_code, 404)
+        self.assertIsNone(services.inspect_turn(first))
+        self.assertIn(
+            parent, plan_deletion(removed, "text-message").collector.data[ChatTurn]
+        )
+
+    def test_mixed_event_selection_groups_compares_and_reads_new_matches(self):
+        self.message(self.alex, "At the dock.", day=2)
+        call = PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Gate call",
+            sender=self.alex,
+            recipient=self.iris,
+            occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        )
+        parent, answer = self.ask("How many communications?")
+        self.assertEqual(selections.member_ids(parent).count(), 2)
+        self.assertIn("2 active records matched", answer["summary"])
+        grouped, answer = self.ask("Group those by type", parent)
+        self.assertIn("Phone call: 1", answer["summary"])
+        self.assertIn("Text message: 1", answer["summary"])
+        first, answer = self.ask("Which of those came first?", grouped)
+        self.assertIn(str(call.pk), answer["claims"][0]["citations"][0]["url"])
+        self.assertEqual(selections.member_ids(first).count(), 2)
+        later = self.message(self.alex, "New entry", day=3)
+        update, answer = self.ask("Has anything else turned up since answer 1?", first)
+        self.assertEqual(
+            list(selections.member_ids(update)), [("text-message", later.pk)]
+        )
+        self.assertIn("1 active record matched", answer["summary"])
+        self.assertIn(
+            parent, plan_deletion(call, "phone-call").collector.data[ChatTurn]
+        )
+        self.model.assert_not_called()
+
+    def test_ordinary_interpretation_preserves_exact_scope_with_distinct_coverage(self):
+        first = self.message(self.alex, "Dock 6 update: arrival at 10:00.", day=2)
+        self.message(self.alex, "Other terminal at 11:00.", day=3)
+        self.model.side_effect = None
+        self.model.return_value = decision("answer")
+        turn, _ = self.ask('Why do messages containing "Dock 6" differ?')
+        self.assertEqual(
+            list(selections.member_ids(turn)), [("text-message", first.pk)]
+        )
+        self.assertEqual(turn.plan["recorded_selection"]["coverage"]["matched"], 1)
+        self.assertIn("recorded_filter_scope", self.model.call_args.args[2])
+        self.assertIsNotNone(services.inspect_turn(turn))
+        _, answer = self.ask("Which of those came first?", turn)
+        self.assertIn(str(first.pk), answer["claims"][0]["citations"][0]["url"])
+        later = self.message(self.alex, "Dock 6 was closed.", day=4)
+        updates, _ = self.ask("What is new since answer 1?", turn)
+        self.assertEqual(
+            list(selections.member_ids(updates)), [("text-message", later.pk)]
+        )
+        self.assertEqual(self.model.call_count, 1)
+
+    def test_reused_snapshot_rechecks_membership_before_adopting_new_revision(self):
+        old = self.message(self.alex, "A retained exchange.", day=2)
+        self.message(self.morgan, "Another exchange.", day=3)
+        previous, _ = self.ask("How many messages?")
+        turn = services.submit_turn(
+            self.owner,
+            self.case.pk,
+            "Group those by type",
+            chat_id=previous.chat_id,
+            submission_id=uuid4(),
+        )
+        save_population = recorded._save_population
+
+        def archive_before_reuse(turn, spec):
+            set_evidence_archive(
+                self.owner, self.case.pk, "text-message", old.pk, archived=True
+            )
+            return save_population(turn, spec)
+
+        with patch.object(
+            recorded, "_save_population", side_effect=archive_before_reuse
+        ):
+            jobs.process_turn(turn.pk, turn.delivery_token)
+        turn.refresh_from_db()
+        self.assertEqual(turn.error_code, "source_changed")
+
+    def test_case_scope_rechecked_before_transferring_ordinary_count(self):
+        self.message(self.alex, "Cargo records show arrival at 10:00.", day=2)
+        irrelevant = self.message(self.alex, "Other delivery paperwork.", day=3)
+
+        def before_transfer(turn, authorize, prompt, schema):
+            self.assertIn("recorded_filter_scope", prompt)
+            set_evidence_archive(
+                self.owner, self.case.pk, "text-message", irrelevant.pk, archived=True
+            )
+            authorize()
+            self.fail("Changed selection permitted an evidence-bearing transfer")
+
+        self.model.side_effect = before_transfer
+        turn = services.submit_turn(
+            self.owner,
+            self.case.pk,
+            "Explain the cargo arrival type:text-message",
+            submission_id=uuid4(),
+        )
+        jobs.process_turn(turn.pk, turn.delivery_token)
+        turn.refresh_from_db()
+        self.assertEqual(turn.status, "failed")
+        self.assertEqual(turn.error_code, "source_changed")
+
+    def test_model_can_group_an_existing_explicit_scope_by_week(self):
+        from text.models import TextEvidence
+
+        for day in (2, 10):
+            TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title="Larch daily record",
+                body="A Larch entry.",
+                collected_at=datetime(2026, 9, day, tzinfo=UTC),
+            )
+        TextEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Larch in metadata only",
+            body="Unrelated information",
+        )
+        self.model.side_effect = None
+        self.model.return_value = decision("query_records") | {
+            "record_query": {
+                "field": "weeks",
+                "phrase": "Larch",
+                "sender": "",
+                "recipient": "",
+            }
+        }
+        turn, answer = self.ask(
+            'Show the weekly distribution of records containing "Larch" type:text.'
+        )
+        self.assertEqual(selections.member_ids(turn).count(), 2)
+        self.assertIn("2026-08-31: 1", answer["summary"])
+        self.assertIn("2026-09-07: 1", answer["summary"])
+        self.assertEqual(self.model.call_count, 1)
+
+    def test_complete_party_tables_include_every_destination_and_named_groups(self):
+        recipients = [self.person_named(f"Courier {i:02}") for i in range(51)]
+        for person in recipients:
+            self.message(person, "Dispatch manifest", day=2)
+        export = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Dispatch export",
+            file=SimpleUploadedFile("labels.csv", b"Sender,Recipient,Text"),
+        )
+        for i, session in enumerate(("Night desk", "Day desk", "Night desk", "")):
+            message = self.message(None, "Dispatch manifest", group_source=export)
+            CommunicationContext.objects.create(
+                case=self.case,
+                message=message,
+                source_document=export,
+                source_sha256=export.sha256,
+                source_row=i + 1,
+                source_start=0,
+                source_end=10,
+                parser_version="imessage-csv-v1",
+                timezone="UTC",
+                raw_sender="Iris",
+                source_context={"raw_fields": {"Chat Session": session}},
+            )
+        parent, answer = self.ask('Who received "Dispatch manifest"?')
+        self.assertEqual(len(answer["claims"]), 12)
+        self.assertIn("first 12", answer["summary"])
+        route = reverse(
+            "core:chat:selection", args=(self.case.pk, parent.chat_id, parent.pk)
+        )
+        self.login("viewer")
+        reply = self.client.get(
+            reverse("core:chat:reply", args=(self.case.pk, parent.chat_id, parent.pk))
+        )
+        self.assertContains(reply, route + "?group=recipients")
+        for page_number in (1, 2):
+            result = self.client.get(
+                route, {"group": "recipients", "page": page_number}
+            )
+            self.assertEqual(result.context["page"].paginator.count, 54)
+            self.assertContains(result, f"Page {page_number} of 2")
+            if page_number == 1:
+                self.assertContains(result, "Courier 00")
+            else:
+                self.assertContains(result, "Courier 50")
+                self.assertContains(result, "Group chat · Day desk · Dispatch export")
+                self.assertContains(result, "Name unavailable")
+                self.assertContains(result, "individual recipients unknown")
+                night = next(
+                    row
+                    for row in result.context["page"]
+                    if "Night desk" in row["label"]
+                )
+                self.assertEqual(night["count"], 2)
+                self.assertEqual(
+                    night["url"],
+                    reverse(
+                        "core:evidence:detail",
+                        args=(self.case.pk, "document", export.pk),
+                    ),
+                )
+        senders = self.client.get(route, {"group": "senders"})
+        self.assertContains(senders, "Iris")
+        self.assertEqual(list(senders.context["page"])[0]["count"], 55)
+        self.login("outsider")
+        self.assertEqual(
+            self.client.get(route, {"group": "recipients", "page": 2}).status_code, 404
+        )
+        self.model.assert_not_called()
+
+    def test_message_scope_promotion_reuses_equivalent_predicate_and_refines_parties(
+        self,
+    ):
+        self.message(self.alex, "Cargo 7", day=2)
+        self.message(self.morgan, "Cargo 7", sender=self.alex, day=2)
+        self.message(self.morgan, "Cargo 7", day=3)
+        self.message(self.morgan, "Cargo 7")  # Unknown time cannot confirm the date.
+        self.model.side_effect = None
+        args = {"field": "weeks", "phrase": "Cargo 7", "sender": "", "recipient": ""}
+        self.model.return_value = decision("query_records") | {"record_query": args}
+        with patch.object(selections, "freeze", wraps=selections.freeze) as freeze:
+            parent, _ = self.ask(
+                'Compare weeks for messages containing "Cargo 7" on:2026-09-02.'
+            )
+            self.assertEqual(freeze.call_count, 1)
+        self.assertEqual(selections.member_ids(parent).count(), 2)
+        self.assertEqual(
+            parent.plan["recorded_selection"]["coverage"]["unknown_time"], 1
+        )
+        self.model.return_value = decision("query_records") | {
+            "record_query": args | {"field": "recipients", "sender": "Iris"}
+        }
+        with patch.object(selections, "freeze", wraps=selections.freeze) as freeze:
+            narrower, answer = self.ask(
+                'Compare destinations for messages containing "Cargo 7" '
+                "sent by Iris on:2026-09-02."
+            )
+            self.assertEqual(freeze.call_count, 2)
+        self.assertEqual(selections.member_ids(narrower).count(), 1)
+        self.assertEqual(len(answer["claims"]), 1)
+        self.assertIn("Alex", answer["claims"][0]["text"])
+        route = reverse(
+            "core:chat:selection", args=(self.case.pk, narrower.chat_id, narrower.pk)
+        )
+        self.login("viewer")
+        result = self.client.get(route, {"group": "recipients"})
+        self.assertEqual(
+            [(r["label"], r["count"]) for r in result.context["page"]], [("Alex", 1)]
+        )

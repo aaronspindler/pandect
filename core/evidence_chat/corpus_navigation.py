@@ -16,7 +16,6 @@ from phone.session_matching import message_context, participant_stream
 
 from .corpus import body_field, clipped, material, rows, surfaces
 from .passage_windows import WINDOW
-from .reports import read_timing_material
 from .search_scope import scope_rows
 
 BEFORE = re.compile(r"\b(before|preceded|earlier|previous|prior)\b", re.I)
@@ -255,7 +254,9 @@ def linked_materials(case, locator, question, *, through, filters):
         if filters:
             return []
         item = None
-        current = read_timing_material(case, pk, 0, 1, through=through)
+        from .analysis_reports import read_analysis_material
+
+        current = read_analysis_material(case, pk, 0, 1, through=through)
     elif (surface, kind) in surfaces():
         item, current = load(surface, kind, pk, 1)
     else:

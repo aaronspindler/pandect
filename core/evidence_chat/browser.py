@@ -90,6 +90,95 @@ class ChatBrowserTests(BrowserTestCase):
                 return
         self.fail(f"Count stopped in {turn.status} ({turn.error_code}).")
 
+    def test_review_estimate_and_approval_without_javascript(self):
+        def ask(case):
+            self._source(case)
+            turn = services.submit_turn(
+                self.owner,
+                case.pk,
+                "When was the harbour pickup?",
+                submission_id=uuid4(),
+            )
+            with patch.object(
+                ai,
+                "infer",
+                side_effect=lambda *args: self._respond(*args, clarify=False),
+            ):
+                jobs.process_turn(turn.pk, turn.delivery_token)
+            turn.refresh_from_db()
+            return turn
+
+        for browser_name in self.engines:
+            case = self.db(
+                Case.objects.create, owner=self.owner, name="Harbour receipts"
+            )
+            turn = self.db(ask, case)
+            url = self.url(
+                "core:chat:reply",
+                case_id=case.pk,
+                chat_id=turn.chat_id,
+                turn_id=turn.pk,
+            )
+            with (
+                self.subTest(browser_name=browser_name),
+                self.browser_page(browser_name, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(url)
+                page.get_by_role("link", name="Review more matching material").press(
+                    "Enter"
+                )
+                page.get_by_role("button", name="Keep current answer").press("Enter")
+                expect(page).to_have_url(url)
+                self.assertFalse(
+                    self.db(ChatTurn.objects.filter(review_of=turn).exists)
+                )
+                page.get_by_role("link", name="Review more matching material").press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_role("heading", name="Review more matching material")
+                ).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 800),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate(
+                            "document.documentElement.scrollWidth - "
+                            "document.documentElement.clientWidth"
+                        ),
+                        1,
+                    )
+                    if (width, height) in ((1440, 900), (390, 844)):
+                        self.capture(page, browser_name, f"deeper-review-{width}")
+                page.get_by_label("Question for this review").fill(
+                    "Which day does the source give for pickup?"
+                )
+                page.get_by_label("Maximum generation requests").fill("2")
+                button = page.get_by_role("button", name="Approve and start review")
+                button.focus()
+                expect(button).to_be_focused()
+                button.press("Enter")
+                expect(
+                    page.get_by_role(
+                        "link", name="Original reply before the deeper review"
+                    )
+                ).to_have_attribute(
+                    "href",
+                    reverse("core:chat:reply", args=(case.pk, turn.chat_id, turn.pk)),
+                )
+                self.assertEqual(
+                    self.db(ChatTurn.objects.get, review_of=turn).plan["deep_scope"][
+                        "limit"
+                    ],
+                    2,
+                )
+
     def test_approve_one_pdf_and_read_the_linked_answer_without_javascript(self):
         quote = "Parcel collected at 15:15."
 
@@ -362,6 +451,127 @@ class ChatBrowserTests(BrowserTestCase):
                         page.get_by_text("The witness reported a change to Friday.")
                     ).to_be_visible()
 
+    def test_matching_selection_page_without_javascript(self):
+        def setup_selection():
+            case = Case.objects.create(owner=self.owner, name="Distribution")
+            self._source(case)
+            turn = services.submit_turn(
+                self.owner,
+                case.pk,
+                "How many text records are there?",
+                submission_id=uuid4(),
+            )
+            jobs.process_turn(turn.pk, turn.delivery_token)
+            return self.url(
+                "core:chat:reply",
+                case_id=case.pk,
+                chat_id=turn.chat_id,
+                turn_id=turn.pk,
+            )
+
+        url = self.db(setup_selection)
+        for browser in self.engines:
+            with (
+                self.subTest(browser=browser),
+                self.browser_page(browser, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.owner)
+                page.goto(url)
+                page.get_by_role("link", name="Inspect matching records (1)").press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_role("heading", name="Matching records")
+                ).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 800),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    if (width, height) in ((1440, 900), (390, 844)):
+                        self.capture(page, browser, f"matching-records-{width}")
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                page.emulate_media(
+                    color_scheme="dark", reduced_motion="reduce", forced_colors="active"
+                )
+                page.get_by_role("link", name="Totals by evidence type").press("Enter")
+                expect(
+                    page.get_by_role("table", name="Matching records by evidence type")
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("rowheader", name="Text", exact=True)
+                ).to_be_visible()
+                page.get_by_role("link", name="Back to reply").press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Evidence chat reply")
+                ).to_be_visible()
+
+    def test_all_recorded_destinations_navigation(self):
+        from people.models import Person
+        from phone.models import TextMessageEvidence
+
+        def setup_selection():
+            case = Case.objects.create(owner=self.owner, name="Dispatch")
+            sender = Person.objects.create(case=case, first_name="Casey")
+            destinations = Person.objects.bulk_create(
+                [Person(case=case, first_name=f"Courier {i:02}") for i in range(51)]
+            )
+            TextMessageEvidence.objects.bulk_create(
+                [
+                    TextMessageEvidence(
+                        case=case,
+                        uploaded_by=self.owner,
+                        sender=sender,
+                        recipient=person,
+                        body="Parcel collected",
+                        title="Dispatch",
+                        sha256="a" * 64,
+                    )
+                    for person in destinations
+                ]
+            )
+            turn = services.submit_turn(
+                self.owner,
+                case.pk,
+                'Who received "Parcel collected"?',
+                submission_id=uuid4(),
+            )
+            jobs.process_turn(turn.pk, turn.delivery_token)
+            return self.url(
+                "core:chat:reply",
+                case_id=case.pk,
+                chat_id=turn.chat_id,
+                turn_id=turn.pk,
+            )
+
+        url = self.db(setup_selection)
+        for browser in self.engines:
+            with (
+                self.subTest(browser=browser),
+                self.browser_page(browser, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.owner)
+                page.goto(url)
+                page.get_by_role(
+                    "link", name="Inspect all recorded destinations"
+                ).press("Enter")
+                expect(
+                    page.get_by_role(
+                        "table", name="Matching records by recorded destination"
+                    )
+                ).to_be_visible()
+                page.get_by_role("link", name="Next", exact=True).press("Enter")
+                expect(page.get_by_role("link", name="Courier 50")).to_be_visible()
+                page.get_by_role("link", name="Totals by recorded sender").press(
+                    "Enter"
+                )
+                expect(page.get_by_role("row", name="Casey 51")).to_be_visible()
+
     def test_live_full_review_and_paged_evidence(self):
         for browser in self.engines:
             with self.subTest(browser=browser):
@@ -375,7 +585,7 @@ class ChatBrowserTests(BrowserTestCase):
                     self.sign_in(page, self.owner)
                     page.goto(self.url("core:chat:list", case_id=case.pk))
                     page.get_by_role("textbox", name="Question", exact=True).fill(
-                        "How many text records are there?"
+                        "List all text records"
                     )
                     page.get_by_role("button", name="Ask question").press("Enter")
                     expect(page.get_by_text("Queued", exact=True)).to_be_visible()

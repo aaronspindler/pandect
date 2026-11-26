@@ -856,6 +856,25 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
                 self.assertFalse(turn.answer)
                 self.assertNotIn("refinement", turn.plan)
 
+    def test_answer_can_report_cited_facts_and_a_remaining_question(self):
+        quote = "The observer recorded the arrival at 08:10."
+        self.source(quote)
+        question = "Which arrival did dispatch record?"
+        claim = {"text": quote, "citations": [{"id": 0, "quote": quote, "start": 0}]}
+        for action in ("answer", "ask"):
+            with self.subTest(action=action):
+                turn = self.ask("Compare the arrival accounts.")
+                reply = decision(
+                    action, question if action == "ask" else "", claims=[claim]
+                )
+                if action == "answer":
+                    reply["clarification"] = question
+                with patch.object(ai, "infer", return_value=reply) as model:
+                    self.finish(turn)
+                model.assert_called_once()
+                self.assertEqual(turn.answer["claims"][0]["text"], quote)
+                self.assertEqual(turn.answer["lead"], question)
+
     def test_budget_exhaustion_preserves_a_previously_verified_quote(self):
         quote = "The shuttle arrived at 09:15."
         original = self.source(quote)
@@ -1083,10 +1102,11 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             self.finish(ambiguous)
         self.assertEqual(ambiguous.mode, "clarification")
         self.assertFalse(turn.sources.filter(evidence_id=distant.pk).exists())
-        self.assertEqual(turn.total, 2)  # The one dated match and one uncertain date.
-        self.assertEqual(turn.plan["matched_records"], 1)
-        self.assertEqual(turn.gaps, 1)
-        self.assertEqual(turn.hits.count(), 1)
+        coverage = turn.plan["recorded_selection"]["coverage"]
+        self.assertEqual(coverage["matched"], 1)
+        self.assertEqual(coverage["unknown_time"], 1)
+        self.assertEqual(turn.selection_members.count(), 2)
+        self.assertEqual(turn.sources.count(), 1)
 
     def test_invalid_quotes_and_revoked_editor(self):
         self.source("Pickup at the north gate.")
@@ -1160,7 +1180,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             for i in range(501)
         ]
         TextEvidence.objects.bulk_create(rows)
-        turn = self.ask("How many text records are there?")
+        turn = self.ask("List all text records")
         self.process(turn)
         self.assertEqual(turn.total, 501)
         late = self.source("A later upload")
@@ -1570,6 +1590,53 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         citation = services.inspect_turn(turn)["claims"][0]["citations"][0]
         self.assertEqual(citation["quote"], quote)
         self.assertIn(str(original.pk), citation["url"])
+
+    def test_saved_measurement_on_first_lookup_and_refinement(
+        self,
+    ):
+        original = self.source("The larch parcel was sealed.")
+        inputs = snapshot_sources(self.case, [{"kind": "text", "id": original.pk}])
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="style_profiles",
+            method_version="1",
+            status="complete",
+            inputs=inputs,
+        )
+        metrics = {"unique_words": 5, "executor_tokens": 10000}
+        result = AnalysisResult.objects.create(
+            case=self.case, run=run, data={"metrics": metrics}
+        )
+        project_result(result)
+        self.assertFalse(result.findings.exists())
+        for question, initial in (
+            ("How many unique words were recorded?", True),
+            ("What does the available material tell us?", False),
+        ):
+            turn = self.ask(question)
+
+            def infer(active, authorize, prompt, schema, initial=initial):
+                authorize()
+                rows = json.loads(prompt.split("\n", 1)[1])["records"]
+                if not active.plan.get("refinement") and not initial:
+                    return decision(
+                        "read_analysis",
+                        "unique words",
+                        missing="The vocabulary measurement.",
+                    )
+                return self.answer_with_quote(rows, "Unique words: 5")
+
+            with patch.object(ai, "infer", side_effect=infer):
+                self.finish(turn)
+            answer = services.inspect_turn(turn)
+            citation = answer["claims"][0]["citations"][0]
+            self.assertIn(str(run.pk), citation["url"])
+            self.assertEqual(
+                turn.sources.get(status="context", result_id=result.pk).result_id,
+                result.pk,
+            )
+        self.assertEqual(AnalysisRun.objects.filter(case=self.case).count(), 1)
 
     def saved_timing_report(self):
         other = Person.objects.create(case=self.case, first_name="Mica")

@@ -145,7 +145,7 @@ class ChatLookupCostTests(EvidenceViewTestMixin, TestCase):
         turn = self.submit('Who received "ready to collect"?')
         with (
             patch(
-                "phone.recorded_messages.membership",
+                "core.evidence_chat.selections.freeze",
                 side_effect=AnalysisError("chat_budget_exhausted"),
             ),
             patch.object(ai, "infer") as model,

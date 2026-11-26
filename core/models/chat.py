@@ -60,6 +60,12 @@ class ChatTurn(models.Model):
         EvidenceChat, related_name="turns", on_delete=models.CASCADE
     )
     asked_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    review_of = models.OneToOneField(
+        "self", null=True, related_name="deeper_review", on_delete=models.CASCADE
+    )
+    review_requests = models.PositiveIntegerField(
+        default=0, db_default=0, editable=False
+    )
     ordinal = models.PositiveIntegerField()
     question = models.TextField(max_length=2000)
     include_archived = models.BooleanField(default=False)
@@ -144,6 +150,35 @@ class ChatSource(models.Model):
 
     def __str__(self):
         return f"Chat source {self.pk}"
+
+
+class ChatSelectionMember(models.Model):
+    """An original included in a recorded query, with its frozen clock precision."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    turn = models.ForeignKey(
+        ChatTurn, related_name="selection_members", on_delete=models.CASCADE
+    )
+    kind = models.CharField(max_length=32)
+    evidence_id = models.UUIDField()
+    event_at = models.DateTimeField(null=True)
+    date_only = models.BooleanField(default=False)
+    forwarded = models.BooleanField(default=False)
+    source_version = models.BigIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("turn", "kind", "evidence_id"), name="chat_selection_member"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("kind", "evidence_id"), name="chat_selected_evidence"),
+            models.Index(fields=("turn", "event_at"), name="chat_selected_clock"),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} {self.evidence_id} in selection {self.turn_id}"
 
 
 class ChatMatch(models.Model):

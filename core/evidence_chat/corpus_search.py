@@ -32,7 +32,9 @@ from .corpus import (
     surfaces,
 )
 from .corpus_navigation import nearby_sources
+from .lineage import forwarded_messages
 from .passage_windows import WINDOW, lexical_spans, promote_relations, window_offsets
+from .sampling import CHRONOLOGY, topic_candidates, topic_query, varied_ids
 from .search_budget import MAX_CANDIDATES, timed_query
 from .search_scope import scope_rows
 from .spelling import alternatives, original_span
@@ -44,6 +46,12 @@ STOPWORDS = frozenset(
     "their them there these this to was we were what when where which who "
     "with would you know please overview summarize summarise summary overall "
     "key facts give brief available main this far so".split()
+)
+
+
+DISTRIBUTION = re.compile(
+    r"\b(forward\w*|recipients?|receiv\w*|share\w*|circulat\w*|spread|sent|senders?|copies)\b",
+    re.I,
 )
 
 
@@ -113,7 +121,7 @@ def fields_for(surface, kind):
     return fields
 
 
-def matching_rows(queryset, surface, kind, terms, content, limit):
+def matching_rows(queryset, surface, kind, terms, content):
     index_fields = FIELDS[kind if surface == "original" else surface]
     queryset = searchable(queryset, index_fields)
     fields = fields_for(surface, kind)
@@ -152,54 +160,107 @@ def matching_rows(queryset, surface, kind, terms, content, limit):
         queryset = queryset.annotate(
             **{f"match_{i}": offset for i, offset in enumerate(offsets)}
         )
-    return queryset.order_by("-score", "pk")[:limit]
+    return queryset.order_by("-score", "pk")
 
 
 LEXICAL_LIMIT = 10
 RRF_K = 15
 
 
+def _hit(row, surface, kind, keywords, type_match):
+    pk, score, *positions = row
+    return (
+        score + type_match,
+        (surface, kind, str(pk)),
+        tuple((term, n - 1) for term, n in zip(keywords, positions, strict=False) if n),
+    )
+
+
 @timed_query()
-def _lexical(case, terms, include_archived, through, filters, selected, after=None):
+def _lexical(
+    case,
+    terms,
+    include_archived,
+    through,
+    filters,
+    selected,
+    after=None,
+    *,
+    chronology=False,
+    stats=None,
+    excluded_origins=None,
+    message_topics=(),
+):
     groups = []
+    alternatives = []
     for surface, kind in selected:
         field = body_field(surface, kind)
         kind_words = set(kind.split("-")) if surface == "original" else set()
         keywords = [t for t in terms if t.removesuffix("s") not in kind_words]
+        scoped = scope_rows(
+            rows(case, surface, kind, include_archived, through, after=after),
+            case,
+            surface,
+            kind,
+            filters,
+        )
+        if excluded_origins is not None and surface == "original":
+            scoped = scoped.exclude(pk__in=excluded_origins.get(kind, ()))
+            if kind == "text-message":
+                scoped = scoped.exclude(forwarded_messages())
+        if surface == "original" and kind == "text-message":
+            if message_topics:
+                scoped = scoped.filter(search_words=topic_query(message_topics))
+            else:
+                scoped, topics = topic_candidates(scoped, case, keywords)
+                if topics and stats is not None:
+                    stats["message_topics"] = list(topics)
+                    stats["ranked_scope_limited"] = True
         matches = matching_rows(
-            scope_rows(
-                rows(case, surface, kind, include_archived, through, after=after),
-                case,
-                surface,
-                kind,
-                filters,
-            ),
+            scoped,
             surface,
             kind,
             keywords,
             field,
-            2 * LEXICAL_LIMIT,
         )
         offsets = [f"match_{i}" for i in range(len(keywords))] if field else []
+        columns = ("pk", "score", *offsets)
+        limit = 2 * LEXICAL_LIMIT
+        leading = list(matches.values_list(*columns)[: limit + 1])
+        dense = len(leading) > limit
+        if dense and stats is not None:
+            stats["ranked_scope_limited"] = True
+
         group = [
-            (
-                score + (len(keywords) < len(terms)),
-                (surface, kind, str(pk)),
-                tuple(
-                    (term, n - 1)
-                    for term, n in zip(keywords, positions, strict=False)
-                    if n
-                ),
-            )
-            for pk, score, *positions in matches.values_list("pk", "score", *offsets)
+            _hit(row, surface, kind, keywords, len(keywords) < len(terms))
+            for row in leading[:limit]
         ]
+        if dense and keywords and surface == "original":
+            probes = varied_ids(matches, kind, field, leading[0][1], chronology)
+            by_id = {
+                row[0]: _hit(row, surface, kind, keywords, len(keywords) < len(terms))
+                for row in matches.filter(pk__in=probes).values_list(*columns)
+            }
+            alternatives.extend(by_id[pk] for pk in probes if pk in by_id)
         groups.append(group)
     if not terms:
         return [hit for group in zip_longest(*groups) for hit in group if hit]
-    return sorted(
+    ranked = sorted(
         (hit for group in groups for hit in group),
         key=lambda hit: (-hit[0], hit[1][0] != "original", hit[1]),
     )
+    if alternatives:
+        # Preserve the best local hit, reserve room for a different source
+        # family and independent leads, then resume ordinary relevance order.
+        floor = max(1, ranked[0][0] - 1)
+        other = [
+            group[0]
+            for group in groups
+            if group and group[0][0] >= floor and group[0][1][:2] != ranked[0][1][:2]
+        ]
+        probes = [hit for hit in alternatives if hit[0] >= floor]
+        return list(dict.fromkeys([ranked[0], *other[:1], *probes[:6], *ranked]))
+    return ranked
 
 
 def _meaning(case, question, user, related, through, filters):
@@ -251,6 +312,8 @@ def ranked_windows(
     semantic_hints=None,
     surfaces_to_search=None,
     stats=None,
+    independent_of=(),
+    message_topics=(),
 ):
     limit = min(limit, CANDIDATE_LIMIT)
     if limit <= 0:
@@ -294,6 +357,19 @@ def ranked_windows(
                     if len(found) >= limit:
                         break
         return found
+    excluded = None
+    known_roots = set()
+    known_wording = set()
+    if independent_of:
+        excluded = defaultdict(set)
+        for locator in independent_of:
+            known_roots.update(original_keys(locator))
+            if wording := locator.get("message_lineage", {}).get("wording"):
+                known_wording.add(wording)
+        for original in known_roots:
+            kind, _, key = original.partition(":")
+            excluded[kind].add(key)
+
     meaning = (
         list(_meaning(case, question, user, related, through, filters))
         if hybrid
@@ -359,6 +435,15 @@ def ranked_windows(
             "Original text failed its integrity check.",
         }:
             return None
+        if independent_of:
+            source = found.locator
+            lineage = source.get("message_lineage", {})
+            if (
+                original_keys(source) & known_roots
+                or lineage.get("forwarded")
+                or lineage.get("wording") in known_wording
+            ):
+                return None
         return item, found.locator
 
     # Score a source once per lane. Keep each lane's offset when the lanes agree
@@ -366,7 +451,17 @@ def ranked_windows(
     scores = defaultdict(float)
     spans = defaultdict(list)
     for _, key, positions in _lexical(
-        case, terms, include_archived, through, filters, selected, after
+        case,
+        terms,
+        include_archived,
+        through,
+        filters,
+        selected,
+        after,
+        chronology=bool(CHRONOLOGY.search(question)),
+        stats=stats,
+        excluded_origins=excluded,
+        message_topics=message_topics,
     ):
         if not (source := load(key)):
             continue
@@ -502,12 +597,16 @@ def ranked_windows(
         primaries[:1] + suggestions[:2] + primaries[1:2] + neighbours + primaries[2:]
     )
     independent, rest = [], []
-    covered = set()
+    covered, words_seen = set(), set()
     for choice in [*cited_primaries, *choices]:
         # Prefer a finding's cited original when independent accounts fill the
         # budget. The derived interpretation can still use a spare slot.
-        origins = original_keys(load(choice[0])[1])
-        if origins - covered:
+        loc = load(choice[0])[1]
+        origins = original_keys(loc)
+        wording = loc.get("message_lineage", {}).get("wording")
+        if origins - covered and (not wording or wording not in words_seen):
+            if wording:
+                words_seen.add(wording)
             independent.append(choice)
             covered.update(origins)
         else:
@@ -532,13 +631,29 @@ def ranked_windows(
     )
     selected = []
     used = defaultdict(list)
+    selected_words = {}
+    keep_copies = DISTRIBUTION.search(question)
     for key, start in choices:
         if len(used[key]) >= 2 or any(abs(start - n) < WINDOW for n in used[key]):
             continue
         loc = load(key)[1]
+        info = loc.get("message_lineage", {})
+        words = info.get("wording")
+        if (
+            not keep_copies
+            and words
+            and words in selected_words
+            and selected_words[words] != key
+            and info.get("forwarded")
+        ):
+            if stats is not None:
+                stats["forward_copies_skipped"] = True
+            continue
         if read_window(case, loc, start, 1, include_archived=include_archived) is None:
             continue
         used[key].append(start)
+        if words:
+            selected_words[words] = key
         selected.append((loc, start))
         if semantic_hints is not None and any(
             left < start + WINDOW and right > start for left, right in strong_spans[key]

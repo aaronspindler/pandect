@@ -8,6 +8,7 @@
   <div class="chat-reply">
     <p class="chat-meta"><strong>Evidence reply</strong></p>
     <div class="chat-reply-body">
+      {% if row.deep_origin %}<p><a href="{{ row.deep_origin }}">Original reply before the deeper review</a></p>{% endif %}
         {% if row.origin_reply %}<p><a href="{{ row.origin_reply }}">Original reply and approved check</a></p>{% endif %}
       {% if row.activity %}{% include 'core/evidence_chat/activity.html' %}{% endif %}
       {% if row.error %}
@@ -27,10 +28,14 @@
         {% if row.answer.clarification %}
           <p><strong>Clarification requested</strong></p><p class="chat-answer">{{ row.answer.clarification }}</p>
         {% else %}
-          {% if row.claims or row.turn.plan.review_kind == 'interpretive' %}<p class="chat-meta"><span class="badge">AI suggestion</span></p>{% endif %}
+          {% if row.turn.plan.recorded_selection and not row.turn.plan.recorded_selection.context_only %}<p class="chat-meta">Recorded field query</p>{% elif row.claims or row.turn.plan.review_kind == 'interpretive' %}<p class="chat-meta"><span class="badge">AI suggestion</span></p>{% endif %}
           {% if row.answer.summary %}<p class="chat-answer">{{ row.answer.summary }}</p>{% endif %}
+          {% if row.turn.plan.inspected_excerpts %}<p class="chat-meta">The answer model inspected {{ row.turn.plan.inspected_excerpts|length }} excerpt{{ row.turn.plan.inspected_excerpts|length|pluralize }}.{% if row.turn.plan.ranked_scope_limited %} More search matches were available.{% endif %}{% if row.turn.plan.forward_copies_skipped %} Forwarded copies with identical wording were grouped for this search.{% endif %}</p>{% endif %}
           {% for claim in row.claims %}
           <p class="chat-answer">{{ claim.text }} {% for ref in claim.references %}<a href="{{ ref.citation.url }}" aria-label="Reference {{ ref.number }}: {{ ref.citation.label }}">[{{ ref.number }}]</a>{% if not forloop.last %} {% endif %}{% endfor %}</p>
+          {% if claim.references|length > 1 or claim.support.forwards or claim.support.partial %}{% if claim.support %}
+          <p class="chat-meta">{% if claim.support.partial %}Original records in the citation sample{% else %}Underlying original records{% endif %}: {{ claim.support.originals }}.{% if claim.support.forwards %} Marked as forwarded: {{ claim.support.forwards }}.{% endif %}{% if claim.support.repeated_wording %} Additional records with identical wording: {{ claim.support.repeated_wording }}.{% endif %}{% if claim.support.forwards or claim.support.repeated_wording %} Independent authorship is unverified.{% endif %}</p>
+          {% endif %}{% endif %}
           {% endfor %}
           {% if row.references %}
           {% partialdef source_quotes %}
@@ -53,6 +58,17 @@
           {% endif %}
           {% if row.answer.lead %}<h3>Suggested next check</h3><p class="chat-answer">{{ row.answer.lead }}</p>{% endif %}
         {% endif %}
+        {% if row.deep_child %}<p><a href="{{ row.deep_child }}">Open deeper review</a></p>
+        {% elif row.deep_offer and can_edit %}<p><a class="button button-secondary" href="{% url 'core:chat:deep_review' case.pk thread.pk row.turn.pk %}">{% if row.turn.plan.unreviewed %}Continue reviewing remaining entries{% else %}Review more matching material{% endif %}</a></p>{% endif %}
+        {% if row.turn.plan.recorded_selection.snapshot %}
+          <p><a class="record-link" href="{% url 'core:chat:selection' case.pk thread.pk row.turn.pk %}">{% if row.turn.plan.recorded_selection.context_only %}Inspect records matching the filters{% else %}Inspect matching records{% endif %} ({{ row.turn.plan.recorded_selection.coverage.matched }})</a></p>
+          {% if row.turn.plan.recorded_selection.field == 'recipients' or row.turn.plan.recorded_selection.field == 'senders' %}
+            <p><a class="record-link" href="{% url 'core:chat:selection' case.pk thread.pk row.turn.pk %}?group={{ row.turn.plan.recorded_selection.field }}">Inspect all recorded {% if row.turn.plan.recorded_selection.field == 'recipients' %}destinations{% else %}senders{% endif %}</a></p>
+          {% endif %}
+          {% with coverage=row.turn.plan.recorded_selection.coverage %}
+            <p class="chat-meta">{{ coverage.matched }} matched the recorded filters{% if not row.turn.plan.recorded_selection.context_only %} · {{ coverage.inspected }} source example{{ coverage.inspected|pluralize }} inspected{% endif %}{% if coverage.unknown_time %} · {{ coverage.unknown_time }} missing a recorded time{% endif %}{% if coverage.date_only %} · {{ coverage.date_only }} date only{% endif %}{% if coverage.forwarded %} · {{ coverage.forwarded }} marked forwarded{% endif %}</p>
+          {% endwith %}
+        {% endif %}
         {% if row.turn.plan.saved_extraction %}<p><a href="{% url 'core:analysis:detail' case.pk row.turn.plan.saved_extraction %}">Open saved extraction</a></p>{% endif %}
         {% if row.proposal %}
           {% if row.proposal.status == 'offered' and can_edit %}
@@ -62,6 +78,7 @@
           {% elif row.proposal.status == 'stopped' %}<p>The approved extraction stopped ({{ row.proposal.run.get_status_display }}).</p>{% endif %}
           {% if row.proposal.run_id %}<p><a href="{% url 'core:analysis:detail' case.pk row.proposal.run_id %}">Open extraction</a></p>{% endif %}
         {% endif %}
+        {% if row.turn.review_of_id %}<p class="chat-meta">{{ row.turn.review_requests }} of {{ row.turn.plan.deep_scope.limit }} approved generation requests used.</p>{% endif %}
         {% if row.turn.mode == 'full' %}
         <p class="chat-meta">{% if row.turn.started_at %}Review started <time datetime="{{ row.turn.started_at|date:'c' }}">{{ row.turn.started_at|date:'j M Y, H:i T' }}</time>. {% endif %}Reviewed {{ row.turn.reviewed }} of {{ row.turn.total }} source entries.</p>
         {% endif %}

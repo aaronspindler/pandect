@@ -5,17 +5,24 @@ from datetime import date
 
 from cases.models import CaseActivity
 from core.analysis.errors import AnalysisError
+from core.evidence.types import KINDS
 from core.models import ChatTurn
 from people.models import Person
 from phone import recorded_messages
 from phone.presentation import message_destination
 
-from . import corpus, engine
+from . import corpus, engine, selections
 from .engine_counts import _people, day_bounds
 from .history import TURN_NUMBER
-from .search_scope import DATE, QUOTED_TEXT, TYPE, search_filters
+from .search_scope import (
+    DATE,
+    QUOTED_TEXT,
+    TYPE,
+    normalize_date_filters,
+    search_filters,
+)
 
-FIELDS = ("recipients", "senders", "first", "last", "count")
+FIELDS = ("recipients", "senders", "first", "last", "count", "weeks", "types")
 NAME = r"(?P<party>[^?!,;:“”\"\n]{1,100}?)"
 RECIPIENT = re.compile(
     rf"(?:to )?who(?:m)?(?: all)? did {NAME} "
@@ -60,7 +67,7 @@ def _scope(turn):
     # Recognize explicit event-date filters in both chat and natural form.
     # Mask quotations so that a date within the searched wording stays literal.
     wording = QUOTED_TEXT.sub(" ", turn.question)
-    wording = re.sub(r"\b(on|from|through)\s+(?=\d{4}-\d)", r"\1:", wording, flags=re.I)
+    wording = normalize_date_filters(wording)
     filters = search_filters(wording, turn.plan.get("timezone", "UTC"))
     if any(value.lower() != "text-message" for value in TYPE.findall(wording)):
         return None
@@ -78,10 +85,88 @@ def _scope(turn):
     return filters
 
 
+def context_selection(turn):
+    """Only investigator-defined predicates may name a complete population."""
+    question = turn.question
+    wording = QUOTED_TEXT.sub(" ", question)
+    scope = search_filters(wording, turn.plan.get("timezone", "UTC"))
+    kind = scope.get("record_type")
+    if kind == "finding" or any(
+        value.lower() not in KINDS for value in TYPE.findall(wording)
+    ):
+        return None
+    quoted = literal(question)
+    literal_request = re.search(
+        r"\b(?:messages?|texts?|records?)\s+(?:(?:that|which)\s+)?"
+        r"(?:contain(?:s|ing)?|mention(?:s|ing)?|say(?:s|ing)?"
+        r"|with(?: the exact wording)?)"
+        r"\s+QUOTE\b",
+        QUOTED_TEXT.sub("QUOTE", question),
+        re.I,
+    )
+    if len(set(TYPE.findall(wording))) > 1 or re.search(
+        r"(?<!\S)(?:on|from|through):", DATE.sub("", wording), re.I
+    ):
+        return None
+    try:
+        for mode, value in DATE.findall(wording):
+            if date.fromisoformat(value) == date.max and mode.lower() != "from":
+                return None
+    except ValueError:
+        return None
+    phrase = quoted if literal_request else ""
+    if (
+        not kind
+        and (phrase or scope)
+        and re.search(r"\b(?:messages?|texts?)\b", wording, re.I)
+    ):
+        kind = "text-message"
+    if not kind and not scope.get("start") and not scope.get("end"):
+        return None
+    if kind == "text-message":
+        scope = _scope(turn)
+        if scope is None:
+            return None
+    selection = {
+        "field": "count",
+        "through": turn.started_at.isoformat(),
+        "kinds": [kind] if kind else list(KINDS),
+        "phrase": phrase if kind in ("text", "text-message") else "",
+        **{k: scope[k].isoformat() for k in ("start", "end") if k in scope},
+    }
+    if scope.get("start") or scope.get("end"):
+        selection["count_day"] = True
+    return selection
+
+
+def prepare_context(turn):
+    from .search_budget import MAX_LOOKUPS, reserve_lookup, timed_query
+
+    if turn.plan.get("lookup_attempts", 0) >= MAX_LOOKUPS - 1:
+        return
+    if engine.review_requested(turn.question) or turn.plan.get(
+        "checked_message_wording"
+    ):
+        return
+    if scope := context_selection(turn):
+        # The population is supplemental to interpretation. A local timeout
+        # leaves the ordinary answer and its bounded retrieval available.
+        try:
+            reserve_lookup(turn)
+            with timed_query():
+                _save_population(turn, scope | {"context_only": True})
+        except AnalysisError as error:
+            if error.code != "chat_budget_exhausted":
+                raise
+            turn.plan.pop("recorded_selection", None)
+
+
 def offer_tool(turn):
     # Include the additional tool schema only when the investigator supplied
     # a plausible message field and a narrowing phrase, named party or date.
     words = QUOTED_TEXT.sub("", turn.question)
+    if getattr(turn, "plan", {}).get("recorded_selection", {}).get("context_only"):
+        return True
     return bool(
         not getattr(turn, "plan", {}).get("checked_message_wording")
         and RECORD_TOPIC.search(words)
@@ -120,11 +205,17 @@ def available(turn, *, lock=False):
     from .search_budget import timed_query
 
     saved = turn.plan.get("recorded_selection")
-    if not saved or _revision(turn.case, lock) == saved["revision"]:
+    if not saved:
+        return True
+    if saved.get("snapshot") and not selections.snapshot_owner_exists(turn, saved):
+        return False
+    if _revision(turn.case, lock) == saved["revision"]:
         return True
     if saved["parties"] != _party_labels(turn.case, saved):
         return False
     with timed_query():
+        if saved.get("snapshot"):
+            return selections.current_membership(turn, saved)
         return (
             recorded_messages.membership(recorded_messages.matching(turn.case, saved))
             == saved["membership"]
@@ -211,13 +302,20 @@ def _new_selection(turn, field, phrase, sender="", recipient=""):
         "through": turn.started_at.isoformat(),
         **{k: scope[k].isoformat() for k in ("start", "end") if k in scope},
     }
+    if scope.get("start") or scope.get("end"):
+        selection["count_day"] = True
     return _bind_people(
         turn, selection, {"sender_id": sender, "recipient_id": recipient}
     )
 
 
 def count_selection(turn, filters):
-    selection = {"field": "count", "phrase": "", "through": turn.started_at.isoformat()}
+    selection = {
+        "field": "count",
+        "phrase": "",
+        "through": turn.started_at.isoformat(),
+        "kinds": filters["kinds"],
+    }
     if parties := filters.get("parties"):
         selection["pair"] = parties
     if "day" in filters:
@@ -255,9 +353,27 @@ def from_model(turn, arguments):
         and (not re.search(r"[^\W_]{3}", phrase) or phrase not in turn.question)
         or quoted
         and phrase != quoted
-        or _scope(turn) is None
         or len(QUOTED_TEXT.findall(turn.question)) > 1
     ):
+        raise AnalysisError("model_result_structure")
+    selection = turn.plan.get("recorded_selection", {})
+    if selection.get("context_only") and selection.get("kinds") != ["text-message"]:
+        if (
+            arguments["field"] not in ("count", "first", "last", "types", "weeks")
+            or any(arguments.get(key) != "" for key in ("sender", "recipient"))
+            or phrase
+            and selection["kinds"] != ["text"]
+        ):
+            return (
+                None,
+                "Which dates, exact wording or evidence types should I compare?",
+            )
+        scope = selection | {"field": arguments["field"], "context_only": False}
+        if phrase != scope["phrase"]:
+            scope.pop("snapshot", None)
+            scope["phrase"] = phrase
+        return scope, ""
+    if _scope(turn) is None:
         raise AnalysisError("model_result_structure")
     names = {}
     wording = QUOTED_TEXT.sub(" ", turn.question)
@@ -283,13 +399,31 @@ def from_model(turn, arguments):
     if (
         not phrase
         and not any(names.values())
-        and not any(k in _scope(turn) for k in ("start", "end"))
+        and not any(k in _scope(turn) for k in ("record_type", "start", "end"))
     ):
         return (
             None,
             "Which sender, recipient, dates or wording should I use?",
         )
-    return _new_selection(turn, arguments["field"], phrase, **names)
+    scope, ask = _new_selection(turn, arguments["field"], phrase, **names)
+    if (
+        scope
+        and selection.get("context_only")
+        and all(
+            scope.get(key) == selection.get(key)
+            for key in (
+                "through",
+                "start",
+                "end",
+                "count_day",
+                "phrase",
+                "sender_id",
+                "recipient_id",
+            )
+        )
+    ):
+        return selection | {"field": arguments["field"], "context_only": False}, ""
+    return scope, ask
 
 
 def direct(turn):
@@ -301,7 +435,8 @@ def direct(turn):
         previous = _previous(turn)
         if not previous:
             return None, "Which earlier answer in this conversation should I use?"
-        if not (saved := previous.plan.get("recorded_selection")):
+        saved = previous.plan.get("recorded_selection")
+        if not saved or (saved.get("context_only") and not saved.get("phrase")):
             if follow["order"]:
                 return {"previous": previous, "field": follow["order"].lower()}, ""
             return {"updates_from": previous}, ""
@@ -314,10 +449,29 @@ def direct(turn):
         selection = {
             k: v
             for k, v in saved.items()
-            if k not in ("membership", "revision", "parties", "retention")
+            if k
+            not in (
+                "membership",
+                "revision",
+                "parties",
+                "retention",
+                "coverage",
+                "snapshot",
+                "context_only",
+            )
         }
         if follow["order"]:
             selection["field"] = follow["order"].lower()
+            if saved.get("snapshot"):
+                selection["snapshot"] = saved["snapshot"]
+        elif saved.get("snapshot"):
+            selection.pop("after", None)
+            selection.update(
+                updated_after=saved["through"],
+                previous_snapshot=saved["snapshot"],
+                through=turn.started_at.isoformat(),
+                refreshed=not previous_available,
+            )
         elif previous_available:
             selection.update(
                 after=saved["through"], through=turn.started_at.isoformat()
@@ -328,6 +482,25 @@ def direct(turn):
             selection.pop("after", None)
             selection.update(refreshed=True, through=turn.started_at.isoformat())
         return selection, ""
+    if group := re.fullmatch(
+        r"(?:group|break down|count|show)"
+        r"(?: those| these| them| the results| the matches)?"
+        r" by (week|type)(?: since| in| from)?(?: (?:answer|reply) #?\d+)?[?.!]?",
+        question,
+        re.I,
+    ):
+        previous = _previous(turn)
+        if (
+            previous
+            and (saved := previous.plan.get("recorded_selection"))
+            and saved.get("snapshot")
+            and available(previous)
+        ):
+            return saved | {
+                "field": "weeks" if group[1].lower() == "week" else "types",
+                "context_only": False,
+            }, ""
+        return None, "Which earlier set of matching records should I group?"
     phrase = literal(question)
     if not phrase:
         if match := TEXT_PARTIES.fullmatch(question):
@@ -388,6 +561,40 @@ def _evidence(turn, key, start, phrase, date_only):
     return item, (quote, details) if phrase else (details,)
 
 
+def _save_population(turn, selection):
+    revision = _revision(turn.case, lock=True)
+    if snapshot := selection.get("snapshot"):
+        original_turn = (
+            turn
+            if snapshot == str(turn.pk)
+            else selections.snapshot_owner(turn, snapshot).first()
+        )
+        if original_turn is None or not available(original_turn):
+            raise AnalysisError("source_changed")
+    else:
+        snapshot = selections.freeze(turn, selection)
+    spec = selection | {"snapshot": snapshot}
+    members = selections.totals(
+        selections.snapshot_rows(turn, spec), only_timed=spec.get("count_day")
+    )
+    parties = _party_labels(turn.case, selection)
+    expected = {
+        selection.get("sender_id"),
+        selection.get("recipient_id"),
+        *selection.get("pair", ()),
+    } - {None}
+    if expected != parties.keys():
+        raise AnalysisError("source_changed")
+    spec.update(
+        parties=parties,
+        membership=members,
+        revision=revision,
+        coverage=selections.coverage(spec, members, 0),
+    )
+    turn.plan["recorded_selection"] = spec
+    return spec
+
+
 def execute(turn, selection, ask=""):
     from .search_budget import reserve_lookup, timed_query
 
@@ -399,34 +606,17 @@ def execute(turn, selection, ask=""):
 
         return compare_cited_events(turn, previous, selection["field"])
     with timed_query():
-        revision = _revision(turn.case, lock=True)
-        rows = recorded_messages.matching(turn.case, selection)
-        members = recorded_messages.membership(rows)
-        retention = recorded_messages.retention_scope(
-            turn.case, selection, rows, members["count"]
+        selection = _save_population(turn, selection)
+        if selection.get("kinds", ["text-message"]) != ["text-message"] or selection[
+            "field"
+        ] in ("types", "weeks"):
+            return selections.answer_for_fields(turn, selection)
+        members = selection["membership"]
+        parties = selection["parties"]
+        rows = recorded_messages.from_snapshot(
+            turn.case, selections.snapshot_rows(turn, selection)
         )
-        if retention is None:
-            return engine.empty_answer(
-                clarification=(
-                    "Too many active and archived matches to retain this selection. "
-                    "Which sender, recipient or date should narrow it?"
-                )
-            ), []
         matches = recorded_messages.representatives(rows, selection)
-    parties = _party_labels(turn.case, selection)
-    expected = {
-        selection.get("sender_id"),
-        selection.get("recipient_id"),
-        *selection.get("pair", ()),
-    } - {None}
-    if expected != parties.keys():
-        raise AnalysisError("source_changed")
-    turn.plan["recorded_selection"] = selection | {
-        "parties": parties,
-        "retention": retention,
-        "membership": members,
-        "revision": revision,
-    }
     field, phrase = selection["field"], selection["phrase"]
     answer = engine.empty_answer()
     windows = []
@@ -458,6 +648,7 @@ def execute(turn, selection, ask=""):
                 ],
             }
         )
+    selection["coverage"]["inspected"] = len({w.locator["record_key"] for w in windows})
     confirmed = members["count"]
     if selection.get("count_day"):
         confirmed -= members["undated"] + members["date_only"]
@@ -475,7 +666,8 @@ def execute(turn, selection, ask=""):
         if person_id := selection.get(role + "_id"):
             summary += f" Recorded {role}: {parties[person_id]}."
     if day := selection.get("count_day"):
-        summary += f" The selected local event date is {day}."
+        if isinstance(day, str):
+            summary += f" The selected local event date is {day}."
         if field == "count" and (members["undated"] or members["date_only"]):
             summary += (
                 " Additional records excluded from the dated total: "
@@ -485,9 +677,9 @@ def execute(turn, selection, ask=""):
     elif selection.get("start") or selection.get("end"):
         summary += " The date filter includes messages with a precise occurrence time."
     if selection.get("refreshed"):
-        summary += " Earlier membership changed. This is the current active selection."
-    elif selection.get("after"):
-        summary += " This selection covers additions since the referenced answer."
+        summary += " Earlier membership changed. Showing new or restored matches."
+    elif selection.get("after") or selection.get("updated_after"):
+        summary += " This selection covers new or restored matches since that answer."
     if field in ("recipients", "senders"):
         summary += f" Showing one recorded exchange per distinct {field[:-1]}."
     elif field in ("first", "last"):
@@ -516,7 +708,7 @@ def deletion_dependencies(case, message_ids):
     keys = {str(pk) for pk in message_ids}
     turns = ChatTurn.objects.filter(
         case=case, chat__case=case, plan__has_key="recorded_selection"
-    )
+    ).exclude(plan__recorded_selection__has_key="snapshot")
     affected = []
     for pk, selection in turns.values_list("pk", "plan__recorded_selection").iterator(
         chunk_size=200

@@ -167,6 +167,16 @@ with the displayed token to resume that delivery from its last checkpoint.
 A late worker cannot publish under the replaced token. An interrupted external
 call can incur provider usage again when its unfinished checkpoint is retried.
 
+An approved deeper review has a frozen scope and a maximum number of generation
+requests. The estimate uses the matched entries, their text lengths, excerpt
+overlap and a final answer call. It is an estimate of model work. Provider
+billing depends on actual token usage. The worker checks the case and
+destination again and reserves each generation, including retries, before
+dispatch. At the approved limit it verifies the cited matches already found
+and records remaining entries as incomplete. The linked reply can offer a
+further review from unfinished positions under a new approval. Each completed
+reply keeps its own scope and coverage.
+
 ## Meaning search indexing
 
 Processing shows case approval, queue state, completed sources and indexed
