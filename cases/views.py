@@ -27,7 +27,6 @@ from ui.live import render_live
 from .analysis_settings import change_ai_settings, change_external_approval
 from .deletion import CASCADE_CONFLICT, CaseDeletionBlocked, delete_case_record
 from .forms import (
-    ANALYSIS_MODEL_LABELS,
     CaseAISettingsForm,
     CaseForm,
     ConfirmForm,
@@ -240,16 +239,6 @@ def case_ai_settings(request, case_id):
             )
         )
     if outcome in {"review", "select_destinations"}:
-        proposal = {
-            "ai_backend": form.cleaned_data["ai_backend"],
-            "confirmation": form.expected_confirmation,
-        }
-        proposal.update(
-            {
-                op: form.cleaned_data[op] if op in form.data else form.initial[op]
-                for op in ANALYSIS_MODEL_LABELS
-            }
-        )
         return _render_case(
             request,
             "cases/ai_review.html",
@@ -258,7 +247,11 @@ def case_ai_settings(request, case_id):
                 scope_description(scope) | {"scope_id": str(i)}
                 for i, scope in enumerate(change.scopes)
             ],
-            proposal=proposal.items(),
+            proposal=[
+                (name, form.cleaned_data[name])
+                for name in form.fields
+                if name in form.data
+            ],
             review_confirmation=change.confirmation,
             error="Select the destinations you want to approve."
             if outcome == "select_destinations"

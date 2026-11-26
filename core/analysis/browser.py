@@ -159,6 +159,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     Case.objects.filter(pk=self.case.pk).update,
                     ai_backend=Case.AIBackend.LOCAL,
                     external_analysis_models={},
+                    external_analysis_efforts={},
                     external_analysis_approval={},
                     search_embedding_approval={},
                 )
@@ -186,12 +187,15 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(approve).to_have_count(0)
 
                 claims_model = ai.get_by_label("Claims and commitments", exact=True)
+                claims_effort = ai.get_by_label("Effort for Claims and commitments")
                 claims_model.select_option("gpt-6.2-sol")
+                claims_effort.select_option("xhigh")
                 save.press("Enter")
                 expect(
                     page.get_by_text("AI processing settings saved.")
                 ).to_be_visible()
                 expect(claims_model).to_have_value("gpt-6.2-sol")
+                expect(claims_effort).to_have_value("xhigh")
                 ai.locator("summary").press("Enter")
                 ai.get_by_role("button", name="Review pending destinations").press(
                     "Enter"
@@ -202,11 +206,14 @@ class AnalysisBrowserTests(BrowserTestCase):
 
                 chat_model = ai.get_by_label("Evidence chat", exact=True)
                 chat_model.select_option("anthropic/claude-sonnet-5.5")
+                chat_effort = ai.get_by_label("Effort for Evidence chat")
+                chat_effort.select_option("max")
                 save.press("Enter")
                 expect(page.get_by_role("checkbox")).to_have_count(1)
                 expect(page.get_by_text("Evidence chat.", exact=False)).to_be_visible()
                 approve.press("Enter")
                 expect(chat_model).to_have_value("anthropic/claude-sonnet-5.5")
+                expect(chat_effort).to_have_value("max")
                 chat_model.select_option("gpt-6.2-sol")
                 save.press("Enter")
                 expect(chat_model).to_have_value("gpt-6.2-sol")
@@ -234,6 +241,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     external_analysis_models={
                         "question_synthesis": "google/gemini-4-argon"
                     },
+                    external_analysis_efforts={},
                     external_analysis_approval={},
                     search_embedding_approval={},
                 )
@@ -241,12 +249,21 @@ class AnalysisBrowserTests(BrowserTestCase):
                 page.goto(settings_url)
                 ai = page.locator("#ai-processing")
                 chat = ai.get_by_role("button", name=re.compile("^Evidence chat:"))
+                chat_effort = ai.get_by_label("Effort for Evidence chat")
+                expect(chat_effort.locator('option[value=""]')).to_have_text(
+                    "Default (High)"
+                )
+                expect(chat_effort.locator('option[value="none"]')).to_be_disabled()
+                chat_effort.select_option("xhigh")
+                topics_effort = ai.get_by_label("Effort for Topic summaries")
+                expect(topics_effort.locator('option[value="none"]')).to_be_enabled()
+                topics_effort.select_option("low")
                 chat.press("Enter")
                 picker = page.get_by_role("dialog", name="Model for Evidence chat")
                 search = picker.get_by_label("Search models or providers")
                 models = picker.get_by_label("Matching models")
                 expect(search).to_be_focused()
-                search.fill("no such model")
+                search.fill("Llama")
                 expect(picker.get_by_text("No matching models.")).to_be_visible()
                 expect(models.locator("optgroup")).to_have_count(0)
                 expect(picker.get_by_role("button", name="Use model")).to_be_disabled()
@@ -256,21 +273,34 @@ class AnalysisBrowserTests(BrowserTestCase):
                     search.press("Escape")
                 expect(chat).to_be_focused()
                 chat.press("Enter")
-                search.fill("Vertex")
-                expect(
-                    models.locator('option[value="google/gemini-4-argon"]')
-                ).to_have_count(1)
+                search.fill("o3")
+                models.select_option("openai/o3")
+                picker.get_by_role("button", name="Use model").press("Enter")
+                expect(chat_effort).to_have_value("")
+                expect(chat_effort.locator('option[value=""]')).to_have_text("Default")
+                chat.press("Enter")
+                search.fill("Gemini")
+                expect(picker.get_by_text("No matching models.")).to_be_visible()
+                search.fill("anthropic")
+                models.select_option("anthropic/claude-haiku-4.5")
+                picker.get_by_role("button", name="Use model").press("Enter")
+                expect(chat_effort).to_be_hidden()
+                chat.press("Enter")
                 search.fill("anthropic")
                 models.select_option("anthropic/claude-sonnet-5.5")
                 self.capture(page, engine, "ai-model-picker")
                 picker.get_by_role("button", name="Use model").press("Enter")
                 expect(chat).to_contain_text("Claude Sonnet 5.5")
                 expect(chat).to_be_focused()
+                expect(chat_effort.locator('option[value="none"]')).to_be_disabled()
+                chat_effort.select_option("xhigh")
                 ai.get_by_role("radio", name="External AI").press("Space")
                 ai.get_by_role("button", name="Save changes").press("Enter")
                 self.capture(page, engine, "ai-destination-review")
                 page.get_by_role("button", name="Approve and save").press("Enter")
                 expect(chat).to_contain_text("Claude Sonnet 5.5")
+                expect(chat_effort).to_have_value("xhigh")
+                expect(topics_effort).to_have_value("low")
                 page.get_by_role("button", name="Approve and start indexing").press(
                     "Enter"
                 )

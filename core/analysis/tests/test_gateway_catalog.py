@@ -81,8 +81,14 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
             ),
         ]:
             with self.subTest(model=model):
+                self.case.external_analysis_efforts = {"content_events": "xhigh"}
                 self.route(model)
-                self.case.save(update_fields=["external_analysis_models"])
+                self.case.save(
+                    update_fields=[
+                        "external_analysis_models",
+                        "external_analysis_efforts",
+                    ]
+                )
                 note = self.text()
                 run, _ = start_run(
                     self.users["owner"],
@@ -102,6 +108,14 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
                 payload = json.loads(request.data)
                 self.assertIn(param, payload)
                 self.assertEqual(payload["model"], model)
+                if endpoint == "messages":
+                    self.assertEqual(payload["output_config"], {"effort": "xhigh"})
+                    self.assertNotIn("reasoning", payload)
+                elif endpoint == "responses":
+                    self.assertEqual(payload["reasoning"], {"effort": "xhigh"})
+                else:
+                    self.assertNotIn("output_config", payload)
+                    self.assertNotIn("reasoning", payload)
                 headers = {k.lower(): v for k, v in request.header_items()}
                 self.assertEqual(headers["cf-aig-allowed-providers"], recipient)
                 self.assertEqual(headers["cf-aig-gateway-id"], CONFIG["gateway"])
@@ -121,8 +135,11 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
     def test_billing_requires_opt_in_and_stored_key_routes_block_fallback(self):
         with override_settings(PANDECT_AI_GATEWAY=CONFIG):
             choices = {o["value"]: o for o in external_model_options("content_events")}
-            self.assertFalse(choices["google/gemini-4-carbon"]["available"])
-            self.assertTrue(choices["@cf/zai-org/glm-5.3"]["available"])
+            self.assertFalse(choices["anthropic/claude-sonnet-5.5"]["available"])
+            self.assertNotIn("@cf/zai-org/glm-5.3", choices)
+            self.assertTrue(
+                gateway_route_configured("text", self.route("@cf/zai-org/glm-5.3"))
+            )
         with override_settings(
             PANDECT_AI_GATEWAY=CONFIG | {"stored_key_providers": ("google-vertex-ai",)}
         ):
@@ -134,16 +151,17 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
             )
         self.assertFalse(gateway_route_configured("text", route))
 
-    def test_picker_groups_name_the_model_author_and_serving_provider(self):
+    def test_picker_limits_text_choices_to_openai_and_anthropic(self):
         choices = {
             row["value"]: row["group"]
             for row in external_model_options("content_events")
         }
-        self.assertEqual(choices["google/gemini-4-carbon"], "Google Vertex AI")
-        self.assertEqual(
-            choices["@cf/zai-org/glm-5.3"], "Z.ai via Cloudflare Workers AI"
-        )
+        self.assertEqual(set(choices.values()), {"OpenAI", "Anthropic"})
+        self.assertNotIn("google/gemini-4-carbon", choices)
+        self.assertEqual(choices["anthropic/claude-sonnet-5.5"], "Anthropic")
         self.assertEqual(choices["openai/gpt-6.2-sol"], "OpenAI")
+        self.assertNotIn(CONFIG["models"]["text"], choices)
+        self.assertNotIn("openai/gpt-transcribe", choices)
 
     def test_refusals_and_incomplete_chat_choices_never_become_answers(self):
         for choice, code in [

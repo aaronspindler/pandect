@@ -16,7 +16,13 @@ from core.analysis.errors import AnalysisError
 from core.analysis.execution import gateway_execution
 from core.analysis.http import NoRedirect, provider_failure_status
 from core.analysis.inference_payloads import decode_json, encode_json, evidence_messages
-from core.analysis.model_catalog import MODELS, catalog_execution, model_purpose
+from core.analysis.model_catalog import (
+    MODELS,
+    catalog_execution,
+    model_purpose,
+    reasoning_setting,
+    set_reasoning_effort,
+)
 from core.models import GatewayRequest
 
 
@@ -62,6 +68,11 @@ def gateway_route_configured(purpose, execution):
             if not record or model_purpose(record) != purpose:
                 return False
             resolved = catalog_execution(catalog_id)
+            if key := reasoning_setting(resolved):
+                effort = (
+                    execution.get("inference_settings", {}).get(key, {}).get("effort")
+                )
+                set_reasoning_effort(resolved, effort)
             if any(execution.get(key) != value for key, value in resolved.items()):
                 return False
             if resolved["billing"] == "gateway-credits" and not config.get(

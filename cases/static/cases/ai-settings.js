@@ -34,15 +34,34 @@
     apply.disabled = !matches.selectedOptions[0] || matches.selectedOptions[0].matches(":disabled");
   }
 
+  function updateEffort(model, effort, modelChanged = false) {
+    const allowed = model?.dataset.efforts?.split(" ").filter(Boolean) || [];
+    if (modelChanged && !allowed.includes(effort.value)) effort.value = "";
+    for (const option of effort.options) {
+      // Keep a submitted value visible beside its validation error.
+      const unavailable = option.value && option.value !== effort.value && !allowed.includes(option.value);
+      option.hidden = option.disabled = Boolean(unavailable);
+    }
+    const defaultEffort = model?.dataset.defaultEffort;
+    const defaultLabel = defaultEffort && Array.from(effort.options).find(option => option.value === defaultEffort)?.text;
+    effort.options[0].text = defaultLabel ? `Default (${defaultLabel})` : "Default";
+    const unavailable = !allowed.length && !effort.value && !effort.hasAttribute("aria-invalid");
+    effort.disabled = unavailable;
+    effort.closest(".ai-effort-control").hidden = unavailable;
+  }
+
   for (const row of document.querySelectorAll(".ai-model-row")) {
-    const select = row.querySelector("select");
+    const select = row.querySelector(".ai-model-control select");
     if (!select || select.disabled) continue;
     const label = row.querySelector("label");
     const button = row.querySelector(".ai-model-trigger");
     const value = button.querySelector("[data-model-label]");
-    const update = () => {
-      value.textContent = select.selectedOptions[0]?.text || "Choose model";
+    const effort = row.querySelector("[data-reasoning-effort]");
+    const update = (modelChanged = false) => {
+      const model = select.selectedOptions[0];
+      value.textContent = model?.text || "Choose model";
       button.setAttribute("aria-label", `${label.textContent}: ${value.textContent}`);
+      if (effort) updateEffort(model, effort, modelChanged);
     };
     button.id = select.id;
     select.removeAttribute("id");
@@ -51,7 +70,7 @@
     select.hidden = true;
     button.hidden = false;
     update();
-    select.addEventListener("change", update);
+    select.addEventListener("change", () => update(true));
     button.addEventListener("click", () => {
       activeSelect = select;
       opener = button;

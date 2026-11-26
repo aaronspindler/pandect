@@ -14,12 +14,16 @@ from core.analysis.model_catalog import (
     catalog_execution,
     model_group,
     model_purpose,
+    reasoning_efforts,
+    set_reasoning_effort,
 )
 from core.analysis.operations import OPERATIONS
 
 GEOGRAPHIC = {
     name: spec.geographic for name, spec in OPERATIONS.items() if spec.geographic
 }
+
+TEXT_MODEL_CHOICE_PREFIXES = ("openai/", "anthropic/")
 
 OPENAI_TEXT_MODELS = {
     "text_topics": "gpt-6-luna",
@@ -51,6 +55,13 @@ INFERENCE_OPERATIONS = (
 
 def gateway_execution(purpose, operation, *, case=None):
     """Retain the selected provider and method, never its credentials."""
+    execution = _selected_gateway_execution(purpose, operation, case)
+    if case is not None and purpose == "text":
+        set_reasoning_effort(execution, case.external_analysis_efforts.get(operation))
+    return execution
+
+
+def _selected_gateway_execution(purpose, operation, case):
     execution = _default_gateway_execution(purpose, operation)
     model = case.external_analysis_models.get(operation) if case is not None else None
     if not model:
@@ -199,7 +210,7 @@ def model_form_value(operation, saved, *, case):
 
 
 def external_model_options(operation):
-    """Display all compatible models, including those awaiting operator setup."""
+    """List case-selectable models, including those awaiting operator setup."""
     from core.analysis.gateway import gateway_route_configured
 
     if operation not in INFERENCE_OPERATIONS:
@@ -214,6 +225,8 @@ def external_model_options(operation):
             continue
         provider = route["provider"]
         canonical = model if model.startswith("@cf/") else f"{provider}/{model}"
+        if purpose == "text" and not canonical.startswith(TEXT_MODEL_CHOICE_PREFIXES):
+            continue
         record = MODELS.get(canonical)
         group = model_group(canonical, provider)
         if default.get("url"):
@@ -226,10 +239,16 @@ def external_model_options(operation):
                 "label": record["label"] if record else model,
                 "group": group,
                 "available": True,
+                "efforts": reasoning_efforts(route),
+                "default_effort": route.get("inference_settings", {})
+                .get("reasoning", {})
+                .get("effort", ""),
             }
         )
     for model, record in MODELS.items():
         if model in covered or model_purpose(record) != purpose:
+            continue
+        if purpose == "text" and not model.startswith(TEXT_MODEL_CHOICE_PREFIXES):
             continue
         route = catalog_execution(model)
         rows.append(
@@ -238,6 +257,8 @@ def external_model_options(operation):
                 "label": record["label"],
                 "group": model_group(model, route["provider"]),
                 "available": gateway_route_configured(purpose, route),
+                "efforts": reasoning_efforts(route),
+                "default_effort": "",
             }
         )
     return tuple(rows)

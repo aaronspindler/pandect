@@ -60,6 +60,7 @@
 .ai-models { margin-bottom: 1.5rem; }
 .ai-settings:has(.ai-backend input[value="gateway"]:checked) .ai-local-hint { display: none; }
 .ai-models h3, .meaning-settings h2 { font-size: 1.5rem; margin-bottom: .5rem; }
+.ai-models:not(:has(.ai-effort-control:not([hidden]))) .ai-effort-hint { display: none; }
 .ai-model-row {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
@@ -69,9 +70,16 @@
   border-bottom: 1px solid var(--divider);
   overflow-wrap: anywhere;
 }
-.ai-model-row > label { font-weight: 500; }
+.ai-model-row > label, .ai-effort-control > label { font-weight: 500; }
 .ai-settings > form > .button-primary { min-width: min(10rem, 100%); min-height: 48px; font-size: 1rem; }
 .ai-model-control { min-width: 0; }
+.ai-effort-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: .25rem .5rem;
+}
+.ai-effort-control .errorlist { grid-column: 1 / -1; }
 .ai-model-trigger {
   display: flex;
   width: 100%;
@@ -89,7 +97,7 @@
 }
 .ai-model-trigger:hover { background: var(--background); }
 .ai-model-trigger .icon { width: 1rem; height: 1rem; }
-.ai-model-row.field-error .ai-model-trigger { border-color: var(--danger); }
+.ai-model-control.field-error .ai-model-trigger { border-color: var(--danger); }
 #ai-model-picker h2 { margin-bottom: 1.25rem; }
 #ai-model-picker .field { margin-bottom: .75rem; }
 #model-options { height: 14rem; padding: .25rem; }
@@ -104,9 +112,15 @@
 .ai-scope-choice { display: flex; align-items: center; gap: .5rem; min-height: 44px; cursor: pointer; }
 .ai-scope-choice input { margin: 0; }
 
+@media (min-width: 48rem) {
+  .ai-models:has(.ai-effort-control:not([hidden])) .ai-model-row {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(14rem, 2fr);
+  }
+}
 @media (max-width: 47.999rem) {
   .ai-settings > h2 { font-size: 1.5rem; }
   .ai-model-row { grid-template-columns: minmax(0, 1fr); gap: .25rem; padding-block: .75rem; }
+  .ai-effort-control { grid-template-columns: minmax(0, 1fr); }
   .ai-destinations > summary {
     display: grid;
     grid-template-columns: auto 1fr auto;
