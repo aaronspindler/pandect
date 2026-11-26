@@ -191,10 +191,11 @@ def start_evidence_analysis(
             ).order_by("created_at", "pk")
         ), False
     runs = []
+    created_any = False
     for index, (operation, selections, parameters) in enumerate(
         _plan(case, kind, item, attachment_id)
     ):
-        run, _ = start_run(
+        run, created = start_run(
             actor,
             case.pk,
             operation,
@@ -204,30 +205,42 @@ def start_evidence_analysis(
             batch=batch,
         )
         runs.append(run)
-    return runs, bool(runs)
+        created_any |= created
+    return runs, created_any
 
 
-def follow_up_extraction(run, result):
+def follow_up_extraction(run, result, *, reuse=None):
     """Publish local text work in the same transaction as its batch's extraction."""
+    request = reuse or run
+    if not request.parameters.get("automatic_followup"):
+        return
     if (
-        run.batch_id
-        and run.batch.scope.get("type") in {"reprocess", "added"}
+        request.batch_id
+        and request.batch.scope.get("type") in {"reprocess", "added"}
         and run.operation in {"native_text", "ocr", "transcription"}
-        and run.parameters.get("automatic_followup")
     ):
         from core.analysis.reprocessing import follow_up_reprocessing
 
-        follow_up_reprocessing(run, result)
+        follow_up_reprocessing(run, result, batch_id=request.batch_id)
         return
-    batch = run.parameters.get("automatic_batch")
+    marker = request.parameters.get("automatic_batch")
     if (
         run.operation not in {"native_text", "ocr"}
-        or not run.parameters.get("automatic_followup")
-        or not batch
+        or not marker
         or result.data.get("outcome", "complete") not in {"complete", "partial"}
         or not any(x.get("text", "").strip() for x in result.data.get("items", []))
     ):
         return
+    if reuse:
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+
+        from core.case_search.indexing import authorize
+
+        try:
+            authorize(request.requested_by_id, run.case_id, edit=True)
+        except PermissionDenied, Http404:
+            return
     selections = [
         {
             "kind": selected["kind"],
@@ -238,12 +251,12 @@ def follow_up_extraction(run, result):
     ]
     for name, inputs, parameters in _text_checks(selections):
         start_run(
-            run.requested_by,
+            request.requested_by,
             run.case_id,
             name,
             inputs,
-            parameters=parameters | {"automatic_batch": batch},
-            submission_id=uuid5(run.pk, name),
+            parameters=parameters | {"automatic_batch": marker},
+            submission_id=uuid5(reuse.submission_id if reuse else run.pk, name),
             previous_run=run,
-            batch=run.batch,
+            batch=request.batch,
         )

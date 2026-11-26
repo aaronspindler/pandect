@@ -16,6 +16,12 @@ CASCADE_CONFLICT = (
 
 CASE_PATHS = {
     "cases.case": ("pk",),
+    "core.chatanalysisproposal": (
+        "parent__case_id",
+        "parent__chat__case_id",
+        "document__case_id",
+    ),
+    "core.extractionreuse": ("case_id", "run__case_id"),
     "core.chatturn": ("case_id", "chat__case_id"),
     "core.chatsource": ("case_id", "turn__case_id", "turn__chat__case_id"),
     "core.chatmatch": (

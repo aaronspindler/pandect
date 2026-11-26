@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from core.analysis.catalogue import project_result
 from core.analysis.services import snapshot_sources
+from core.evidence.retention import set_evidence_archive
 from core.evidence_chat import corpus
 from core.evidence_chat.corpus import cite, discover, rank, read_window
 from core.models import AnalysisResult, AnalysisRun, ExtractedPassage
@@ -229,6 +230,7 @@ class CorpusTests(EvidenceTestMixin, TestCase):
 
     def test_partial_page_and_finding_refs_require_intact_original(self):
         document = self.create_evidence(DocumentEvidence)
+        before_results = timezone.now()
         inputs = snapshot_sources(self.case, [{"kind": "document", "id": document.pk}])
         run = AnalysisRun.objects.create(
             case=self.case,
@@ -291,6 +293,32 @@ class CorpusTests(EvidenceTestMixin, TestCase):
         )
         self.assertIn("Derived finding", finding["label"])
         self.assertEqual(finding["record_key"], loc["record_key"])
+
+        def updates(after):
+            return {
+                item["key"]
+                for item, _ in rank(
+                    self.case,
+                    "Friday",
+                    user=self.owner,
+                    after=after,
+                    through=timezone.now(),
+                )
+            }
+
+        # Later analysis can cite an earlier input. It becomes eligible again
+        # after a restoration even though its publication time stays fixed.
+        self.assertEqual(updates(before_results), {loc["key"], finding["key"]})
+        after_results = timezone.now()
+        self.assertFalse(updates(after_results))
+        for archived in (True, False):
+            set_evidence_archive(
+                self.owner, self.case.pk, "document", document.pk, archived=archived
+            )
+            self.assertEqual(
+                updates(after_results),
+                set() if archived else {loc["key"], finding["key"]},
+            )
         document.file.storage.delete(document.file.name)
         self.assertIsNone(read_window(self.case, loc))
         self.assertIsNone(read_window(self.case, finding))

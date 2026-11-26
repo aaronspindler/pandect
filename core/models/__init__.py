@@ -7,9 +7,17 @@ from .analysis import (
     AnalysisRun,
     CaseAnalysisBatch,
     ExtractedPassage,
+    ExtractionReuse,
     GatewayRequest,
 )
-from .chat import ChatMatch, ChatRoutingApproval, ChatSource, ChatTurn, EvidenceChat
+from .chat import (
+    ChatAnalysisProposal,
+    ChatMatch,
+    ChatRoutingApproval,
+    ChatSource,
+    ChatTurn,
+    EvidenceChat,
+)
 from .evidence import DeletionReview, Evidence, FileEvidence, PendingFileDeletion
 from .important import ImportantItem, ImportantNote
 from .search import CaseSearchIndex, SearchDocument, SearchPassage
@@ -19,6 +27,8 @@ from .selection import SavedSelection
 __all__ = [
     "EvidenceChat",
     "ChatRoutingApproval",
+    "ChatAnalysisProposal",
+    "ExtractionReuse",
     "ChatTurn",
     "ChatSource",
     "ChatMatch",

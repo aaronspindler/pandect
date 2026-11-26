@@ -6,7 +6,7 @@ from django.db.models import CharField, Exists, F, OuterRef, Q, Value
 from django.db.models.functions import Cast, JSONArray, JSONObject
 from django.http import Http404
 
-from core.models import AnalysisRun, DeletionReview
+from core.models import AnalysisRun, ChatSource, DeletionReview
 from geo.analysis.deterministic.trips import CHUNK_SIZE
 from geo.trip_jobs import _authorize, _database_limits
 from geo.trip_models import (
@@ -71,6 +71,13 @@ def retire_snapshots(generation_id):
             )
         ),
     )
+    cited_trips = VehicleTrip.objects.filter(
+        case=case,
+        generation_id=OuterRef("pk"),
+        pk__in=ChatSource.objects.filter(
+            case=case, evidence_kind="possible-trip"
+        ).values("evidence_id"),
+    )
     inconsistent = VehicleTripSource.objects.filter(
         Q(input__generation_id=OuterRef("pk")) | Q(trip__generation_id=OuterRef("pk"))
     ).exclude(
@@ -85,6 +92,7 @@ def retire_snapshots(generation_id):
         obsolete_generations_with_snapshots(generation)
         .filter(
             ~Exists(references),
+            ~Exists(cited_trips),
             ~Exists(inconsistent),
             ~Exists(inputs.exclude(case=case)),
             ~Exists(trips.exclude(case=case, vehicle_id=OuterRef("vehicle_id"))),

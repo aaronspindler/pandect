@@ -130,10 +130,25 @@ to 4 KiB and reconciles reported token usage. After an interrupted send, the
 next delivery can continue with ordinary source selection using the remaining
 allowance.
 
+A PDF extraction approved in chat uses the existing analysis queue. Manual,
+automatic and chat requests can share the same in-flight single-PDF extraction.
+Pandect records the requesting and approving investigators separately. Automatic
+requests retain their scheduled follow-ups. Result publication and allocation of
+a linked reply share a database transaction. If the conversation has an active
+turn, its terminal transition picks up the waiting reply. Subsequent deliveries
+recheck the original investigator, active sources and approved answer route.
+Use the extraction link in the original reply to inspect a stopped check.
+
 Worker milestones and a bounded sample of currently available source references
 drive the live activity disclosure. The worker saves these milestones separately
 from recovery checkpoints. Completed replies draw their sample from the saved
 source ledger.
+Ordinary chat reserves a local lookup before executing it. An initial search,
+two refinements and one interrupted attempt share a four-attempt limit across
+deliveries. Indexed discovery and recorded-field queries run with bounded SQL
+timeouts. The reply for an approved PDF check also shows model usage for the
+original question, local extraction and linked answer. It separates reported
+tokens from estimates retained for missing usage.
 A full review saves its source versions, window positions, matches and progress
 before queuing its continuation. The worker reads adjacent windows together
 and reuses a verified body digest while the case evidence revision matches.

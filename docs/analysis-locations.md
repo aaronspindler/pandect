@@ -220,7 +220,8 @@ inspect results. Processing shows progress, generations, failures, and recovery.
 Background chunks read up to 500 active observations from chronological histories
 without a total-source cutoff. Queued rebuilds can absorb newer source changes
 before they start. The current generation and any generation cited by a saved or
-queued journey comparison retain their complete input snapshots. Superseded,
+queued journey comparison or retained Evidence chat source keep their complete
+input snapshots. Superseded,
 uncited derived rows are retired in bounded steps while generation history remains.
 Cleanup includes replaced attempts and method versions at the same source revision.
 Each chunk rechecks access and revision. Only complete
@@ -255,3 +256,21 @@ Trips retain first/last observed places/times and elapsed minutes. Actual depart
 arrival, road route, travelled distance, driver and continuous presence remain
 unknown. Deliberately selected retained journey analysis remains separately
 available within its source limits.
+
+
+### Saved trips in Evidence chat
+
+For a vehicle name, plate or VIN, chat can read up to three recent published
+possible trips. It can also open the trip containing a shortlisted observation
+or compare a timed message with trips recorded within one hour of its timestamp.
+Date-only messages supply no time of day. A comparison can follow the first and
+last observations to nearby timed messages. The one-hour search window identifies
+candidates for reading. Timing alone does not establish a relationship.
+
+Each chat trip reference links to **Saved possible trip** with the times, places
+and supporting observations from that specific generation. Chat can verify up
+to 64 observations per trip; the Trips workspace provides longer histories.
+A rebuild preserves cited generations. Archiving a contributing observation or
+its source export withholds the dependent reply. Confirmed permanent deletion
+includes replies and later conversation turns that depend on the retired
+generation.

@@ -766,10 +766,11 @@ def _prepare_sources(batch, case, kind, additions, rows):
         _queue(batch, "geocode_locations", positions, {"reverse": True})
 
 
-def follow_up_reprocessing(run, result):
+def follow_up_reprocessing(run, result, *, batch_id=None):
     """Keep extraction published when a follow-up cannot be prepared."""
+    batch_id = batch_id or run.batch_id
     batch = CaseAnalysisBatch.objects.select_related("requested_by").get(
-        pk=run.batch_id
+        pk=batch_id, case_id=run.case_id
     )
     failure = ""
     try:
@@ -783,7 +784,9 @@ def follow_up_reprocessing(run, result):
     except (AnalysisError, Http404, PermissionDenied) as error:
         failure = error.code if isinstance(error, AnalysisError) else "access_removed"
     # Preparation locks the case before the batch; use the same order here.
-    batch = CaseAnalysisBatch.objects.select_for_update().get(pk=run.batch_id)
+    batch = CaseAnalysisBatch.objects.select_for_update().get(
+        pk=batch_id, case_id=run.case_id
+    )
     if failure:
         _error(
             batch,

@@ -19,6 +19,16 @@ STEPS = {
     "search_evidence": ("Looking up source evidence", "Looked up source evidence"),
     "search_findings": ("Looking up saved findings", "Looked up saved findings"),
     "follow_source": ("Checking linked sources", "Checked linked sources"),
+    "search_updates": (
+        "Searching newly available records",
+        "Searched newly available records",
+    ),
+    "read_trip": ("Reading saved possible trips", "Read saved possible trips"),
+    "query_records": ("Querying recorded fields", "Checked recorded fields"),
+    "read_extraction": (
+        "Reading the document extraction",
+        "Read the document extraction",
+    ),
     "read_timing": ("Checking saved timing reports", "Checked saved timing reports"),
     "answer": ("Preparing an answer", "Worked on a reply"),
     "select": (

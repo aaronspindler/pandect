@@ -65,6 +65,8 @@ class AdminInspectionTests(TestCase):
     def test_project_models_have_an_admin_or_an_intentional_workflow(self):
         without_standalone_admin = {
             "cases.CaseMembership",  # Case inline
+            "core.ChatAnalysisProposal",  # Reviewed in Evidence chat
+            "core.ExtractionReuse",  # Extraction submission attribution
             "core.ChatRoutingApproval",  # Owner approval in Case Settings
             "core.DeletionReview",  # Evidence confirmation
             "core.PendingFileDeletion",  # File cleanup command

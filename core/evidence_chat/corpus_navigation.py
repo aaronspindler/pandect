@@ -1,6 +1,7 @@
 """Follow a bounded number of case evidence links and reported event times."""
 
 import re
+from datetime import datetime
 from itertools import islice
 from uuid import UUID
 
@@ -110,6 +111,11 @@ def _closest_event(case, stamp, before, include_archived, through, filters=None)
 def nearby_sources(
     case, question, item, loc, include_archived, through, *, filters=None
 ):
+    if loc["surface"] == "trip":
+        from .trips import trip_links
+
+        yield from trip_links(case, loc, question, through, filters)
+        return
     if loc["surface"] == "report":
         for dep in loc["dependencies"]:
             yield "original", dep["kind"], dep["id"]
@@ -230,7 +236,20 @@ def linked_materials(case, locator, question, *, through, filters):
         pk = UUID(locator["pk"])
     except ValueError, KeyError, AttributeError, TypeError:
         return []
-    if surface == "report":
+    if surface == "trip":
+        from .trips import read_trip_material
+
+        item = None
+        current = read_trip_material(case, pk, 0, 1, through=through)
+        if current and (
+            filters.get("record_type", "vehicle-location") != "vehicle-location"
+            or filters.get("start")
+            and datetime.fromisoformat(current.locator["end_at"]) < filters["start"]
+            or filters.get("end")
+            and datetime.fromisoformat(current.locator["start_at"]) >= filters["end"]
+        ):
+            return []
+    elif surface == "report":
         # Reopen the exact selected report and validate its whole population
         # before any of its source messages can enter the model context.
         if filters:

@@ -61,6 +61,15 @@ def _route_context(case, *, turn=None):
 def _row(request, case, turn):
     url = reverse("core:chat:reply", args=[case.pk, turn.chat_id, turn.pk])
     row = {"turn": turn, "url": url}
+    parent_check = getattr(turn, "approved_check", None)
+    if (
+        parent_check
+        and parent_check.parent.case_id == case.pk
+        and parent_check.parent.chat_id == turn.chat_id
+    ):
+        row["origin_reply"] = reverse(
+            "core:chat:reply", args=[case.pk, turn.chat_id, parent_check.parent_id]
+        )
     if turn.status == ChatTurn.Status.FAILED:
         row["error"] = error_message(turn.error_code)
     if turn.status != ChatTurn.Status.COMPLETE:
@@ -73,6 +82,21 @@ def _row(request, case, turn):
             if code
             else "Reply unavailable because its sources could not be verified."
         }
+    check = getattr(turn, "analysis_proposal", None)
+    if (
+        check
+        and check.document.case_id == case.pk
+        and (not check.run_id or check.run.case_id == case.pk)
+    ):
+        row["proposal"] = check
+        if (
+            check.continuation_id
+            and check.continuation.case_id == case.pk
+            and check.continuation.chat_id == turn.chat_id
+        ):
+            row["linked_reply"] = reverse(
+                "core:chat:reply", args=[case.pk, turn.chat_id, check.continuation_id]
+            )
     references = []
     claims = []
     for claim in answer.get("claims", ()):
@@ -156,20 +180,35 @@ def chat(request, case_id, chat_id=None):
         return render(request, "core/evidence_chat/index.html", context)
     turns = (
         thread.turns.filter(case=case)
-        .select_related("asked_by", "case")
+        .select_related(
+            "asked_by",
+            "case",
+            "analysis_proposal__document",
+            "analysis_proposal__run",
+            "analysis_proposal__continuation",
+            "approved_check__parent",
+        )
         .order_by("ordinal")
     )
     paginator = Paginator(turns, 10)
     page = paginator.get_page(request.GET.get("page") or paginator.num_pages)
     rows = [_row(request, case, turn) for turn in page]
+    active_turn = turns.filter(
+        status__in=(ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING)
+    ).exists()
     context.update(
         thread=thread,
         rows=rows,
         page_obj=page,
         recent_chats=chats[:10],
-        pending=turns.filter(
-            status__in=(ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING)
-        ).exists(),
+        active_turn=active_turn,
+        pending=active_turn
+        or any(
+            row.get("proposal")
+            and row["proposal"].status == "approved"
+            and not row.get("linked_reply")
+            for row in rows
+        ),
     )
     return render_live(request, "core/evidence_chat/detail.html", context)
 
@@ -187,6 +226,8 @@ def _get_turn(case, chat_id, turn_id):
 @product_login_required
 @require_safe
 def reply(request, case_id, chat_id, turn_id):
+    from .usage import interaction_usage
+
     case = get_case(request.user, case_id)
     turn = _get_turn(case, chat_id, turn_id)
     row = _row(request, case, turn)
@@ -194,9 +235,15 @@ def reply(request, case_id, chat_id, turn_id):
         "thread": turn.chat,
         "turn": turn,
         "row": row,
-        "pending": turn.status in (ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING),
+        "pending": turn.status in (ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING)
+        or bool(
+            row.get("proposal")
+            and row["proposal"].status == "approved"
+            and not row.get("linked_reply")
+        ),
     }
     if "answer" in row:
+        context["interaction_usage"] = interaction_usage(turn)
         if turn.mode == "full":
             context["matches_page"] = services.match_page(
                 turn, request.GET.get("page", 1)
@@ -239,3 +286,63 @@ def retry(request, case_id, chat_id, turn_id):
             else " ".join(exc.messages),
         )
     return redirect("core:chat:reply", case.pk, chat_id, turn.pk)
+
+
+@product_login_required
+@require_http_methods(["GET", "HEAD", "POST"])
+def proposal(request, case_id, chat_id, turn_id):
+    from core.models import ChatAnalysisProposal
+
+    from . import proposals
+
+    case = get_case(request.user, case_id, edit=True)
+    turn = _get_turn(case, chat_id, turn_id)
+    check = get_object_or_404(
+        ChatAnalysisProposal.objects.select_related("document", "parent__chat"),
+        parent=turn,
+        document__case=case,
+    )
+    reply_url = reverse("core:chat:reply", args=(case.pk, chat_id, turn.pk))
+    if check.status != "offered":
+        return redirect(reply_url)
+    unavailable = ""
+    if request.method == "POST":
+        try:
+            proposals.respond(
+                request.user,
+                case_id,
+                chat_id,
+                turn_id,
+                request.POST.get("action"),
+                request.POST.get("confirmation", ""),
+            )
+        except (AnalysisError, ValidationError) as error:
+            unavailable = (
+                error_message(error.code)
+                if isinstance(error, AnalysisError)
+                else " ".join(error.messages)
+            )
+        else:
+            return redirect(reply_url)
+    if not unavailable:
+        try:
+            proposals.check_offer(check)
+        except AnalysisError as error:
+            unavailable = error_message(error.code)
+    return render(
+        request,
+        "core/evidence_chat/proposal.html",
+        case_context(case, request.user)
+        | {
+            "thread": turn.chat,
+            "turn": turn,
+            "proposal": check,
+            "reply_url": reply_url,
+            "unavailable": unavailable,
+            "confirmation": proposals.reviewed_token(check, request.user),
+            "external_destination": execution_destination(turn.execution)
+            if turn.execution["location"] == "external"
+            else "",
+        },
+        status=409 if unavailable and request.method == "POST" else 200,
+    )

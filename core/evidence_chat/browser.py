@@ -3,7 +3,9 @@
 import json
 from threading import Event
 from unittest.mock import patch
+from uuid import uuid4
 
+from django.core.files.base import ContentFile
 from django.db import connections
 from django.test import override_settings
 from django.urls import reverse
@@ -12,9 +14,14 @@ from playwright.sync_api import expect
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.errors import AnalysisError
-from core.evidence_chat import ai, jobs
+from core.analysis.services import process_run
+from core.evidence_chat import ai, jobs, services
+from core.evidence_chat.tests.test_decisions_worker import answer_from_quotes
+from core.evidence_chat.tests.test_engine import decision
 from core.evidence_chat.tests.test_views import LOCAL_AI
-from core.models import ChatTurn
+from core.models import AnalysisRun, ChatTurn
+from document.models import DocumentEvidence
+from document.tests.test_analysis import pdf_bytes
 from text.models import TextEvidence
 
 
@@ -82,6 +89,114 @@ class ChatBrowserTests(BrowserTestCase):
             if turn.status == "complete":
                 return
         self.fail(f"Count stopped in {turn.status} ({turn.error_code}).")
+
+    def test_approve_one_pdf_and_read_the_linked_answer_without_javascript(self):
+        quote = "Parcel collected at 15:15."
+
+        def respond(turn, authorize, prompt, schema):
+            authorize()
+            records = json.loads(prompt.split("\n", 1)[1])["records"]
+            if any(quote in record["text"] for record in records):
+                return answer_from_quotes(records, [quote])
+            document = next(r for r in records if r["type"] == "original/document")
+            return decision(
+                "propose_extraction", missing="Read the collection time on the receipt."
+            ) | {"source": document["id"]}
+
+        def ask(case):
+            turn = services.submit_turn(
+                self.owner,
+                case.pk,
+                "What time does the parcel receipt show?",
+                submission_id=uuid4(),
+            )
+            jobs.process_turn(turn.pk, turn.delivery_token)
+            turn.refresh_from_db()
+            return turn
+
+        def finish(case):
+            run = AnalysisRun.objects.get(case=case, operation="native_text")
+            process_run(run.pk)
+            child = ChatTurn.objects.get(case=case, status="queued")
+            jobs.process_turn(child.pk, child.delivery_token)
+
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                patch.object(ai, "infer", side_effect=respond),
+            ):
+                case = self.db(
+                    Case.objects.create, owner=self.owner, name="Parcel collection"
+                )
+                self.db(
+                    DocumentEvidence.objects.create,
+                    case=case,
+                    uploaded_by=self.owner,
+                    title="Parcel receipt",
+                    file=ContentFile(pdf_bytes(quote), name="receipt.pdf"),
+                )
+                with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                    self.sign_in(page)
+                    for approve in (False, True):
+                        turn = self.db(ask, case)
+                        reply = self.url(
+                            "core:chat:reply",
+                            case_id=case.pk,
+                            chat_id=turn.chat_id,
+                            turn_id=turn.pk,
+                        )
+                        page.goto(reply)
+                        page.get_by_role("link", name="Review proposed check").press(
+                            "Enter"
+                        )
+                        expect(
+                            page.get_by_role("heading", name="Extract document text")
+                        ).to_be_visible()
+                        if approve:
+                            for width, height in [
+                                (1440, 900),
+                                (1440, 1024),
+                                (768, 1024),
+                                (390, 844),
+                                (320, 800),
+                            ]:
+                                page.set_viewport_size(
+                                    {"width": width, "height": height}
+                                )
+                                self.assertLessEqual(
+                                    page.evaluate(
+                                        "document.documentElement.scrollWidth - "
+                                        "document.documentElement.clientWidth"
+                                    ),
+                                    1,
+                                )
+                                if width in (1440, 390) and height != 1024:
+                                    self.capture(page, engine, f"pdf-check-{width}")
+                        button = page.get_by_role(
+                            "button",
+                            name="Approve and run"
+                            if approve
+                            else "Keep current answer",
+                        )
+                        button.press("Enter")
+                        expect(page).to_have_url(reply)
+                        if not approve:
+                            self.assertFalse(
+                                self.db(AnalysisRun.objects.filter(case=case).exists)
+                            )
+                    self.db(finish, case)
+                    page.reload()
+                    page.get_by_role(
+                        "link", name="Open linked reply after extraction"
+                    ).press("Enter")
+                    expect(page.get_by_text(quote, exact=True).first).to_be_visible()
+                    page.get_by_text(
+                        "Model usage for this question and check", exact=True
+                    ).press("Enter")
+                    expect(
+                        page.get_by_text("Local PDF extraction", exact=True)
+                    ).to_be_visible()
+                    expect(page.get_by_text("Total so far", exact=True)).to_be_visible()
 
     @override_settings(PANDECT_DIRECT_AI={"openai_api_key": "synthetic-key"})
     def test_owner_approves_and_revokes_routing_without_javascript(self):

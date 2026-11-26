@@ -493,3 +493,28 @@ class AnalysisArtifact(models.Model):
             raise ValidationError("Choose a supported artifact kind.")
         kwargs["force_insert"] = True
         return super().save(*args, **kwargs)
+
+
+class ExtractionReuse(models.Model):
+    """An independently submitted extraction satisfied by the same local worker run."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    run = models.ForeignKey(
+        AnalysisRun, related_name="reuse_requests", on_delete=models.CASCADE
+    )
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    submission_id = models.UUIDField()
+    batch = models.ForeignKey(CaseAnalysisBatch, null=True, on_delete=models.CASCADE)
+    parameters = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("case", "requested_by", "submission_id"),
+                name="extraction_reuse_submission",
+            )
+        ]
+
+    def __str__(self):
+        return f"Reused extraction {self.run_id}"

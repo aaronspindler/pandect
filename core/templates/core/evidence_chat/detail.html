@@ -27,7 +27,7 @@
 {% if can_edit %}
 <section class="chat-follow-up chat-reading-column" aria-labelledby="follow-up-heading">
   <h2 class="visually-hidden" id="follow-up-heading">Ask a follow-up</h2>
-  {% if pending and not form.is_bound %}<p>You can ask a follow-up when the current reply is ready.</p>{% else %}{% include 'core/evidence_chat/composer.html' %}{% endif %}
+  {% if active_turn and not form.is_bound %}<p>You can ask a follow-up when the current reply is ready.</p>{% else %}{% include 'core/evidence_chat/composer.html' %}{% endif %}
 </section>
 {% endif %}
 </div>

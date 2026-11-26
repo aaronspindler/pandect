@@ -1059,6 +1059,14 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
                 recipient=other,
                 occurred_at=datetime(2024, 5, 4, hour, tzinfo=UTC) if hour else None,
             )
+        distant = PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Other party",
+            sender=self.person,
+            recipient=self.person,
+            occurred_at=datetime(2024, 5, 4, 1, tzinfo=UTC),
+        )
         with patch.object(
             ai, "infer", side_effect=AssertionError("deterministic count")
         ):
@@ -1074,6 +1082,8 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             )
             self.finish(ambiguous)
         self.assertEqual(ambiguous.mode, "clarification")
+        self.assertFalse(turn.sources.filter(evidence_id=distant.pk).exists())
+        self.assertEqual(turn.total, 2)  # The one dated match and one uncertain date.
         self.assertEqual(turn.plan["matched_records"], 1)
         self.assertEqual(turn.gaps, 1)
         self.assertEqual(turn.hits.count(), 1)
@@ -1630,6 +1640,39 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(citation["quote"], quote)
         self.assertIn(str(result.run_id), citation["url"])
         self.assertEqual(turn.sources.get().result_id, result.pk)
+
+        newer = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="comm_patterns",
+            method_version="2",
+            inputs=result.run.inputs,
+            status="complete",
+        )
+        published = AnalysisResult.objects.create(
+            case=self.case, run=newer, data=result.data
+        )
+        _, unrelated = self.saved_timing_report()
+        counts = AnalysisRun.objects.filter(case=self.case).count()
+        followup = self.ask(
+            "Has anything else turned up since answer 1?", chat_id=turn.chat_id
+        )
+
+        def revised_timing(active, authorize, prompt, schema):
+            authorize()
+            rows = json.loads(prompt.split("\n", 1)[1])["records"]
+            reports = [row for row in rows if row["type"] == "report/comm_patterns"]
+            self.assertEqual(len(reports), 1)
+            return self.answer_with_quote(reports, quote)
+
+        with patch.object(ai, "infer", side_effect=revised_timing) as model:
+            self.finish(followup)
+        self.assertEqual(model.call_count, 1)
+        refs = services.inspect_turn(followup)["claims"][0]["citations"]
+        self.assertIn(str(published.run_id), refs[0]["url"])
+        self.assertNotIn(str(unrelated.run_id), refs[0]["url"])
+        self.assertEqual(turn.sources.get().result_id, result.pk)
+        self.assertEqual(AnalysisRun.objects.filter(case=self.case).count(), counts)
         TextMessageEvidence.objects.filter(pk=messages[0].pk).update(
             is_archived=True,
             archive_changed_at=timezone.now(),

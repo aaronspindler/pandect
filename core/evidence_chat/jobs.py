@@ -21,6 +21,7 @@ from core.case_search.parents import current_parent_ids
 from core.models import ChatMatch, ChatSource, ChatTurn
 
 from . import activity, ai, corpus, decisions, decisions_approval, engine, engine_counts
+from .search_budget import reserve_lookup, timed_query
 from .search_scope import question_filters, review_population
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,10 @@ def _authorize(turn, windows=(), *, lock=False, metadata=False, review=False):
     if code := review_restart_code(turn):
         raise AnalysisError(code)
     ai.check_execution(turn, case)
+    if turn.plan.get("approved_proposal"):
+        from .proposals import check_continuation
+
+        check_continuation(turn)
     if metadata:
         return case
     if digest := turn.plan.get("history_digest"):
@@ -399,6 +404,7 @@ def _rank(
     *,
     surfaces=None,
     route_sources=False,
+    after=None,
 ):
     from core.case_search.rerank import rerank_order
 
@@ -415,6 +421,7 @@ def _rank(
     shortlist_limit = decisions.MAX_CANDIDATES if route_sources else limit
     semantic_hints = set() if turn.plan.get("refinement") else None
     with engine.timed(turn, "retrieval"):
+        stats = {}
         found = corpus.rank(
             turn.case,
             query,
@@ -422,15 +429,22 @@ def _rank(
             include_archived=turn.include_archived,
             limit=24 if rerank else shortlist_limit,
             through=turn.started_at,
+            after=after,
             hints=hints,
             filters=filters,
             semantic_hints=semantic_hints,
             stamp_body=True,
+            stats=stats,
             surfaces_to_search=surfaces,
             related=lambda _: related_for_turn(
                 turn, semantic_query, lambda: _authorize(turn, prior), filters=filters
             ),
         )
+        turn.plan["candidate_reads"] = turn.plan.get("candidate_reads", 0) + stats.get(
+            "candidates", 0
+        )
+        if stats.get("limited"):
+            turn.plan["candidate_limit_reached"] = True
         windows = []
         for locator, start in found:
             row = corpus.read_window(
@@ -480,7 +494,9 @@ def _row(turn, locator, status):
         record_key=locator["record_key"],
         locator=locator,
         evidence_kind=locator["kind"],
-        evidence_id=locator.get("evidence_id"),
+        evidence_id=locator["pk"]
+        if locator["surface"] == "trip"
+        else locator.get("evidence_id"),
         result_id=locator.get("result_id"),
         status=status,
         gap=locator.get("gap", ""),
@@ -494,6 +510,9 @@ def _store_context(turn, windows):
 
 
 def _complete(turn, result):
+    from .proposals import record_proposal, resume_idle_chat
+
+    record_proposal(turn)
     turn.plan.pop("context_bodies", None)
     activity.keep_ledger_sample(turn)
     turn.answer = result
@@ -512,12 +531,18 @@ def _complete(turn, result):
             "activity",
         )
     )
+    resume_idle_chat(turn.case_id, turn.chat_id)
 
 
 def _publish_answer(turn, result, windows):
     activity.record(turn, "publish")
     with transaction.atomic():
         case = _authorize(turn, windows, lock=True)
+        if "recorded_selection" in turn.plan:
+            from . import recorded
+
+            if not recorded.available(turn, lock=True):
+                raise AnalysisError("source_changed")
         _store_context(turn, windows)
         known = {w.locator["key"]: w.locator for w in windows}
         for claim in result["claims"]:
@@ -577,6 +602,9 @@ def _freeze(
                 turn.include_archived,
                 through=turn.started_at,
                 original_kinds=filters.get("kinds"),
+                count_filters=filters
+                if engine_counts.is_filtered_count(question, filters)
+                else None,
                 review=True,
                 filters=explicit_scope,
             )
@@ -614,17 +642,79 @@ def _freeze(
 
 
 def _decide(turn):
+    from . import recorded
+    from .corpus_search import RECORD_LOOKUP
+
     activity.record(turn, "question")
+    if RECORD_LOOKUP.fullmatch(turn.question.strip()):
+        # A named record can be opened and cited directly, even on a follow-up.
+        reserve_lookup(turn)
+        activity.record(turn, "search")
+        windows = _rank(turn, turn.question, turn.question, [], [], {})
+        answer = engine.empty_answer() if windows else engine.no_sources_answer()
+        for window in windows:
+            excerpt = window.text.lstrip()[:240].rstrip()
+            if excerpt:
+                start = window.start + window.text.index(excerpt)
+                answer["claims"].append(
+                    {
+                        "text": window.locator["label"],
+                        "citations": [
+                            {
+                                "key": window.locator["key"],
+                                "start": start,
+                                "end": start + len(excerpt),
+                                "quote": excerpt,
+                            }
+                        ],
+                    }
+                )
+        _finish_answer(turn, answer, windows)
+        return
     filters, clarification = engine_counts.structured_question(turn, turn.question)
     if clarification:
         _publish_answer(turn, engine.empty_answer(clarification=clarification), [])
         return
     if filters:
+        if filters["kinds"] == ["text-message"] and engine_counts.is_filtered_count(
+            turn.question, filters
+        ):
+            activity.record(turn, "query_records")
+            answer, windows = recorded.execute(
+                turn, recorded.count_selection(turn, filters)
+            )
+            activity.record(turn, "query_records", windows)
+            _finish_answer(turn, answer, windows)
+            return
         _freeze(turn, turn.question, filters)
         return
     if literal := engine_counts.literal_question(turn):
         _freeze(turn, turn.question, {}, literal=literal)
         return
+    if selection := recorded.direct(turn):
+        if selection[0] and (previous := selection[0].get("updates_from")):
+            _search_updates(turn, previous)
+            return
+        activity.record(turn, "query_records")
+        if queried := recorded.execute(turn, *selection):
+            answer, windows = queried
+            activity.record(turn, "query_records", windows)
+            if (
+                not windows
+                and not answer["clarification"]
+                and re.search(r"\bsay\b", turn.question, re.I)
+                and turn.plan.get("recorded_selection", {})
+                .get("membership", {})
+                .get("count")
+                == 0
+            ):
+                # Reported speech can live in a transcript or finding even when
+                # no retained message body has the wording.
+                turn.plan.pop("recorded_selection")
+                turn.plan["checked_message_wording"] = True
+            else:
+                _finish_answer(turn, answer, windows)
+                return
     hints = []
     history = _history(turn, hints=hints)
     search = turn.question
@@ -638,9 +728,89 @@ def _decide(turn):
     _answer_search(turn, search, turn.question, history, hints, ())
 
 
+def _search_updates(turn, previous):
+    """Search from the earlier retrieval cutoff, even when older rows rank higher."""
+    from .history import updated_materials
+    from .search_scope import DATE, TYPE
+
+    base_id = previous.plan.get("update_topic", str(previous.pk))
+    base = ChatTurn.objects.filter(
+        case=turn.case,
+        chat_id=turn.chat_id,
+        chat__case=turn.case,
+        pk=base_id,
+        ordinal__lte=previous.ordinal,
+        status="complete",
+        mode="ordinary",
+    ).first()
+    denied = engine.empty_answer(
+        clarification=(
+            "Which topic and time or evidence scope should I check? "
+            "The earlier answer is unavailable for this comparison."
+        )
+    )
+    if not base or not previous.started_at or previous.mode != "ordinary":
+        _finish_answer(turn, denied, [])
+        return
+    turn.plan["history_turns"] = list(dict.fromkeys([str(base.pk), str(previous.pk)]))
+    history = _history(turn, hints=[])
+    if len(history) != len(turn.plan["history_turns"]):
+        _finish_answer(turn, denied, [])
+        return
+    turn.plan["update_topic"] = str(base.pk)
+    turn.plan["history_digest"] = sha256(encode_json(history)).hexdigest()
+    reserve_lookup(turn)
+    activity.record(turn, "search_updates")
+    topic = TYPE.sub("", DATE.sub("", base.question)).strip()
+    filters = question_filters(base)
+    query = topic + " " + history[0]["reply_context"][:240]
+    # Searches against all-time semantic neighbors can lose every new result
+    # before their cutoff is applied. Rank only the scoped local indexes here.
+    windows = _rank(
+        turn,
+        query,
+        query,
+        [],
+        [],
+        filters,
+        surfaces=("original", "attachment", "passage", "finding"),
+        after=previous.started_at,
+    )
+    saved = updated_materials(turn, base, previous.started_at, filters)
+    windows = [
+        *(engine.Window(item.locator, 0, item.text[:WINDOW]) for item in saved),
+        *windows,
+    ][:ANSWER_WINDOWS]
+    summary = (
+        "Searched newly added or restored evidence and newly available analysis "
+        f"since the search for answer {previous.ordinal}, using its topic and scope."
+    )
+    if windows:
+        answer, used = engine.representative_answer(
+            turn,
+            lambda fragments, **kw: _authorize(turn, fragments, **kw),
+            "What do these newly available records add to the earlier question? "
+            "A newly published analysis may describe observations already known. "
+            + topic,
+            windows,
+            history=history,
+        )
+        if not answer["clarification"]:
+            answer["summary"] = (summary + " " + answer["summary"]).rstrip()
+    else:
+        answer, used = (
+            engine.empty_answer(
+                summary + " The bounded search found no relevant new excerpts."
+            ),
+            [],
+        )
+    _finish_answer(turn, answer, used)
+
+
 def _lookup_windows(turn, query, semantic_query, hints, prior, scope):
     from .corpus_navigation import linked_materials
     from .reports import timing_materials
+    from .trips import trip_materials
 
     target = turn.plan.get("refinement", {})
     lookup = target.get("lookup", "refine")
@@ -662,10 +832,14 @@ def _lookup_windows(turn, query, semantic_query, hints, prior, scope):
         )
         if anchor is None:
             raise AnalysisError("source_changed")
-    with engine.timed(turn, "retrieval"):
+    with engine.timed(turn, "retrieval"), timed_query():
         if lookup == "follow_source" and anchor:
             materials = linked_materials(
                 turn.case, anchor, query, through=turn.started_at, filters=scope
+            )
+        elif lookup == "read_trip":
+            materials = trip_materials(
+                turn.case, query, through=turn.started_at, source=anchor, filters=scope
             )
         elif lookup == "read_timing":
             # A whole saved metric cannot be narrowed to a new date/type filter.
@@ -691,6 +865,7 @@ def _answer_search(
     turn, query, semantic_query, history, hints, prior, *, refined=False
 ):
     try:
+        reserve_lookup(turn)
         _run_lookup(turn, query, semantic_query, history, hints, prior, refined)
     except AnalysisError as error:
         if error.code != "chat_budget_exhausted" or turn.mode == "full":
@@ -773,6 +948,10 @@ def _run_lookup(turn, query, semantic_query, history, hints, prior, refined):
         # Citations in this provisional answer were validated on the last model
         # call. _publish_answer rechecks those originals under the case lock.
         action, result, used = "answer", target["answer"], []
+        if target.get("lookup") == "read_trip" and not result["claims"]:
+            result = engine.empty_answer(
+                "No saved possible trip could be verified for this selection."
+            )
         if target.get("lookup") == "read_timing" and not result["claims"]:
             result = engine.empty_answer(
                 "The lookup could not verify a saved timing value for this selection."
@@ -800,6 +979,19 @@ def _run_lookup(turn, query, semantic_query, history, hints, prior, refined):
         ]:
             action, result = "answer", result["answer"]
     context = with_prior(used)
+    if action == "query_records":
+        from . import recorded
+
+        activity.record(turn, "query_records")
+        answer, windows = recorded.execute(turn, *result)
+        activity.record(turn, "query_records", windows)
+        _finish_answer(turn, answer, [*context, *windows])
+        return
+    if action == "propose_extraction":
+        from .proposals import evaluate
+
+        result, context = evaluate(turn, result, context, remaining=remaining)
+        action = "answer"
     if action == "refine":
         # Checkpoint the exact context that informed the model's query. A retry
         # must continue this search and recheck its sources before any transfer.
@@ -828,6 +1020,16 @@ def _run_lookup(turn, query, semantic_query, history, hints, prior, refined):
 
 
 def _finish_answer(turn, result, context):
+    if turn.plan.get("candidate_limit_reached"):
+        result["summary"] = " ".join(
+            filter(
+                None,
+                (
+                    result.get("summary"),
+                    "The search reached its candidate limit. Other matches may exist.",
+                ),
+            )
+        )
     _clear_lookup(turn)
     turn.plan["stage"] = "complete"
     _publish_answer(turn, result, context)
@@ -851,12 +1053,12 @@ def _advances(target, windows, prior):
     previous = sorted(prior, key=lambda w: w.start)
     for window in windows:
         origins = corpus.original_keys(window.locator)
-        if target.get("lookup") in ("follow_source", "read_timing"):
+        if target.get("lookup") in ("follow_source", "read_timing", "read_trip"):
             if (
                 window in prior
                 or target["independent_source"]
                 and (
-                    window.locator["surface"] in ("finding", "report")
+                    window.locator["surface"] in ("finding", "report", "trip")
                     or known_origins & origins
                 )
             ):
@@ -1232,14 +1434,14 @@ def _finish_review(turn, accounted):
     _complete(turn, draft)
 
 
-def process_turn(turn_id, token):
-    turn = _claim(turn_id, token)
-    if turn is None:
-        return
-    active_token = turn.delivery_token
+def _run_stage(turn):
     try:
         _authorize(turn, review=turn.plan.get("stage") == "review")
-        if turn.plan.get("stage") == "verify":
+        if turn.plan.get("stage") == "approved_extraction":
+            from .proposals import finish_continuation
+
+            finish_continuation(turn)
+        elif turn.plan.get("stage") == "verify":
             _verify_batch(turn)
         elif turn.plan.get("stage") == "review":
             _review_batch(turn)
@@ -1247,6 +1449,29 @@ def process_turn(turn_id, token):
             _refine(turn)
         else:
             _decide(turn)
+    except AnalysisError as error:
+        if error.code != "chat_budget_exhausted" or turn.mode == "full":
+            raise
+        # A direct query or linked extraction can hit its limit before producing
+        # any verified claims. Discard unverified selection and proposal state.
+        turn.plan.pop("recorded_selection", None)
+        turn.plan.pop("proposed_extraction", None)
+        _finish_answer(
+            turn,
+            engine.empty_answer(
+                "Processing limit reached before this question could be verified."
+            ),
+            [],
+        )
+
+
+def process_turn(turn_id, token):
+    turn = _claim(turn_id, token)
+    if turn is None:
+        return
+    active_token = turn.delivery_token
+    try:
+        _run_stage(turn)
     except Http404, PermissionDenied:
         _fail(turn, active_token, "access_removed")
     except AnalysisError as error:
@@ -1262,8 +1487,14 @@ def process_turn(turn_id, token):
         )
 
 
+@transaction.atomic
 def _fail(turn, active_token, code):
-    ChatTurn.objects.filter(
+    from cases.models import Case
+
+    from .proposals import resume_idle_chat
+
+    Case.objects.select_for_update().filter(pk=turn.case_id).first()
+    updated = ChatTurn.objects.filter(
         pk=turn.pk, delivery_token=active_token, status="running"
     ).update(
         status="failed",
@@ -1273,3 +1504,5 @@ def _fail(turn, active_token, code):
             key: value for key, value in turn.activity.items() if key != "sources"
         },
     )
+    if updated:
+        resume_idle_chat(turn.case_id, turn.chat_id)

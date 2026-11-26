@@ -213,6 +213,16 @@ def inspect_turn(turn, *, read=None):
         return None
     if not recalled_sources_available(turn, read or corpus.read_window):
         return None
+    if "recorded_selection" in turn.plan:
+        from . import recorded
+
+        try:
+            if not recorded.available(turn):
+                return None
+        except AnalysisError as exc:
+            if exc.code != "chat_budget_exhausted":
+                raise
+            return None
     if turn.mode == "full":
         # Aggregates depend on misses as well as matches. Check membership in
         # PostgreSQL so reading a total need not fetch every frozen passage.
@@ -237,6 +247,14 @@ def inspect_turn(turn, *, read=None):
         )
         manifest = turn.sources.exclude(status="context")
         if manifest.exclude(available & ~Exists(archived_dependencies)).exists():
+            return None
+    if run_id := turn.plan.get("saved_extraction"):
+        if not AnalysisResult.objects.filter(
+            case=turn.case,
+            run_id=run_id,
+            run__case=turn.case,
+            run__operation="native_text",
+        ).exists():
             return None
     answer = turn.answer
     resolved = []

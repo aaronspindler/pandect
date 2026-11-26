@@ -100,8 +100,11 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   bounded live milestones to saved turns. `core.0032_chat_turn_model_usage`
   records cumulative model reservations on each ordinary turn.
   `core.0033_chat_routing_approval` stores the case owner's separate approval
-  for OpenAI source selection. Apply both before starting the matching web and
-  worker versions. The `phone` and `geo` chronology
+  for OpenAI source selection. `core.0034_approved_chat_extraction` links the
+  proposed PDF extraction, its approval, the analysis run and the follow-up
+  answer. It also records submission IDs for reused analyses. Apply these
+  migrations before starting the matching web and worker versions.
+  The `phone` and `geo` chronology
   migrations add partial indexes for active communications and location evidence
   by case and event time. Each new index builds concurrently in a separate
   migration. If a build is interrupted, check the named index for invalid state

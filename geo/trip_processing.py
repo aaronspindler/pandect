@@ -266,17 +266,21 @@ def _queue_geocoding(actor, generation, *, retry=False, worker_stopped=False):
     prepare_trip_addresses.enqueue(str(generation.pk), str(generation.token))
 
 
-def _current_generation_states(case):
+def _published_generation_states(case):
     return VehicleTripGeneration.objects.filter(
         _consistent_predecessor(),
         case=case,
         vehicle__case=case,
         state__case=case,
         state__vehicle_id=F("vehicle_id"),
-        state__current_generation_id=F("pk"),
-        state__revision=F("revision"),
         status="complete",
         method_version__in=READABLE_METHODS,
+    )
+
+
+def _current_generation_states(case):
+    return _published_generation_states(case).filter(
+        state__current_generation_id=F("pk"), state__revision=F("revision")
     )
 
 

@@ -171,3 +171,35 @@ class ChatMatch(models.Model):
 
     def __str__(self):
         return f"Chat match {self.pk}"
+
+
+class ChatAnalysisProposal(models.Model):
+    """One investigator-reviewed PDF extraction and its linked answer."""
+
+    class Status(models.TextChoices):
+        OFFERED = "offered", "Awaiting approval"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
+        STOPPED = "stopped", "Needs attention"
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    parent = models.OneToOneField(
+        ChatTurn, related_name="analysis_proposal", on_delete=models.CASCADE
+    )
+    document = models.ForeignKey("document.DocumentEvidence", on_delete=models.CASCADE)
+    sha256 = models.CharField(max_length=64)
+    method_version = models.CharField(max_length=64)
+    purpose = models.CharField(max_length=300)
+    context = models.JSONField(default=list)
+    status = models.CharField(max_length=12, choices=Status, default=Status.OFFERED)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT
+    )
+    run = models.ForeignKey("core.AnalysisRun", null=True, on_delete=models.CASCADE)
+    continuation = models.OneToOneField(
+        ChatTurn, related_name="approved_check", null=True, on_delete=models.CASCADE
+    )
+    error_code = models.CharField(max_length=64, blank=True)
+
+    def __str__(self):
+        return f"Proposed extraction for chat reply {self.parent_id}"

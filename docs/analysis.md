@@ -218,6 +218,12 @@ dates or uncertainty, chat favors passages that put the date or qualifier near
 the action it describes. For example, the date a photo was taken can differ
 from the date it was sent.
 
+Opening a record by its UUID returns a verified citation directly. Ordinary
+searches can inspect up to 64 candidate records per ranked lookup. If a limit
+affects the result, the reply reports the coverage gap. A uniquely matching
+exact quotation can supply its own citation offset. Repeated quotations require
+the model to identify the occurrence it used.
+
 With [OpenAI source selection](cases.md#evidence-chat-source-selection) approved,
 an ordinary comparison, disagreement or chronology question can use one additional
 lookup. Chat shortlists up to eight candidates from its case search, including
@@ -237,6 +243,19 @@ If a search adds nothing relevant, chat can return the already cited answer
 with its remaining uncertainty. It can report both accounts of a disputed
 event while leaving independent verification open.
 
+When a question depends on the contents of a particular retained PDF, chat can
+read a matching saved extraction. If text is missing, the reply can offer **Review
+proposed check**. An owner or editor reviews the document, method, purpose and
+answer destination before choosing **Approve and run** or **Keep current answer**.
+Extraction and any OCR run locally. If the case uses external AI for the answer,
+the review identifies where the question and selected passages will go.
+
+Approval attaches to a matching run or starts one extraction of that PDF. Chat
+adds a linked reply to the original question when the result is ready, including
+after the browser is closed or another investigator has asked a question. Open
+the linked reply to inspect its page citations. Partial and empty extractions
+show the coverage available.
+
 Chat can also read a saved message-timing report, even when it produced no
 catalogue findings. It checks up to three recent eligible selections, each
 containing at most 64 direct messages. The cited value applies to the messages
@@ -244,6 +263,36 @@ selected in that report. The citation opens its **Processing summary**.
 A follow-up lookup can open up to four of those messages for context.
 A question with explicit type or date filters skips this whole-selection
 lookup. Reading a saved report does not start a new analysis.
+
+For a question about recorded message fields, chat can query exact wording,
+sender, recipient and event-date bounds in PostgreSQL. It can count matching
+messages, group by sender or destination before selecting examples, and compare
+the first or last recorded occurrence, including ties. It shows up to twelve
+results and distinguishes missing times from imports that give only a calendar
+date. Only precisely timed messages enter chronological comparisons. Each example links to its retained
+message. A group export establishes a group destination. It does not establish
+delivery to a particular member.
+
+A follow-up such as “Which of those happened first?” compares the earlier
+selection at its original cutoff. For an ordinary answer with citations, chat
+can compare occurrence and observation times on the cited sources, including
+the first or last observation of a saved possible trip. Asking what has turned
+up since a recorded-field query checks matching additions. If archival or
+restoration changed the earlier membership, chat refreshes the active selection.
+For an ordinary answer, “Has anything else turned up since answer 3?” searches
+new and restored evidence, newly published passages and findings, and retained
+analysis whose cited originals were restored. If the earlier reply cited a
+timing report or possible trip, chat checks later publications for overlapping
+message selections or the same vehicles. Chat applies the earlier topic
+and date or evidence-type filters before selecting excerpts. Older originals
+can still supply the provenance for a new result. An empty update reports the
+limits of that search and leaves the earlier reply intact.
+
+A saved exact total becomes unavailable if its underlying membership changes.
+Chat retains up to 256 matching identities or, for a larger active set, up to
+256 archived exclusions. If both sets exceed that limit, it asks for a narrower
+query. Permanent deletion includes dependent aggregate replies even when the
+deleted message was a repeated match outside the cited examples.
 
 A follow-up can refer to an older topic or a numbered reply such as “answer
 3.” Chat searches completed turns in the same conversation, carries at most
@@ -271,7 +320,11 @@ question about the request. Explicit type and date filters constrain the review.
 messages. This scope carries through a clarification. If an older review
 could have included other record types, ask the question again. Earlier reviews
 whose recorded type filter already restricted them to text messages remain available.
-Supported structured counts and recognized requests for every record containing
+A filtered count of messages can run directly from recorded fields. A count
+between two people includes both directions. Dated totals exclude and report
+unplaced times. Other filtered counts freeze dated matches and records with
+unknown dates in the review inventory. Requests for an explicit record list,
+unfiltered structured counts and recognized requests for every record containing
 literal wording start a full review directly.
 Processing and the reply show progress against a frozen set of source entries.
 One record may contribute several entries, such as a document and its OCR passages.

@@ -33,6 +33,7 @@ from .corpus import (
 )
 from .corpus_navigation import nearby_sources
 from .passage_windows import WINDOW, lexical_spans, promote_relations, window_offsets
+from .search_budget import MAX_CANDIDATES, timed_query
 from .search_scope import scope_rows
 from .spelling import alternatives, original_span
 
@@ -158,7 +159,8 @@ LEXICAL_LIMIT = 10
 RRF_K = 15
 
 
-def _lexical(case, terms, include_archived, through, filters, selected):
+@timed_query()
+def _lexical(case, terms, include_archived, through, filters, selected, after=None):
     groups = []
     for surface, kind in selected:
         field = body_field(surface, kind)
@@ -166,7 +168,7 @@ def _lexical(case, terms, include_archived, through, filters, selected):
         keywords = [t for t in terms if t.removesuffix("s") not in kind_words]
         matches = matching_rows(
             scope_rows(
-                rows(case, surface, kind, include_archived, through),
+                rows(case, surface, kind, include_archived, through, after=after),
                 case,
                 surface,
                 kind,
@@ -241,12 +243,14 @@ def ranked_windows(
     limit,
     through,
     *,
+    after=None,
     related=None,
     hints=(),
     stamp_body=False,
     filters=None,
     semantic_hints=None,
     surfaces_to_search=None,
+    stats=None,
 ):
     limit = min(limit, CANDIDATE_LIMIT)
     if limit <= 0:
@@ -254,9 +258,11 @@ def ranked_windows(
     terms = terms_for(question)
     # Typed lookups read only the requested families. Hybrid search can also
     # use the semantic index, spelling leads and implicit source links.
-    hybrid = surfaces_to_search is None
+    hybrid = surfaces_to_search is None and after is None
     selected = tuple(
-        pair for pair in surfaces() if hybrid or pair[0] in surfaces_to_search
+        pair
+        for pair in surfaces()
+        if surfaces_to_search is None or pair[0] in surfaces_to_search
     )
     if not selected:
         return []
@@ -266,7 +272,7 @@ def ranked_windows(
         found = []
         for surface, kind in selected:
             qs = scope_rows(
-                rows(case, surface, kind, include_archived, through),
+                rows(case, surface, kind, include_archived, through, after=after),
                 case,
                 surface,
                 kind,
@@ -276,6 +282,8 @@ def ranked_windows(
                 qs.filter(pk=direct_id[1]), body_field(surface, kind), review=stamp_body
             ).first()
             if item is not None:
+                if stats is not None:
+                    stats["candidates"] = stats.get("candidates", 0) + 1
                 hit = material(
                     case, surface, kind, item, include_archived, through=through
                 )
@@ -295,8 +303,15 @@ def ranked_windows(
     # only the requested substrings, lengths and hashes of long text bodies.
     candidate_rows = {}
     candidate_starts = defaultdict(dict)
+    admitted = set()
     for (surface, kind, pk), hit in meaning:
-        if surface == "original" and kind in ("text", "text-message"):
+        key = (surface, kind, pk)
+        if (
+            surface == "original"
+            and kind in ("text", "text-message")
+            and len(admitted) < CHAT_SOURCE_LIMIT
+        ):
+            admitted.add(key)
             candidate_starts[kind].setdefault(pk, hit["start"])
     for kind, positions in candidate_starts.items():
         queryset = scope_rows(
@@ -320,11 +335,16 @@ def ranked_windows(
         surface, kind, pk = key
         if (surface, kind) not in allowed:
             return None
+        if key not in admitted and len(admitted) >= MAX_CANDIDATES:
+            if stats is not None:
+                stats["limited"] = True
+            return None
+        admitted.add(key)
         if key in candidate_rows:
             item = candidate_rows[key]
         else:
             qs = scope_rows(
-                rows(case, surface, kind, include_archived, through),
+                rows(case, surface, kind, include_archived, through, after=after),
                 case,
                 surface,
                 kind,
@@ -346,7 +366,7 @@ def ranked_windows(
     scores = defaultdict(float)
     spans = defaultdict(list)
     for _, key, positions in _lexical(
-        case, terms, include_archived, through, filters, selected
+        case, terms, include_archived, through, filters, selected, after
     ):
         if not (source := load(key)):
             continue
@@ -526,4 +546,6 @@ def ranked_windows(
             semantic_hints.add((loc["key"], start))
         if len(selected) == limit:
             break
+    if stats is not None:
+        stats["candidates"] = len(admitted)
     return selected

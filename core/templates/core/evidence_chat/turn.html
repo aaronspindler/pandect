@@ -8,6 +8,7 @@
   <div class="chat-reply">
     <p class="chat-meta"><strong>Evidence reply</strong></p>
     <div class="chat-reply-body">
+        {% if row.origin_reply %}<p><a href="{{ row.origin_reply }}">Original reply and approved check</a></p>{% endif %}
       {% if row.activity %}{% include 'core/evidence_chat/activity.html' %}{% endif %}
       {% if row.error %}
         <p><strong>Needs attention</strong> · {{ row.error }}</p>
@@ -51,6 +52,15 @@
           {% endif %}
           {% endif %}
           {% if row.answer.lead %}<h3>Suggested next check</h3><p class="chat-answer">{{ row.answer.lead }}</p>{% endif %}
+        {% endif %}
+        {% if row.turn.plan.saved_extraction %}<p><a href="{% url 'core:analysis:detail' case.pk row.turn.plan.saved_extraction %}">Open saved extraction</a></p>{% endif %}
+        {% if row.proposal %}
+          {% if row.proposal.status == 'offered' and can_edit %}
+            <p><a class="button button-secondary" href="{% url 'core:chat:proposal' case.pk thread.pk row.turn.pk %}">Review proposed check</a></p>
+          {% elif row.linked_reply %}<p><a href="{{ row.linked_reply }}">Open linked reply after extraction</a></p>
+          {% elif row.proposal.status == 'approved' %}<p>Waiting for the approved extraction and linked reply.</p>
+          {% elif row.proposal.status == 'stopped' %}<p>The approved extraction stopped ({{ row.proposal.run.get_status_display }}).</p>{% endif %}
+          {% if row.proposal.run_id %}<p><a href="{% url 'core:analysis:detail' case.pk row.proposal.run_id %}">Open extraction</a></p>{% endif %}
         {% endif %}
         {% if row.turn.mode == 'full' %}
         <p class="chat-meta">{% if row.turn.started_at %}Review started <time datetime="{{ row.turn.started_at|date:'c' }}">{{ row.turn.started_at|date:'j M Y, H:i T' }}</time>. {% endif %}Reviewed {{ row.turn.reviewed }} of {{ row.turn.total }} source entries.</p>

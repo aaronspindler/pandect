@@ -52,6 +52,7 @@ from geo.analysis.deterministic.locations import coordinate
 from geo.analysis.external.geocoding import GeocodingError
 from phone.models import CallEvidenceAttachment
 
+INHERIT_BATCH = object()
 FINISHED = set(AnalysisRun.Status.values) - {"queued", "running"}
 MAX_RESULT_BYTES = 4 * 1024 * 1024
 
@@ -728,18 +729,18 @@ def start_run(
     parameters=None,
     submission_id=None,
     previous_run=None,
-    batch=None,
+    batch=INHERIT_BATCH,
     approved_execution=None,
     external_grant_revision=None,
     require_configured_inference=False,
     require_retained_inputs=False,
+    reuse_published_extraction=False,
 ):
     case = get_case(actor, case_id, edit=True, lock=True)
-    if previous_run:
-        if previous_run.case_id != case.pk:
-            raise Http404("Processing not found.")
-        if batch is None:
-            batch = previous_run.batch
+    if previous_run and previous_run.case_id != case.pk:
+        raise Http404("Processing not found.")
+    if batch is INHERIT_BATCH:
+        batch = previous_run.batch if previous_run else None
     if batch and (
         batch.case_id != case.pk
         or (
@@ -865,6 +866,10 @@ def start_run(
         batch=batch,
     )
     resolved = _processing_inputs(run, case, material_checked=True)
+    from .extraction_reuse import reuse_run
+
+    if reused := reuse_run(run, resolved, published=reuse_published_extraction):
+        return reused, False
     if operation == "claim_comparison":
         validate_selection(resolved, run.parameters)
     elif operation == "question_synthesis":
@@ -1198,6 +1203,12 @@ def process_run(run_id):
                 from phone.analysis.ingest import start_import_analysis
 
                 start_import_analysis(run, data)
+            if run.operation == "native_text":
+                from core.analysis.extraction_reuse import follow_reused_extractions
+                from core.evidence_chat.proposals import run_finished
+
+                follow_reused_extractions(run, result)
+                run_finished(current)
             publication_finished = True
             return str(result.pk)
     except (PermissionDenied, Http404) as error:
@@ -1221,12 +1232,17 @@ def process_run(run_id):
         for storage, name in stored_files:
             delete_original(storage, name)
     with transaction.atomic():
-        if transcript_group(run):
+        if transcript_group(run) or run.operation == "native_text":
             Case.objects.select_for_update().filter(pk=run.case_id).first()
         if AnalysisRun.objects.filter(pk=run_id, status="running").update(
             status="failed", error_code=code, finished_at=timezone.now()
         ):
             follow_up_transcription(run)
+            if run.operation == "native_text":
+                from core.evidence_chat.proposals import run_finished
+
+                run.refresh_from_db(fields=["status", "error_code"])
+                run_finished(run)
     return code
 
 
@@ -1241,6 +1257,10 @@ def cancel_run(actor, case_id, run_id):
         run.finished_at = timezone.now()
         run.save(update_fields=["status", "finished_at"])
         follow_up_transcription(run)
+        if run.operation == "native_text":
+            from core.evidence_chat.proposals import run_finished
+
+            run_finished(run)
     return run
 
 

@@ -1,0 +1,29 @@
+{% extends 'core/evidence_chat/base.html' %}
+{% block title %}Review proposed check · {{ case.name }}{% endblock %}
+{% block chat_content %}
+<div class="chat-reading-column">
+  <a class="back-link" href="{{ reply_url }}">Back to reply</a>
+  <header class="page-header"><h1>Review proposed check</h1></header>
+  {% if unavailable %}
+    <p role="alert">{{ unavailable }} Ask a new question to review the current sources and settings.</p>
+    <a class="button button-secondary" href="{{ reply_url }}">Back to reply</a>
+  {% else %}
+    <h2>Extract document text</h2>
+    <p>{{ proposal.purpose }}</p>
+    <p>Use <a href="{% url 'core:evidence:detail' case.pk 'document' proposal.document_id %}">{{ proposal.document.title }}</a> to answer “{{ turn.question }}”.</p>
+    <p>Pandect reads the PDF locally and uses local OCR for pages that need it. It reuses a matching extraction when available.</p>
+    <details><summary>Source and method</summary>
+      <dl><dt>File</dt><dd>{{ proposal.document.original_filename }}</dd>
+      <dt>SHA-256</dt><dd>{{ proposal.sha256 }}</dd>
+      <dt>Method version</dt><dd>{{ proposal.method_version }}</dd></dl>
+    </details>
+    {% if external_destination %}<p>Selected passages from this local extraction and the original question will be sent to {{ external_destination }} using {{ turn.execution.model }} for the linked answer.</p>
+    {% else %}<p>The selected local answer model uses relevant passages to add a linked reply.</p>{% endif %}
+    <form method="post" class="actions">
+      {% csrf_token %}<input type="hidden" name="confirmation" value="{{ confirmation }}">
+      <button class="button button-primary" name="action" value="approve" type="submit">Approve and run</button>
+      <button class="button button-secondary" name="action" value="decline" type="submit">Keep current answer</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}
