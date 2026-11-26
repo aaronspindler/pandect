@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from django.conf import settings
 
+from core.analysis import chat_usage
 from core.analysis.errors import AnalysisError
 from core.analysis.http import NoRedirect
 from core.analysis.inference_payloads import decode_json, encode_json
@@ -73,7 +74,10 @@ def validate_local_configuration(config):
 class LocalClient:
     """Use the run's retained execution identity, with no external fallback."""
 
-    def __init__(self, authorize, execution, *, authorize_metadata=None):
+    def __init__(
+        self, authorize, execution, *, authorize_metadata=None, chat_turn=None
+    ):
+        self.chat_turn = chat_turn
         self.authorize = authorize
         self.authorize_metadata = authorize_metadata or authorize
         self.execution = execution
@@ -91,7 +95,13 @@ class LocalClient:
         validate_local_configuration(self.execution)
 
     def _request(
-        self, path, payload=None, *, content_type="application/json", metadata=False
+        self,
+        path,
+        payload=None,
+        *,
+        content_type="application/json",
+        metadata=False,
+        input_bound=None,
     ):
         config = self.execution
         try:
@@ -113,16 +123,40 @@ class LocalClient:
         token = settings.PANDECT_LOCAL_AI.get("token", "")
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        authorize = (
+            self.authorize_metadata if metadata or body is None else self.authorize
+        )
+        authorize()
+        reservation = None
+        if self.chat_turn is not None and body is not None and not metadata:
+            if path == "/api/chat" and payload.get("_debug_render_only"):
+                reservation = chat_usage.reserve(
+                    self.chat_turn, "render", len(body), input_bound=0
+                )
+            elif path == "/api/chat":
+                reservation = chat_usage.reserve(
+                    self.chat_turn,
+                    "answer",
+                    len(body),
+                    output_limit=payload["options"]["num_predict"],
+                    input_bound=input_bound,
+                )
+                if reservation:
+                    body = encode_json(
+                        payload
+                        | {
+                            "options": payload["options"]
+                            | {"num_predict": reservation.output_limit}
+                        }
+                    )
+            elif path == "/api/embed":
+                reservation = chat_usage.reserve(self.chat_turn, "embedding", len(body))
         request = Request(
             config["url"].rstrip("/") + path,
             data=body,
             headers=headers,
             method="GET" if body is None else "POST",
         )
-        authorize = (
-            self.authorize_metadata if metadata or body is None else self.authorize
-        )
-        authorize()
         started = time.monotonic()
         self.usage["request_count"] += 1
         self.usage["request_bytes"] += len(body or b"")
@@ -139,6 +173,21 @@ class LocalClient:
             result = decode_json(raw)
             if not isinstance(result, dict) or "error" in result:
                 raise AnalysisError("local_ai_invalid_response")
+            if (
+                reservation
+                and path == "/api/chat"
+                and not payload.get("_debug_render_only")
+            ):
+                reservation.settle(
+                    result.get("prompt_eval_count"), result.get("eval_count")
+                )
+                if (
+                    type(result.get("eval_count")) is int
+                    and result["eval_count"] > reservation.output_limit
+                ):
+                    raise AnalysisError("local_ai_output_limit")
+            if reservation and path == "/api/embed":
+                reservation.settle(result.get("prompt_eval_count"), 0)
             return result
         except HTTPError as error:
             code = {

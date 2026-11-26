@@ -60,6 +60,7 @@ class ChatTurn(models.Model):
     completed_at = models.DateTimeField(null=True)
     answer = models.JSONField(default=dict)
     plan = models.JSONField(default=dict)
+    model_usage = models.JSONField(default=list, db_default=[], editable=False)
     activity = models.JSONField(default=dict, db_default={}, editable=False)
     total = models.PositiveBigIntegerField(default=0)
     reviewed = models.PositiveBigIntegerField(default=0)

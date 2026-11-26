@@ -11,6 +11,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 from django.conf import settings
 from django.utils import timezone
 
+from core.analysis import chat_usage
 from core.analysis.errors import AnalysisError
 from core.analysis.gateway import endpoint_and_headers
 from core.analysis.http import NoRedirect, provider_failure_status
@@ -133,7 +134,7 @@ def _ordering(rows, count, index_key):
     return sorted(range(count), key=lambda index: -scores[index])
 
 
-def _local_order(scope, query, texts, check):
+def _local_order(scope, query, texts, check, chat_turn=None):
     config = settings.PANDECT_LOCAL_RERANK
     origin = config["url"].rstrip("/")
     headers = {"Content-Type": "application/json"}
@@ -164,6 +165,7 @@ def _local_order(scope, query, texts, check):
         }
     )
     check()
+    chat_usage.reserve(chat_turn, "rerank", len(body))
     result, _ = _read(
         Request(origin + "/rerank", data=body, headers=headers), local=True
     )
@@ -180,6 +182,7 @@ def _hosted_order(case, scope, query, texts, check, chat_turn):
     )
     request = Request(url, data=body, headers=headers)
     check()
+    chat_usage.reserve(chat_turn, "rerank", len(body))
     receipt = GatewayRequest.objects.create(
         case=case,
         chat_turn=chat_turn,
@@ -261,14 +264,16 @@ def rerank_order(case, query, texts, *, scope, authorize, chat_turn=None):
         ).update(rerank_started_at=timezone.now()):
             return original
         if scope["provider"] == "local":
-            order = _local_order(scope, query, texts, check)
+            order = _local_order(scope, query, texts, check, chat_turn)
         else:
             order = _hosted_order(case, scope, query, texts, check, chat_turn)
         check()
         for slot, index in zip(positions, order, strict=True):
             original[slot] = positions[index]
         return original
-    except _Unavailable:
+    except (_Unavailable, AnalysisError) as exc:
+        if isinstance(exc, AnalysisError) and exc.code != "chat_budget_exhausted":
+            raise
         # A transport failure must never mask a changed source or lost access.
         if authorize().pk != case.pk:
             raise AnalysisError("access_removed") from None

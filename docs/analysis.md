@@ -213,16 +213,26 @@ if an older full review did not apply its filters or might have counted field
 labels as literal matches.
 
 For a harder question, chat can shortlist up to 32 distinct sources locally.
-It keeps strong keyword and meaning matches and reads up to ten excerpts per
-answer-model call. For questions about dates or uncertainty, it favors
-passages that put the date or qualifier near the action it describes. For
-example, the date a photo was taken can differ from the date it was sent.
+The first answer-model call receives up to four excerpts. For questions about
+dates or uncertainty, chat favors passages that put the date or qualifier near
+the action it describes. For example, the date a photo was taken can differ
+from the date it was sent.
 
-Chat can follow up to two search leads. Each lead identifies the missing fact
-and whether it requires an independent source. If a search adds nothing
-relevant, chat can return the already cited answer with its remaining
-uncertainty. It can report both accounts of a disputed event while leaving
-independent verification open.
+Chat can make up to two follow-up lookups with up to ten excerpts per answer
+call. It can search originals and extractions, search findings, follow a source
+to its supporting or neighboring records, or refine the broader search. Each
+lookup identifies the missing fact and whether it requires an independent source.
+If a search adds nothing relevant, chat can return the already cited answer
+with its remaining uncertainty. It can report both accounts of a disputed
+event while leaving independent verification open.
+
+Chat can also read a saved message-timing report, even when it produced no
+catalogue findings. It checks up to three recent eligible selections, each
+containing at most 64 direct messages. The cited value applies to the messages
+selected in that report. The citation opens its **Processing summary**.
+A follow-up lookup can open up to four of those messages for context.
+A question with explicit type or date filters skips this whole-selection
+lookup. Reading a saved report does not start a new analysis.
 
 A follow-up can refer to an older topic or a numbered reply such as “answer
 3.” Chat searches completed turns in the same conversation, carries at most
@@ -242,8 +252,14 @@ whole reply and its references in the case's Important list.
 Ordinary questions and follow-ups use selected search excerpts. A full review
 that uses AI to interpret evidence requires an explicit request for exhaustive
 coverage, such as “After checking every record, explain the pickup change.”
+Asking for all recipients, dates or possible explanations still uses targeted
+lookups. Chat qualifies answers based on the material it could verify.
 Chat can also start that review after the investigator answers a clarifying
 question about the request. Explicit type and date filters constrain the review.
+“Inspect every message” limits both the initial search and the review to text
+messages. This scope carries through a clarification. If an older review
+could have included other record types, ask the question again. Earlier reviews
+whose recorded type filter already restricted them to text messages remain available.
 Supported structured counts and recognized requests for every record containing
 literal wording start a full review directly.
 Processing and the reply show progress against a frozen set of source entries.

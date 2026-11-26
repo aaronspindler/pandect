@@ -12,19 +12,22 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from cases.models import CaseMembership
 from core.analysis.approval import revoke_case_execution
+from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import configured_external_executions
-from core.analysis.services import snapshot_sources
+from core.analysis.services import resolve_inputs, snapshot_sources
 from core.analysis.testing import approve_case_execution
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import response
 from core.analysis.tests.test_openai_gateway import OPENAI, openai_reply
 from core.evidence_chat import ai, corpus, engine, engine_counts, jobs, services
+from core.evidence_chat.search_scope import review_population
 from core.models import AnalysisResult, AnalysisRun, ExtractedPassage, GatewayRequest
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.models import PhoneCallEvidence
+from phone.analysis.deterministic.conversations import interaction_patterns
+from phone.models import PhoneCallEvidence, TextMessageEvidence
 from text.models import TextEvidence
 
 
@@ -45,6 +48,20 @@ def decision(
 
 
 class QuestionRoutingTests(SimpleTestCase):
+    def test_explicit_review_population_ignores_quoted_wording(self):
+        for question, expected in (
+            ("Please inspect every message for delays.", "text-message"),
+            (
+                "After searching all the text messages, explain the delay.",
+                "text-message",
+            ),
+            ("Do a full review of the messages for delays.", "text-message"),
+            ("Review every record that mentions messages.", "all"),
+            ("Who said ‘inspect every message’?", ""),
+        ):
+            with self.subTest(question=question):
+                self.assertEqual(review_population(question), expected)
+
     def test_answer_context_identifies_repeated_material_from_one_original(self):
         turn = SimpleNamespace(
             question="Was the dispatch corroborated?",
@@ -110,19 +127,31 @@ class QuestionRoutingTests(SimpleTestCase):
         irrelevant = window("book3", "book3", 0, "The bridge opened.")
         self.assertFalse(jobs._advances(target, [shifted, copy, irrelevant], prior))
         self.assertTrue(jobs._advances(target, [distant], prior))
+        finding_search = target | {"lookup": "search_findings"}
+        self.assertTrue(jobs._advances(finding_search, [copy], prior))
+        repeat = window("summary", "book1", 0, prior[0].text, surface="finding")
+        self.assertFalse(jobs._advances(finding_search, [repeat], prior))
+        self.assertFalse(jobs._advances(finding_search, [copy], [*prior, copy]))
+        self.assertFalse(
+            jobs._advances(finding_search | {"independent_source": True}, [copy], prior)
+        )
         target["independent_source"] = True
         self.assertFalse(jobs._advances(target, [distant], prior))
         self.assertTrue(jobs._advances(target, [semantic], prior))
 
-    def test_only_an_explicit_enumeration_overrides_an_ordinary_plan(self):
+    def test_only_a_request_to_inspect_the_full_set_overrides_an_ordinary_plan(self):
         for original, expected in (
             ("What total is printed on the receipt?", "answer"),
             ("Did the witness say “count me in”?", "answer"),
             ("Did the witness say “list every mention”?", "answer"),
             ("Give an overview of the pickup across the case.", "answer"),
             ("Find all you can about the pickup.", "answer"),
-            ("List every mention of pickup", "review"),
-            ("Show me every match", "review"),
+            ("Find all recipients of that statement.", "answer"),
+            ("Identify every date that changed.", "answer"),
+            ("How many delays were reported across the case?", "answer"),
+            ("List every mention of pickup", "answer"),
+            ("Check every record for a pickup", "review"),
+            ("Show me every match", "answer"),
         ):
             with self.subTest(original=original):
                 turn = SimpleNamespace(question=original)
@@ -140,7 +169,7 @@ class QuestionRoutingTests(SimpleTestCase):
     def test_clarification_can_resume_an_exhaustive_request(self):
         history = [
             {
-                "question": "List every mention of the pickup.",
+                "question": "Check every record for the pickup.",
                 "reply_context": "Which pickup?",
             }
         ]
@@ -292,8 +321,9 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             record = data["records"][0]
             self.assertIn(quote, record["text"])
             if schema is engine.DECISION:
-                self.assertCountEqual(
-                    schema["properties"]["action"]["enum"], ("answer", "ask", "refine")
+                self.assertNotIn("review", schema["properties"]["action"]["enum"])
+                self.assertNotIn(
+                    "review_answer", schema["properties"]["action"]["enum"]
                 )
                 return decision("review_answer", "Review every record for the pickup.")
             self.assertIs(schema, engine.ANSWER)
@@ -329,7 +359,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
 
     def test_earlier_exhaustive_clarification_does_not_authorize_a_later_question(self):
         self.source("The timetable lists departures on Fridays.")
-        first = self.ask("Search for every match. type:image")
+        first = self.ask("Check every record for matches. type:image")
         with patch.object(ai, "infer", return_value=decision("ask", "Which dispatch?")):
             self.finish(first)
 
@@ -487,7 +517,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             self.finish(first)
         saved = first.sources.get(evidence_id=record.pk)
         self.assertIn("verified_body", saved.locator)
-        turn = self.ask("List every mention of the departure.", chat_id=first.chat_id)
+        turn = self.ask("Check every record for the departure.", chat_id=first.chat_id)
         with patch.object(corpus, "_body_digest", return_value=Value("invalid")):
             self.assertEqual(jobs._history(turn)[0]["reply_context"], quote)
             self.assertIsNone(services.inspect_turn(first))
@@ -570,7 +600,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
 
     def test_exhaustive_windows_overlap_and_failure_retries_without_duplicates(self):
         self.source(" " * 1300 + "pickup registered at Gate C. " + " " * 2500)
-        turn = self.ask("List every mention of pickup")
+        turn = self.ask("Check every record for pickup")
         calls = 0
 
         def infer(turn, authorize, prompt, schema):
@@ -826,6 +856,59 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
                 self.assertFalse(turn.answer)
                 self.assertNotIn("refinement", turn.plan)
 
+    def test_budget_exhaustion_preserves_a_previously_verified_quote(self):
+        quote = "The shuttle arrived at 09:15."
+        original = self.source(quote)
+        turn = self.ask("When did the shuttle arrive?")
+        claim = {"text": quote, "citations": [{"id": 0, "quote": quote, "start": 0}]}
+        with patch.object(
+            ai,
+            "infer",
+            return_value=decision("refine", "station log", claims=[claim]),
+        ):
+            self.process(turn)
+        self.assertEqual(turn.plan["stage"], "refine")
+        with (
+            patch.object(
+                jobs, "_rank", side_effect=AnalysisError("chat_budget_exhausted")
+            ),
+            patch.object(ai, "infer") as model,
+        ):
+            self.finish(turn)
+        model.assert_not_called()
+        answer = services.inspect_turn(turn)
+        self.assertIn("Processing limit", answer["summary"])
+        cite = answer["claims"][0]["citations"][0]
+        self.assertEqual(cite["quote"], quote)
+        self.assertIn(str(original.pk), cite["url"])
+        self.assertNotIn("refinement", turn.plan)
+
+    def test_budget_exhaustion_before_first_answer_reports_limited_coverage(self):
+        turn = self.ask("Where did the shuttle arrive?")
+        with patch.object(
+            ai, "infer", side_effect=AnalysisError("chat_budget_exhausted")
+        ):
+            self.finish(turn)
+        self.assertEqual(turn.mode, "ordinary")
+        self.assertFalse(turn.answer["claims"])
+        self.assertIn("Processing limit", turn.answer["summary"])
+
+    def test_missing_timing_value_leaves_a_qualified_gap(self):
+        turn = self.ask("What was the median response interval?")
+        with patch.object(
+            ai,
+            "infer",
+            return_value=decision(
+                "read_timing", "response interval", missing="The saved median."
+            ),
+        ) as model:
+            self.finish(turn)
+        model.assert_called_once()
+        self.assertEqual(turn.mode, "ordinary")
+        self.assertIn("could not verify a saved timing value", turn.answer["summary"])
+        self.assertFalse(turn.answer["claims"])
+        self.assertFalse(AnalysisRun.objects.filter(case=self.case).exists())
+
     def test_refinement_limit_returns_an_evidence_gap_without_starting_full_review(
         self,
     ):
@@ -876,12 +959,12 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
     def test_rewritten_full_review_rechecks_other_sources_at_dispatch(self):
         from django.utils import timezone
 
-        first = self.ask("Search for every match. type:text on:2026-01-15")
+        first = self.ask("Check every record for matches. type:text on:2026-01-15")
         with patch.object(ai, "infer", return_value=decision("ask", "Which dispatch?")):
             self.finish(first)
         originals = [
             self.source("Harbour dispatch recorded Northgate under the code Vireo."),
-            self.source("Vireo recorded East Pier."),
+            self.source("Vireo reached East Pier.", title="Waybill"),
         ]
         other = self.source(
             "Harbour dispatch Vireo recorded an out-of-scope departure."
@@ -1091,7 +1174,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             file=SimpleUploadedFile("source.txt", b"Synthetic content"),
             collected_at=day,
         )
-        turn = self.ask("Find every record mentioning pickup type:text on:2026-01-15")
+        turn = self.ask("Check every record for pickup type:text on:2026-01-15")
 
         def infer(turn, authorize, prompt, schema):
             authorize()
@@ -1114,7 +1197,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(turn.sources.get().evidence_id, first.pk)
 
     def test_legacy_scoped_question_cannot_resume_an_unfiltered_manifest(self):
-        turn = self.ask("Find every record mentioning pickup type:text")
+        turn = self.ask("Check every record for pickup type:text")
         turn.mode = "full"
         turn.plan = {"stage": "review"}
         turn.save(update_fields=("mode", "plan"))
@@ -1130,6 +1213,81 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             )
         turn.status = "complete"
         self.assertIsNone(services.inspect_turn(turn))
+
+    def test_message_review_limits_initial_clarified_and_review_batches(self):
+        recipient = Person.objects.create(case=self.case, first_name="Mica")
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            sender=self.person,
+            recipient=recipient,
+            uploaded_by=self.users["owner"],
+            title="Pickup",
+            body="Pickup at the south gate.",
+        )
+        DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Pickup confidential document",
+            file=SimpleUploadedFile("source.txt", b"Synthetic content"),
+        )
+
+        def infer(active, authorize, prompt, schema):
+            authorize()
+            rows = json.loads(prompt.split("\n", 1)[1])["records"]
+            self.assertEqual(len(rows), 1)
+            self.assertIn(message.body, rows[0]["text"])
+            self.assertNotIn("confidential document", prompt)
+            if schema is engine.REVIEW:
+                return {
+                    "records": [
+                        {"id": rows[0]["id"], "outcome": "miss", "citations": []}
+                    ]
+                }
+            self.assertIs(schema, engine.REVIEW_DECISION)
+            if active.question.startswith("After"):
+                return decision("ask", "Which pickup?")
+            return decision("review", active.question)
+
+        with patch.object(ai, "infer", side_effect=infer) as model:
+            direct = self.ask("Inspect every message for pickup.")
+            self.finish(direct)
+            typed = self.ask("Inspect every message for pickup type:text-message")
+            self.finish(typed)
+            first = self.ask("After checking every message, explain the pickup.")
+            self.finish(first)
+            self.assertEqual(first.mode, "clarification")
+            follow = self.ask("The south gate pickup.", chat_id=first.chat_id)
+            self.finish(follow)
+            self.assertEqual(model.call_count, 7)
+        for turn in (direct, follow):
+            self.assertEqual((turn.mode, turn.total), ("full", 1))
+            self.assertEqual(turn.sources.get().evidence_id, message.pk)
+            # Legacy manifests could also contain documents, including when the
+            # investigator answered a clarification without repeating "messages".
+            turn.plan["review_version"] = 1
+            self.assertIsNone(services.inspect_turn(turn))
+        typed.plan["review_version"] = 1
+        self.assertTrue(services.reply_available(typed))
+
+    def test_conflicting_message_scope_clarifies_and_legacy_refinement_is_withheld(
+        self,
+    ):
+        turn = self.ask("Inspect every message for pickup type:document")
+        with patch.object(ai, "infer") as model:
+            self.finish(turn)
+            model.assert_not_called()
+        self.assertEqual(turn.mode, "clarification")
+        self.assertFalse(turn.sources.exists())
+        turn = self.ask("After inspecting every message, explain the pickup.")
+        with patch.object(ai, "infer", return_value=decision("refine", "dispatch")):
+            self.process(turn)
+        self.assertEqual(turn.plan["stage"], "refine")
+        turn.plan.pop("review_version")
+        turn.save(update_fields=["plan"])
+        with patch.object(ai, "infer") as model:
+            self.process(turn)
+            model.assert_not_called()
+        self.assertEqual(turn.error_code, "chat_review_scope_retired")
 
     def test_archived_context_cannot_leave_case_on_active_only_followup(self):
         from django.utils import timezone
@@ -1223,7 +1381,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
 
     def test_partial_window_response_cannot_publish_as_full_coverage(self):
         self.source("Pickup at the south gate.")
-        turn = self.ask("Find every pickup")
+        turn = self.ask("Review every record for the pickup")
         with patch.object(
             ai,
             "infer",
@@ -1281,7 +1439,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
 
         archived = self.source("Pickup moved to Blue Pier.", "Blue Pier dispatch")
         active = self.source("Pickup moved to Red Pier.", "Red Pier dispatch")
-        first = self.ask("List every mention of pickup")
+        first = self.ask("Check every record for pickup")
 
         def review(turn, authorize, prompt, schema):
             authorize()
@@ -1330,3 +1488,201 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             archive_changed_by=self.users["owner"],
         )
         self.assertFalse(services.reply_available(second))
+
+    def test_saved_finding_leads_to_its_cited_original_across_deliveries(self):
+        self.source("The ballast manifest refers to the copper ledger.", "Manifest")
+        quote = "Discharged at Alder Pier."
+        original = self.source(quote, "Dock slip")
+        inputs = snapshot_sources(self.case, [{"kind": "text", "id": original.pk}])
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="entities",
+            inputs=inputs,
+            status="complete",
+            method_version="1",
+        )
+        finding_text = "The copper ledger identifies a dock slip."
+        result = AnalysisResult.objects.create(
+            run=run,
+            case=self.case,
+            data={
+                "items": [
+                    {
+                        "label": "Ledger reference",
+                        "text": finding_text,
+                        "source_ids": [inputs[0]["id"]],
+                        "anchors": [],
+                        "values": {},
+                    }
+                ]
+            },
+        )
+        project_result(result)
+        finding = result.findings.get()
+        turn = self.ask("Where did the ballast arrive?")
+
+        def infer(active, authorize, prompt, schema):
+            authorize()
+            self.assertIs(schema, engine.DECISION)
+            rows = json.loads(prompt.split("\n", 1)[1])["records"]
+            lookup = active.plan.get("refinement", {}).get("lookup")
+            if lookup is None:
+                self.assertTrue(any("ballast manifest" in r["text"] for r in rows))
+                self.assertFalse(any(finding_text in r["text"] for r in rows))
+                return decision(
+                    "search_findings", "copper ledger", missing="The ledger reference."
+                )
+            if lookup == "search_findings":
+                row = next(r for r in rows if finding_text in r["text"])
+                self.assertFalse(any(quote in r["text"] for r in rows))
+                return decision(
+                    "follow_source",
+                    "discharge point",
+                    missing="Destination on the dock slip.",
+                ) | {"source": row["id"]}
+            self.assertEqual(lookup, "follow_source")
+            return self.answer_with_quote(rows, quote)
+
+        with patch.object(ai, "infer", side_effect=infer) as model:
+            self.process(turn)
+            self.assertEqual(turn.plan["refinement"]["lookup"], "search_findings")
+            token = turn.delivery_token
+            self.process(turn)
+            ref = turn.plan["refinement"]
+            self.assertEqual(ref["lookup"], "follow_source")
+            self.assertEqual(
+                turn.sources.get(key=ref["source_key"]).locator["pk"], str(finding.pk)
+            )
+            jobs.process_turn(str(turn.pk), str(token))
+            self.finish(turn)
+            self.assertEqual(model.call_count, 3)
+        citation = services.inspect_turn(turn)["claims"][0]["citations"][0]
+        self.assertEqual(citation["quote"], quote)
+        self.assertIn(str(original.pk), citation["url"])
+
+    def saved_timing_report(self):
+        other = Person.objects.create(case=self.case, first_name="Mica")
+        messages = [
+            TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title="Exchange",
+                sender=sender,
+                recipient=recipient,
+                body=body,
+                occurred_at=datetime(2026, 2, 17, 10, minute, tzinfo=UTC),
+            )
+            for sender, recipient, body, minute in (
+                (self.person, other, "Parcel collected.", 0),
+                (other, self.person, "Acknowledged.", 2),
+            )
+        ]
+        inputs = snapshot_sources(
+            self.case, [{"kind": "text-message", "id": m.pk} for m in messages]
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="comm_patterns",
+            inputs=inputs,
+            method_version="2",
+            status="complete",
+        )
+        result = AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data=interaction_patterns(resolve_inputs(run, self.case), {}),
+        )
+        project_result(result)
+        return messages, result
+
+    def test_saved_timing_report_answers_without_findings_or_new_analysis(self):
+        from django.utils import timezone
+
+        messages, result = self.saved_timing_report()
+        self.assertFalse(result.findings.exists())
+        turn = self.ask("How quickly did they get back to each other?")
+        quote = "Median response interval (seconds): 120.0"
+
+        def infer(active, authorize, prompt, schema):
+            authorize()
+            self.assertIs(schema, engine.DECISION)
+            rows = json.loads(prompt.split("\n", 1)[1])["records"]
+            if not active.plan.get("refinement"):
+                return decision(
+                    "read_timing", "response interval", missing="A saved measurement."
+                )
+            self.assertEqual(len(rows), 1)
+            self.assertIn("Selected messages: 2", rows[0]["text"])
+            self.assertFalse(any(m.body in rows[0]["text"] for m in messages))
+            return self.answer_with_quote(rows, quote)
+
+        with patch.object(ai, "infer", side_effect=infer) as model:
+            self.process(turn)
+            self.assertEqual(turn.plan["refinement"]["lookup"], "read_timing")
+            self.finish(turn)
+            self.assertEqual(model.call_count, 2)
+        self.assertSequenceEqual(
+            AnalysisRun.objects.filter(case=self.case), [result.run]
+        )
+        citation = services.inspect_turn(turn)["claims"][0]["citations"][0]
+        self.assertEqual(citation["quote"], quote)
+        self.assertIn(str(result.run_id), citation["url"])
+        self.assertEqual(turn.sources.get().result_id, result.pk)
+        TextMessageEvidence.objects.filter(pk=messages[0].pk).update(
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
+        self.assertIsNone(services.inspect_turn(turn))
+
+    def answer_with_quote(self, rows, quote):
+        row = next(r for r in rows if quote in r["text"])
+        citation = {"id": row["id"], "start": row["text"].index(quote), "quote": quote}
+        return decision("answer", claims=[{"text": quote, "citations": [citation]}])
+
+    def test_full_review_keeps_saved_report_context_separate_from_its_manifest(self):
+        from django.utils import timezone
+
+        messages, result = self.saved_timing_report()
+        turn = self.ask("Do a full review of the exchange.")
+
+        def infer(active, authorize, prompt, schema):
+            authorize()
+            rows = json.loads(prompt.split("\n", 1)[1])["records"]
+            if schema is engine.REVIEW:
+                return {
+                    "records": [
+                        {"id": row["id"], "outcome": "miss", "citations": []}
+                        for row in rows
+                    ]
+                }
+            self.assertIs(schema, engine.REVIEW_DECISION)
+            if not active.plan.get("refinement"):
+                return decision(
+                    "read_timing",
+                    "timing",
+                    missing="The saved measurement for this exchange.",
+                )
+            self.assertTrue(
+                any("Median response interval" in row["text"] for row in rows)
+            )
+            return decision("review", turn.question)
+
+        with patch.object(ai, "infer", side_effect=infer):
+            self.finish(turn)
+        self.assertEqual(turn.mode, "full")
+        self.assertEqual(turn.total, len(messages))
+        self.assertTrue(services.reply_available(turn))
+        context = turn.sources.filter(result_id=result.pk, status="context")
+        self.assertEqual(context.update(case=self.other_case), 1)
+        self.assertFalse(services.reply_available(turn))
+        context.update(case=self.case)
+        self.assertTrue(services.reply_available(turn))
+        TextMessageEvidence.objects.filter(pk=messages[0].pk).update(
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
+        self.assertFalse(services.reply_available(turn))

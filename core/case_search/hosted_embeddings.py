@@ -7,6 +7,7 @@ from urllib.request import Request, build_opener
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
 
+from core.analysis import chat_usage
 from core.analysis.errors import AnalysisError
 from core.analysis.gateway import endpoint_and_headers
 from core.analysis.http import NoRedirect, provider_failure_status
@@ -60,6 +61,7 @@ def request_embeddings(texts, config, authorize, case, purpose, chat_turn=None):
     url, headers = endpoint_and_headers(config)
     request = Request(url, data=body, headers=headers, method="POST")
     authorize()
+    reservation = chat_usage.reserve(chat_turn, "embedding", len(body))
     usage = GatewayRequest.objects.create(
         case=case,
         chat_turn=chat_turn,
@@ -93,6 +95,8 @@ def request_embeddings(texts, config, authorize, case, purpose, chat_turn=None):
             if type(prompt_tokens) is int and 0 <= prompt_tokens < 2**31:
                 update["input_tokens"] = prompt_tokens
         update["output_tokens"] = 0
+        if reservation:
+            reservation.settle(update.get("input_tokens"), 0)
         authorize()
         update["status"] = "complete"
         return vectors

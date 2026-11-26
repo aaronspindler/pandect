@@ -180,6 +180,7 @@ class HostedSearchTests(EvidenceViewTestMixin, TestCase):
             ordinal=1,
             question="A synthetic question",
             submission_id=uuid4(),
+            status=ChatTurn.Status.RUNNING,
         )
 
         def authorize():

@@ -88,7 +88,7 @@ def infer(client, prompt, schema):
     if prompt_bound + config["max_output_tokens"] > config["context_tokens"]:
         raise AnalysisError("local_ai_context_limit")
     _version(client)
-    result = client._request("/api/chat", payload)
+    result = client._request("/api/chat", payload, input_bound=prompt_bound)
     _version(client)
     try:
         message = result["message"]

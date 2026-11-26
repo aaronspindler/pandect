@@ -87,7 +87,7 @@
   {% partial references %}
 {% endif %}
 
-<details class="analysis-section analysis-run-details"{% if run.status == 'failed' %} open{% endif %}>
+<details class="analysis-section analysis-run-details"{% if run.status == 'failed' or request.GET.summary == '1' %} open{% endif %}>
   <summary id="run-details">{% if focused_finding %}Analysis run details{% else %}Details and history{% endif %}</summary>
   <p class="muted">{{ run.get_status_display }} · {{ run.created_at|date:'d M Y, H:i T' }} · {{ operation_label }}</p>
   {% if run.previous_run %}<p><a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">Earlier run · {{ run.previous_run.created_at|date:'d M Y, H:i:s T' }}</a></p>{% endif %}
@@ -118,7 +118,7 @@
   </ul>
 </details>
 {% endif %}
-  {% if metrics %}<details class="disclosure"><summary>Processing summary</summary>{% include 'core/analysis/measurements.html' with measurements=metrics only %}</details>{% endif %}
+  {% if metrics %}<details id="processing-summary" class="disclosure"{% if request.GET.summary == '1' %} open{% endif %}><summary>Processing summary</summary>{% include 'core/analysis/measurements.html' with measurements=metrics only %}</details>{% endif %}
   <details class="disclosure">
     <summary>Method and settings</summary>
     <p class="muted">Requested by {{ run.requested_by }} · {{ run.created_at|date:'d M Y, H:i:s T' }}</p>

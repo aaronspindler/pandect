@@ -21,7 +21,7 @@ from core.case_search.parents import current_parent_ids
 from core.models import ChatMatch, ChatSource, ChatTurn
 
 from . import activity, ai, corpus, engine, engine_counts
-from .search_scope import question_filters
+from .search_scope import question_filters, review_population
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +36,29 @@ COMPLEX_SEARCH = re.compile(
 )
 LITERAL_CITATIONS_PER_RECORD = 4
 PENDING_REVIEW = ("pending", "pending_hit")
-FULL_REVIEW_VERSION = 1
+FULL_REVIEW_VERSION = 2
 
 
 def review_restart_code(turn):
     if turn.error_code == "chat_review_scope_retired":
         return turn.error_code
-    if turn.mode != "full" or turn.plan.get("review_version") == FULL_REVIEW_VERSION:
+    version = turn.plan.get("review_version")
+    if turn.mode != "full" or version == FULL_REVIEW_VERSION:
+        return ""
+    if review_population(turn.question) == "text-message":
+        if version != 1 or question_filters(turn).get("record_type") != "text-message":
+            return "chat_review_scope_retired"
+    previous = _preceding_review_clarification(turn)
+    if previous and review_population(previous.question) == "text-message":
+        if (
+            version != 1
+            or turn.plan.get("scoped_clarification") != str(previous.pk)
+            or question_filters(previous).get("record_type") != "text-message"
+            or question_filters(turn).get("record_type", "text-message")
+            != "text-message"
+        ):
+            return "chat_review_scope_retired"
+    if version == 1:
         return ""
     if question_filters(turn):
         return "chat_review_scope_retired"
@@ -276,11 +292,9 @@ def _history(turn, *, hints=None):
     return [history[ordinal] for ordinal in sorted(history)]
 
 
-def _review_clarification(turn, history):
-    """Allow a reply to continue only the immediately preceding clarification."""
+def _preceding_review_clarification(turn):
     if (
-        not history
-        or not history[-1]["reply_context"]
+        turn.ordinal <= 1
         or engine.NEW_QUESTION.match(turn.question)
         or turn.question.rstrip().endswith("?")
         or engine.review_requested(turn.question)
@@ -297,27 +311,38 @@ def _review_clarification(turn, history):
         .only("question", "answer", "plan")
         .first()
     )
-    if previous:
-        clarification = previous.answer.get("clarification")
-        if (
-            clarification
-            and history[-1]["question"] == previous.question[:300]
-            and history[-1]["reply_context"] == clarification[:400]
-            and engine.review_requested(previous.question)
-        ):
-            return previous
+    if previous and engine.review_requested(previous.question):
+        return previous
     return None
 
 
-def _rank(turn, query, semantic_query, hints, prior, filters):
+def _review_clarification(turn, history):
+    """Allow a reply to continue only the immediately preceding clarification."""
+    if not history or not history[-1]["reply_context"]:
+        return None
+    previous = _preceding_review_clarification(turn)
+    if previous and (
+        history[-1]["question"] == previous.question[:300]
+        and history[-1]["reply_context"]
+        == previous.answer.get("clarification", "")[:400]
+    ):
+        return previous
+    return None
+
+
+def _rank(turn, query, semantic_query, hints, prior, filters, *, surfaces=None):
     from core.case_search.rerank import rerank_order
 
     from .retrieval_route import related_for_turn
 
     scope = turn.plan.get("rerank_scope")
     rerank = (
-        scope and not turn.rerank_started_at and (prior or COMPLEX_SEARCH.search(query))
+        surfaces is None
+        and scope
+        and not turn.rerank_started_at
+        and (prior or COMPLEX_SEARCH.search(query))
     )
+    limit = ANSWER_WINDOWS if turn.plan.get("stage") == "refine" else 4
     semantic_hints = set() if turn.plan.get("refinement") else None
     with engine.timed(turn, "retrieval"):
         found = corpus.rank(
@@ -325,12 +350,13 @@ def _rank(turn, query, semantic_query, hints, prior, filters):
             query,
             user=turn.asked_by,
             include_archived=turn.include_archived,
-            limit=24 if rerank else ANSWER_WINDOWS,
+            limit=24 if rerank else limit,
             through=turn.started_at,
             hints=hints,
             filters=filters,
             semantic_hints=semantic_hints,
             stamp_body=True,
+            surfaces_to_search=surfaces,
             related=lambda _: related_for_turn(
                 turn, semantic_query, lambda: _authorize(turn, prior), filters=filters
             ),
@@ -369,7 +395,7 @@ def _rank(turn, query, semantic_query, hints, prior, filters):
                 chat_turn=turn,
             )
             windows = [windows[n] for n in order]
-    return windows[:ANSWER_WINDOWS]
+    return windows[:limit]
 
 
 def _row(turn, locator, status):
@@ -445,6 +471,17 @@ def _continue(turn):
     enqueue_turn(turn)
 
 
+def _clear_lookup(turn):
+    for key in (
+        "refinement",
+        "refine_query",
+        "refine_windows",
+        "search_queries",
+        "lookups",
+    ):
+        turn.plan.pop(key, None)
+
+
 def _freeze(
     turn, question, filters, context=(), *, narrative=False, literal="", scope=None
 ):
@@ -487,6 +524,7 @@ def _freeze(
         _authorize(turn, lock=True)
         CaseActivity.objects.select_for_update().get(case=case)
         turn.mode = "full"
+        _clear_lookup(turn)
         turn.plan = turn.plan | {
             "stage": "review",
             "review_version": FULL_REVIEW_VERSION,
@@ -526,19 +564,104 @@ def _decide(turn):
     _answer_search(turn, search, turn.question, history, hints, ())
 
 
+def _lookup_windows(turn, query, semantic_query, hints, prior, scope):
+    from .corpus_navigation import linked_materials
+    from .reports import timing_materials
+
+    target = turn.plan.get("refinement", {})
+    lookup = target.get("lookup", "refine")
+    if lookup == "refine":
+        return _rank(turn, query, semantic_query, hints, prior, scope)
+    if lookup in ("search_evidence", "search_findings"):
+        surfaces = (
+            ("original", "passage", "attachment")
+            if lookup == "search_evidence"
+            else ("finding",)
+        )
+        return _rank(
+            turn, query, semantic_query, hints, prior, scope, surfaces=surfaces
+        )
+    anchor = None
+    if source_key := target.get("source_key"):
+        anchor = next(
+            (w.locator for w in prior if w.locator["key"] == source_key), None
+        )
+        if anchor is None:
+            raise AnalysisError("source_changed")
+    with engine.timed(turn, "retrieval"):
+        if lookup == "follow_source" and anchor:
+            materials = linked_materials(
+                turn.case, anchor, query, through=turn.started_at, filters=scope
+            )
+        elif lookup == "read_timing":
+            # A whole saved metric cannot be narrowed to a new date/type filter.
+            if scope:
+                return []
+            materials = timing_materials(
+                turn.case, through=turn.started_at, source=anchor
+            )
+        else:
+            raise AnalysisError("model_result_structure")
+    return [engine.Window(m.locator, 0, m.text[:WINDOW]) for m in materials]
+
+
+def _lookup_identity(target):
+    lookup = target.get("lookup", "refine")
+    query = (
+        "" if lookup == "read_timing" else " ".join(target["query"].casefold().split())
+    )
+    return [lookup, query, target.get("source_key", "")]
+
+
 def _answer_search(
     turn, query, semantic_query, history, hints, prior, *, refined=False
 ):
+    try:
+        _run_lookup(turn, query, semantic_query, history, hints, prior, refined)
+    except AnalysisError as error:
+        if error.code != "chat_budget_exhausted" or turn.mode == "full":
+            raise
+        partial = turn.plan.get("refinement", {}).get("answer") or engine.empty_answer()
+        result = partial | {
+            "summary": "Processing limit reached. This reply covers the sources read."
+        }
+        _finish_answer(turn, result, prior)
+
+
+def _run_lookup(turn, query, semantic_query, history, hints, prior, refined):
     clarification = _review_clarification(turn, history)
     inherited = question_filters(clarification) if clarification else {}
     scope = inherited | question_filters(turn)
+    if review_population((clarification or turn).question) == "text-message":
+        # Earlier checkpoints could contain other record types, including in
+        # source-derived wording carried over from a clarification.
+        if (
+            refined
+            and turn.plan.get("review_version") != FULL_REVIEW_VERSION
+            or clarification
+            and clarification.plan.get("review_version") != FULL_REVIEW_VERSION
+        ):
+            raise AnalysisError("chat_review_scope_retired")
+        turn.plan["review_version"] = FULL_REVIEW_VERSION
+        if scope.get("record_type", "text-message") != "text-message":
+            _finish_answer(
+                turn,
+                engine.empty_answer(
+                    clarification=(
+                        "The request names messages and a different record type. "
+                        "Which type should I review? Please ask again with that type."
+                    )
+                ),
+                [],
+            )
+            return
+        scope["record_type"] = "text-message"
     if inherited:
-        # Old in-flight searches did not constrain the provisional answer and its
-        # sources. Do not replay that checkpoint against a newly restricted scope.
+        # Earlier checkpoints may have included sources outside the clarified scope.
         if refined and turn.plan.get("scoped_clarification") != str(clarification.pk):
             raise AnalysisError("chat_review_scope_retired")
         turn.plan["scoped_clarification"] = str(clarification.pk)
-    windows = _rank(turn, query, semantic_query, hints, prior, scope)
+    windows = _lookup_windows(turn, query, semantic_query, hints, prior, scope)
     if refined:
         # Keep the original clues and the new sources available for joint citation.
         missing = [w for w in prior if w not in windows]
@@ -552,21 +675,28 @@ def _answer_search(
     def authorize_context(fragments, **kwargs):
         return _authorize(turn, with_prior(fragments), **kwargs)
 
-    previous_queries = turn.plan.get("search_queries", ())
+    lookups = turn.plan.get("lookups")
+    if lookups is None:
+        lookups = [
+            _lookup_identity({"query": q}) for q in turn.plan.get("search_queries", ())
+        ]
+
     target = turn.plan.get("refinement")
     if refined and target and not _advances(target, windows, prior):
         # Citations in this provisional answer were validated on the last model
         # call. _publish_answer rechecks those originals under the case lock.
         action, result, used = "answer", target["answer"], []
+        if target.get("lookup") == "read_timing" and not result["claims"]:
+            result = engine.empty_answer(
+                "The lookup could not verify a saved timing value for this selection."
+            )
     elif refined and not windows and not prior:
         action, result, used = "answer", engine.no_sources_answer(), []
     else:
         # The third pass is useful only when the second actually found a
         # new source window. The investigator never pays for repeated queries.
         new_material = any(w not in prior for w in windows)
-        remaining = (
-            2 if not refined else int(new_material and len(previous_queries) < 2)
-        )
+        remaining = 2 if not refined else int(new_material and len(lookups) < 2)
         activity.record(turn, "answer", windows)
         action, result, used = engine.decide(
             turn,
@@ -577,8 +707,9 @@ def _answer_search(
             remaining=remaining,
             clarified_review=clarification is not None,
         )
-        if action == "refine" and result["query"].casefold().split() in [
-            q.casefold().split() for q in [turn.question, *previous_queries]
+        if action == "refine" and _lookup_identity(result) in [
+            _lookup_identity({"query": turn.question}),
+            *lookups,
         ]:
             action, result = "answer", result["answer"]
     context = with_prior(used)
@@ -591,13 +722,11 @@ def _answer_search(
             turn.plan.update(
                 stage="refine",
                 refinement=result,
-                search_queries=[*previous_queries, result["query"]],
+                lookups=[*lookups, _lookup_identity(result)],
                 refine_windows=[[w.locator["key"], w.start] for w in context],
             )
             _continue(turn)
         return
-    for key in ("refinement", "refine_query", "refine_windows", "search_queries"):
-        turn.plan.pop(key, None)
     if action in ("review", "review_answer"):
         _freeze(
             turn,
@@ -608,8 +737,13 @@ def _answer_search(
             scope=scope,
         )
     else:
-        turn.plan["stage"] = "complete"
-        _publish_answer(turn, result, context)
+        _finish_answer(turn, result, context)
+
+
+def _finish_answer(turn, result, context):
+    _clear_lookup(turn)
+    turn.plan["stage"] = "complete"
+    _publish_answer(turn, result, context)
 
 
 def _advances(target, windows, prior):
@@ -630,13 +764,27 @@ def _advances(target, windows, prior):
     previous = sorted(prior, key=lambda w: w.start)
     for window in windows:
         origins = corpus.original_keys(window.locator)
+        if target.get("lookup") in ("follow_source", "read_timing"):
+            if (
+                window in prior
+                or target["independent_source"]
+                and (
+                    window.locator["surface"] in ("finding", "report")
+                    or known_origins & origins
+                )
+            ):
+                continue
+            return True
         same_origin = [
             old for old in previous if origins & corpus.original_keys(old.locator)
         ]
-        if same_origin and (
-            window.locator["surface"] == "finding"
-            or any(window.text in old.text for old in same_origin)
+        if (
+            same_origin
+            and window.locator["surface"] == "finding"
+            and target.get("lookup") != "search_findings"
         ):
+            continue
+        if any(window.text in old.text for old in same_origin):
             continue
         if target["independent_source"] and (
             window.locator["surface"] == "finding" or known_origins & origins
@@ -682,7 +830,9 @@ def _advances(target, windows, prior):
 
 
 def _refine(turn):
-    activity.record(turn, "follow_up")
+    target = turn.plan.get("refinement")
+    lookup = (target or {}).get("lookup", "refine")
+    activity.record(turn, "follow_up" if lookup == "refine" else lookup)
     locators = dict(
         turn.sources.filter(case=turn.case, status="context").values_list(
             "key", "locator"
@@ -701,9 +851,9 @@ def _refine(turn):
         hints.append((locator, start))
     # Earlier running jobs saved only the query. Let them finish with a
     # model decision since they have no validated answer to publish yet.
-    target = turn.plan.get("refinement")
     query = target["query"] if target else turn.plan["refine_query"]
-    turn.plan.setdefault("search_queries", [query])
+    if "lookups" not in turn.plan:
+        turn.plan.setdefault("search_queries", [query])
     _answer_search(turn, query, query, _history(turn), hints, prior, refined=True)
 
 

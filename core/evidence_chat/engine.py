@@ -10,7 +10,7 @@ from core.analysis.errors import AnalysisError
 from core.analysis.inference_payloads import encode_json, evidence_messages
 
 from . import ai, corpus
-from .search_scope import QUOTED_TEXT
+from .search_scope import review_population
 
 
 def _object(**fields):
@@ -29,8 +29,16 @@ ANSWER = _object(
     claims=_array(_object(text=TEXT, citations=_array(CITATION))),
     lead=TEXT,
 )
+LOOKUPS = (
+    "refine",
+    "search_evidence",
+    "search_findings",
+    "follow_source",
+    "read_timing",
+)
 DECISION = _object(
-    action={"enum": ["answer", "ask", "refine"]},
+    action={"enum": ["answer", "ask", *LOOKUPS]},
+    source={"type": "integer", "minimum": -1},
     question=TEXT,
     missing_fact=TEXT,
     independent_source={"type": "boolean"},
@@ -39,7 +47,7 @@ DECISION = _object(
 REVIEW_DECISION = _object(
     **(
         DECISION["properties"]
-        | {"action": {"enum": ["answer", "ask", "refine", "review", "review_answer"]}}
+        | {"action": {"enum": ["answer", "ask", *LOOKUPS, "review", "review_answer"]}}
     )
 )
 REVIEW = _object(
@@ -52,22 +60,6 @@ REVIEW = _object(
     )
 )
 
-EXPLICIT_ENUMERATION = re.compile(
-    r"^\s*(?:please\s+)?(?:list|find|show|identify|check|review|search)\s+"
-    r"(?:me\s+)?(?:all(?:\s+the)?|every|each)\s+"
-    r"(?:mentions?|match(?:es)?|occurrences?|references?|records?|messages?|sources?)\b",
-    re.I,
-)
-EXHAUSTIVE_REQUEST = re.compile(
-    r"^\s*(?:(?:please|can you|could you)\s+)?(?:"
-    r"(?:(?:do|run|start|perform)\s+)?(?:a\s+)?(?:full|exhaustive)\s+(?:review|search)\b"
-    r"|(?:find|identify|search\s+for)\s+(?:me\s+)?(?:all(?!\s+you\b)|every|each)\s+\w"
-    r"|(?:after\s+)?(?:check(?:ing)?|review(?:ing)?|search(?:ing)?)\s+"
-    r"(?:all(?:\s+the)?|every|each)\s+(?:records?|sources?|messages?|items?)\b"
-    r"|(?:how\s+many|count)\b.*\b(?:across|in)\s+(?:the|this|my)\s+"
-    r"(?:(?:whole|entire)\s+)?case\b)",
-    re.I | re.S,
-)
 NEW_QUESTION = re.compile(
     r"^\s*(?:please\s+)?(?:who|what|when|where|why|how|which|can|could|would|"
     r"do|did|does|is|are|was|were|compare|explain|find|give|identify|list|outline|"
@@ -77,10 +69,7 @@ NEW_QUESTION = re.compile(
 
 
 def review_requested(question):
-    unquoted = QUOTED_TEXT.sub(" ", question)
-    return bool(
-        EXPLICIT_ENUMERATION.match(unquoted) or EXHAUSTIVE_REQUEST.match(unquoted)
-    )
+    return bool(review_population(question))
 
 
 def empty_answer(summary="", *, lead="", clarification=""):
@@ -151,6 +140,9 @@ def _request(turn, authorize, instruction, payload, schema, windows):
         if schema is not REVIEW:
             roots = [corpus.original_keys(w.locator) for w in fragments]
             for i, item in enumerate(data["records"]):
+                locator = fragments[i].locator
+                if "surface" in locator:
+                    item["type"] = f"{locator['surface']}/{locator['kind']}"
                 shared = [j for j in range(i) if roots[i] & roots[j]]
                 if shared:
                     item["shares_original_with"] = shared
@@ -218,29 +210,25 @@ def decide(
     reply, used = _request(
         turn,
         authorize,
-        "Answer the investigator's original question directly with action answer. "
-        "When two plausible people, shipments or events fit the user's reference "
-        "and would give different answers, choose ask and name the alternatives. "
-        "Never silently pick the highest-ranked record. Use a prior clarification "
-        "or explicit details in the question to disambiguate. Answer now if the "
-        "records establish what each source reported, including disagreements. "
-        "A conflict alone is not a reason to keep searching. Refine only when "
-        "a specific missing fact could materially change the answer and you have "
-        "a concrete lead. Put that fact in missing_fact and short search terms "
-        "specific to it in question. Set independent_source true only when this "
-        "requires an original independent of the cited accounts. With refine, "
-        "include the answer you can substantiate now in claims, and qualify any "
-        "unresolved point. If there is no supporting claim, leave claims empty. "
-        "If the search yields no relevant new material this answer will be used. "
-        "Use searches_remaining to decide whether another pass is available. "
-        "For timelines, distinguish the reported event from when it was recorded. "
-        "Stop when you can answer, when more searching would repeat the same evidence, "
-        "or when the search budget is spent. Leave claims empty if evidence is "
-        "insufficient. "
+        "Answer now when the numbered records suffice, including contrary accounts. "
+        "If plausible interpretations give different answers, use ask to clarify. "
+        "Otherwise select one lookup for a material missing fact. search_evidence "
+        "finds originals and retained passages by terms; search_findings finds "
+        "derived findings; follow_source opens supporting or neighboring records "
+        "of one numbered source; read_timing reads selected-message timing metrics "
+        "from up to three eligible saved reports. Set source to the numbered record "
+        "for follow_source, optionally an original message for read_timing, "
+        "otherwise -1. Use refine for a broader keyword or meaning search. "
+        "Use question for concise lookup terms, missing_fact for the outstanding "
+        "fact and independent_source only when it needs an independent original. "
+        "For lookups include any answer already supported in claims, preserving "
+        "uncertainty. Stop at the budget or when new work would repeat evidence. "
         "Selected excerpts cannot establish a case-wide total or absence. "
-        "For ask put the clarification in question and leave answer fields empty. "
-        "For all actions except refine, use an empty missing_fact and false "
-        "independent_source. " + review_instructions + ANSWER_INSTRUCTIONS,
+        "Report metrics apply only to their stated selection. Distinguish event "
+        "time from record time. For ask give the clarification in question. "
+        "For answer or ask leave missing_fact empty and independent_source false. "
+        + review_instructions
+        + ANSWER_INSTRUCTIONS,
         {
             "question": turn.question,
             "history": history,
@@ -257,20 +245,30 @@ def decide(
         windows,
     )
     action = reply.get("action")
-    if action not in ("answer", "ask", "refine", "review", "review_answer"):
+    if action not in ("answer", "ask", *LOOKUPS, "review", "review_answer"):
         raise AnalysisError("model_result_structure")
     if action in ("review", "review_answer") and not allow_review:
         answer, used = representative_answer(
             turn, authorize, turn.question, used, history=history
         )
         return "answer", answer, used
-    if action not in ("ask", "review", "review_answer") and EXPLICIT_ENUMERATION.match(
-        QUOTED_TEXT.sub(" ", turn.question)
+    if action not in ("ask", "review", "review_answer") and review_population(
+        turn.question, direct_only=True
     ):
         return "review", turn.question, used
     if action == "answer":
         return action, validated_answer(reply, used), used
-    if action == "refine":
+    if action in LOOKUPS:
+        source = reply.get("source", -1)
+        if (
+            type(source) is not int
+            or not -1 <= source < len(used)
+            or action == "follow_source"
+            and source == -1
+            or action not in ("follow_source", "read_timing")
+            and source != -1
+        ):
+            raise AnalysisError("model_citation_source")
         missing = _string(reply.get("missing_fact"), 300, required=True)
         independent = reply.get("independent_source")
         if type(independent) is not bool or reply.get("clarification") != "":
@@ -286,8 +284,10 @@ def decide(
         if not remaining:
             return "answer", fallback, used
         return (
-            action,
+            "refine",
             {
+                "lookup": action,
+                "source_key": used[source].locator["key"] if source >= 0 else "",
                 "query": query,
                 "missing_fact": missing,
                 "independent_source": independent,

@@ -11,6 +11,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404
 
+from core.analysis import chat_usage
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import gateway_execution
 from core.analysis.http import NoRedirect, provider_failure_status
@@ -196,6 +197,9 @@ class GatewayClient:
             and api != "workers-ai"
         )
         content_type = "application/json"
+        output_key = "max_output_tokens" if api == "responses" else "max_tokens"
+        if self.chat_turn is not None and self.chat_turn.mode != "full":
+            payload = {output_key: 4096} | payload
         try:
             if catalog_audio:
                 from core.analysis.gateway_audio import build_audio_request
@@ -209,9 +213,18 @@ class GatewayClient:
             raise AnalysisError("gateway_invalid_input") from None
         if len(body) > execution["max_request_bytes"]:
             raise AnalysisError("gateway_input_limit")
+        request_size = len(body)
         for attempt in range(2):
             with transaction.atomic():
                 case = self.authorize(lock=True)
+                reservation = chat_usage.reserve(
+                    self.chat_turn,
+                    "answer",
+                    request_size,
+                    output_limit=payload.get(output_key, 0),
+                )
+                if reservation:
+                    body = encode_json(payload | {output_key: reservation.output_limit})
                 usage = GatewayRequest.objects.create(
                     case=case,
                     run=self.run,
@@ -270,6 +283,25 @@ class GatewayClient:
                         ):
                             setattr(usage, field, value)
                 usage.save()
+                if reservation:
+                    input_tokens = usage.input_tokens
+                    if api == "messages" and input_tokens is not None:
+                        # Anthropic reports cached tokens outside its input total.
+                        for key in (
+                            "cache_creation_input_tokens",
+                            "cache_read_input_tokens",
+                        ):
+                            cached = tokens.get(key, 0)
+                            if type(cached) is not int or not 0 <= cached < 2**31:
+                                input_tokens = None
+                                break
+                            input_tokens += cached
+                    reservation.settle(input_tokens, usage.output_tokens)
+                    if (
+                        usage.output_tokens is not None
+                        and usage.output_tokens > reservation.output_limit
+                    ):
+                        raise AnalysisError("gateway_output_limit")
                 self.authorize()
                 return result
             except PermissionDenied, Http404:

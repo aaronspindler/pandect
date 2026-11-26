@@ -307,7 +307,7 @@ class Material:
     literal_ranges: tuple[tuple[int, int], ...] = ()
 
 
-def _make_material(
+def make_material(
     surface,
     kind,
     evidence_id,
@@ -424,7 +424,7 @@ def _original_material(
         url += "#location-heading"
     elif kind in CALL_KINDS:
         url += "#communication-heading"
-    return _make_material(
+    return make_material(
         surface,
         kind,
         original.pk,
@@ -441,10 +441,10 @@ def _original_material(
     )
 
 
-def _result_sources(case, item, include_archived):
+def result_sources(case, run, include_archived):
     try:
         sources = resolve_inputs(
-            item.result.run, case, cache=SourceResolutionCache(case, with_content=False)
+            run, case, cache=SourceResolutionCache(case, with_content=False)
         )
     except AnalysisError, Http404, ValidationError, TypeError, KeyError, ValueError:
         return []
@@ -482,7 +482,8 @@ def _has_usable_passage(case, kind, original, attachment_id, include_archived, t
         .distinct("result_id")
     )
     return any(
-        _passage_original(p, _result_sources(case, p, include_archived)) is not None
+        _passage_original(p, result_sources(case, p.result.run, include_archived))
+        is not None
         for p in versions.iterator(chunk_size=25)
     )
 
@@ -532,7 +533,7 @@ def material(
             value_ranges,
         )
     if sources is None:
-        sources = _result_sources(case, item, include_archived)
+        sources = result_sources(case, item.result.run, include_archived)
     if not sources:
         return None
     run = item.result.run
@@ -571,7 +572,7 @@ def material(
             # and the JSON used to present structured method output.
             first = len(stored["label"]) + 1
             value_ranges.append((first, first + len(finding_body)))
-    found = _make_material(
+    found = make_material(
         surface,
         kind,
         evidence_id,
@@ -626,7 +627,7 @@ def discover(
         ).iterator(chunk_size=50):
             if getattr(item, "result_id", None) != last_result:
                 last_result = item.result_id
-                sources = _result_sources(case, item, include_archived)
+                sources = result_sources(case, item.result.run, include_archived)
             found = material(
                 case,
                 surface,
@@ -661,26 +662,33 @@ def read_window(
         return None
     surface = locator.get("surface")
     kind = locator.get("kind") if surface in ("original", "attachment") else ""
-    if (surface, kind) not in surfaces():
-        return None
     try:
         pk = UUID(locator["pk"])
     except ValueError, KeyError, AttributeError, TypeError:
         return None
-    queryset = rows(case, surface, kind, include_archived, retained=True).filter(pk=pk)
-    item = clipped(
-        queryset,
-        body_field(surface, kind),
-        start,
-        size,
-        review=review,
-        verified_body=locator.get("verified_body"),
-    ).first()
-    if item is None:
-        return None
-    found = material(
-        case, surface, kind, item, include_archived, start, size, literal=literal
-    )
+    if surface == "report":
+        from .reports import read_timing_material
+
+        found = read_timing_material(case, pk, start, size)
+    else:
+        if (surface, kind) not in surfaces():
+            return None
+        queryset = rows(case, surface, kind, include_archived, retained=True).filter(
+            pk=pk
+        )
+        item = clipped(
+            queryset,
+            body_field(surface, kind),
+            start,
+            size,
+            review=review,
+            verified_body=locator.get("verified_body"),
+        ).first()
+        if item is None:
+            return None
+        found = material(
+            case, surface, kind, item, include_archived, start, size, literal=literal
+        )
     if found is None or any(
         found.locator[k] != locator.get(k)
         for k in (
@@ -757,6 +765,7 @@ def rank(
     filters=None,
     stamp_body=False,
     semantic_hints=None,
+    surfaces_to_search=None,
 ):
     from .corpus_search import ranked_windows
 
@@ -772,4 +781,5 @@ def rank(
         filters=filters,
         stamp_body=stamp_body,
         semantic_hints=semantic_hints,
+        surfaces_to_search=surfaces_to_search,
     )

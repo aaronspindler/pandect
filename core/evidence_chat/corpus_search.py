@@ -158,9 +158,9 @@ LEXICAL_LIMIT = 10
 RRF_K = 15
 
 
-def _lexical(case, terms, include_archived, through, filters):
+def _lexical(case, terms, include_archived, through, filters, selected):
     groups = []
-    for surface, kind in surfaces():
+    for surface, kind in selected:
         field = body_field(surface, kind)
         kind_words = set(kind.split("-")) if surface == "original" else set()
         keywords = [t for t in terms if t.removesuffix("s") not in kind_words]
@@ -246,16 +246,25 @@ def ranked_windows(
     stamp_body=False,
     filters=None,
     semantic_hints=None,
+    surfaces_to_search=None,
 ):
     limit = min(limit, CANDIDATE_LIMIT)
     if limit <= 0:
         return []
     terms = terms_for(question)
-    allowed = set(surfaces())
+    # Typed lookups read only the requested families. Hybrid search can also
+    # use the semantic index, spelling leads and implicit source links.
+    hybrid = surfaces_to_search is None
+    selected = tuple(
+        pair for pair in surfaces() if hybrid or pair[0] in surfaces_to_search
+    )
+    if not selected:
+        return []
+    allowed = set(selected)
 
     if direct_id := RECORD_LOOKUP.fullmatch(question.strip()):
         found = []
-        for surface, kind in surfaces():
+        for surface, kind in selected:
             qs = scope_rows(
                 rows(case, surface, kind, include_archived, through),
                 case,
@@ -277,7 +286,11 @@ def ranked_windows(
                     if len(found) >= limit:
                         break
         return found
-    meaning = list(_meaning(case, question, user, related, through, filters))
+    meaning = (
+        list(_meaning(case, question, user, related, through, filters))
+        if hybrid
+        else []
+    )
     # Retrieve each group of shortlisted originals in one scoped query. Keep
     # only the requested substrings, lengths and hashes of long text bodies.
     candidate_rows = {}
@@ -332,7 +345,9 @@ def ranked_windows(
     # about the source but point to different statements in a long original.
     scores = defaultdict(float)
     spans = defaultdict(list)
-    for _, key, positions in _lexical(case, terms, include_archived, through, filters):
+    for _, key, positions in _lexical(
+        case, terms, include_archived, through, filters, selected
+    ):
         if not (source := load(key)):
             continue
         item, loc = source
@@ -397,10 +412,10 @@ def ranked_windows(
         else:
             spans[key].append((offset, offset + len(excerpt)))
 
-    if variants := alternatives(case, question, terms, through):
+    if hybrid and (variants := alternatives(case, question, terms, through)):
         added = 0
         for _, key, positions in islice(
-            _lexical(case, variants, include_archived, through, filters), 12
+            _lexical(case, variants, include_archived, through, filters, selected), 12
         ):
             if key[0] == "finding" or not (source := load(key)):
                 continue
@@ -445,10 +460,11 @@ def ranked_windows(
     # hits points there. Neighbours are search leads and retain their own labels.
     neighbours = []
     cited_primaries = []
-    for key, _ in (suggestions + primaries)[:2]:
+    anchors = (suggestions + primaries)[:2] if hybrid else ()
+    for key, _ in anchors:
         item, loc = load(key)
         for neighbour in nearby_sources(
-            case, question, item, loc, include_archived, through
+            case, question, item, loc, include_archived, through, filters=filters
         ):
             if neighbour != key and load(neighbour):
                 choice = neighbour, starts.get(neighbour, [0])[0]

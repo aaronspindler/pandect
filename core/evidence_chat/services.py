@@ -231,7 +231,8 @@ def inspect_turn(turn, *, read=None):
         archived_dependencies = archived_finding_sources(turn.case).filter(
             finding__result_id=OuterRef("result_id")
         )
-        if turn.sources.exclude(available & ~Exists(archived_dependencies)).exists():
+        manifest = turn.sources.exclude(status="context")
+        if manifest.exclude(available & ~Exists(archived_dependencies)).exists():
             return None
     answer = turn.answer
     resolved = []

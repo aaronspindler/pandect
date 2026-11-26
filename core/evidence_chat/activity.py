@@ -15,6 +15,10 @@ STEPS = {
         "Searching for follow-up evidence",
         "Searched for follow-up evidence",
     ),
+    "search_evidence": ("Looking up source evidence", "Looked up source evidence"),
+    "search_findings": ("Looking up saved findings", "Looked up saved findings"),
+    "follow_source": ("Checking linked sources", "Checked linked sources"),
+    "read_timing": ("Checking saved timing reports", "Checked saved timing reports"),
     "answer": ("Preparing an answer", "Worked on a reply"),
     "select": (
         "Selecting evidence for a full review",
