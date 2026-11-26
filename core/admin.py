@@ -1,9 +1,11 @@
 from django.contrib import admin
+from django.contrib.admin.models import DELETION, LogEntry
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import F, Q
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from cases.admin_access import CaseScopedReadOnlyAdmin
+from cases.admin_access import CaseAdminCascadeMixin, CaseScopedReadOnlyAdmin
 
 from .models import (
     AnalysisArtifact,
@@ -14,6 +16,7 @@ from .models import (
     AnalysisRun,
     CaseAnalysisBatch,
     CaseSearchIndex,
+    ChatAnalysisProposal,
     ChatMatch,
     ChatSource,
     ChatTurn,
@@ -211,12 +214,63 @@ class GatewayRequestAdmin(CoreRecordAdmin):
 
 
 @admin.register(EvidenceChat)
-class EvidenceChatAdmin(CoreRecordAdmin):
+class EvidenceChatAdmin(CaseAdminCascadeMixin, CoreRecordAdmin):
+    delete_confirmation_max_display = 100
     list_display = ("title", "case", "created_at")
     list_filter = ("created_at",)
     ordering = ("-created_at", "id")
     search_fields = (*CoreRecordAdmin.search_fields, "title")
     fields = ("id", "case", "title", "created_by", "created_at")
+
+    def has_delete_permission(self, request, obj=None):
+        return super().has_delete_permission(request, obj) or (
+            request.user.has_perm("core.delete_evidencechat")
+            and self.has_view_permission(request, obj)
+            and (obj is None or obj.case.owner_id == request.user.pk)
+        )
+
+    def get_deleted_objects(self, objs, request):
+        # On confirmation POST, the parent acquires the case lock used by chat
+        # submission and retry before we check for work in progress.
+        deleted, counts, permissions, protected = super().get_deleted_objects(
+            objs, request
+        )
+        if (
+            not protected
+            and objs[0]
+            .turns.filter(
+                Q(status__in=(ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING))
+                | Q(
+                    analysis_proposal__status=ChatAnalysisProposal.Status.APPROVED,
+                    analysis_proposal__run__status__in=(
+                        AnalysisRun.Status.QUEUED,
+                        AnalysisRun.Status.RUNNING,
+                    ),
+                )
+            )
+            .exists()
+        ):
+            protected.append(
+                "Wait for the current reply or approved extraction to finish "
+                "before deleting this chat."
+            )
+        return deleted, counts, permissions, protected
+
+    def log_deletions(self, request, queryset):
+        # The title contains question text. Keep only the chat ID in the audit log.
+        content_type = ContentType.objects.get_for_model(self.model)
+        return LogEntry.objects.bulk_create(
+            [
+                LogEntry(
+                    user=request.user,
+                    content_type=content_type,
+                    object_id=str(chat.pk),
+                    object_repr=str(chat.pk),
+                    action_flag=DELETION,
+                )
+                for chat in queryset
+            ]
+        )
 
     def view_on_site(self, obj):
         return reverse("core:chat:detail", args=(obj.case_id, obj.pk))
