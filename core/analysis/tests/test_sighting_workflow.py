@@ -97,14 +97,9 @@ class SightingWorkflowTests(EvidenceViewTestMixin, TestCase):
             AnalysisRun.objects.filter(operation="sighting_group").count(), 1
         )
         before = plan_deletion(first, "person-location")
-        with (
-            patch(
-                "core.case_search.indexing.profile", return_value={"available": True}
-            ),
-            patch("core.case_search.indexing.add_sources") as add_sources,
-        ):
+        with patch("core.case_search.cloudflare.request") as external_search:
             process_run(run.pk)
-        add_sources.assert_not_called()
+        external_search.assert_not_called()
         result = AnalysisResult.objects.get(run=run)
         self.assertFalse(result.provenance["external_processing"])
         self.assertEqual(result.provenance["source_inputs"], run.inputs)

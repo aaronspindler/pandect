@@ -25,6 +25,7 @@ from text.analysis import deterministic as text
 from text.analysis import workflows as text_workflows
 from text.analysis.claim_comparison import COMPARISON_KINDS, compare_claim
 from text.analysis.claim_comparison import MAX_CHARACTERS as CLAIM_CHARACTERS
+from text.analysis.relationships import extract_relationships
 from text.analysis.shared import MAX_TEXT_CHARS
 from text.analysis.synthesis import MAX_CHARACTERS as SYNTHESIS_CHARACTERS
 from text.analysis.synthesis import synthesize
@@ -39,7 +40,6 @@ class Operation:
     version: str = "1"
     inference: str | None = None
     optional_inference: tuple[str, bool] | None = None
-    private_inference: bool = False
     geographic: tuple[str, str] | None = None
     authorize_worker: bool = False
     context_required: bool = False
@@ -52,13 +52,13 @@ PAIR_MESSAGE_OPERATIONS = frozenset(
 )
 INPUT_GUIDANCE = {
     "plate_ocr": (
-        "One retained JPEG or PNG image. Local geometric detection searches for "
-        "possible plates and reads their central text line. Misses and false "
+        "One retained JPEG or PNG image. Geometric detection searches for "
+        "possible plates. An approved model reads the central line. Misses and false "
         "candidates are possible; review every reading against the original."
     ),
     "native_text": (
-        "UTF-8 text, .eml email, or unencrypted PDF, up to 16 MiB. Local OCR "
-        "reads printed English on PDF pages without a text layer. Inspect "
+        "UTF-8 text, .eml email, or unencrypted PDF, up to 16 MiB. Cloudflare OCR "
+        "can separately read PDF pages without a text layer. Inspect "
         "uncertain or skipped pages against the original. Office formats "
         "are unsupported."
     ),
@@ -72,9 +72,9 @@ INPUT_GUIDANCE = {
         "are each limited to 16 MiB."
     ),
     "ocr": (
-        "Printed English in JPEG or PNG page images, processed locally. "
-        "Images stay on this server. Handwriting, mixed text, other languages "
-        "and direct PDF rendering are unsupported. Inspect extracted text "
+        "JPEG and PNG images or scanned PDF pages, read by the approved vision model. "
+        "Only prepared images are sent. Handwriting, mixed text, other languages "
+        "and poor scans may have incomplete coverage. Inspect extracted text "
         "against the original."
     ),
     "geographic_context": (
@@ -126,12 +126,11 @@ OPERATIONS = {
         compare_claim,
         COMPARISON_KINDS,
         inference="text",
-        private_inference=True,
         context_required=True,
         max_text_characters=CLAIM_CHARACTERS,
     ),
     "native_text": Operation(
-        "Extract document text", documents.native_text, ("document",), version="2"
+        "Extract document text", documents.native_text, ("document",), version="3"
     ),
     "image_metadata": Operation(
         "Inspect image metadata", image_metadata.image_metadata, ("image",), version="3"
@@ -146,7 +145,8 @@ OPERATIONS = {
         "Read text in images",
         image_ai.ocr,
         ("image", "document"),
-        version="6",
+        version="7",
+        inference="vision",
         authorize_worker=True,
     ),
     "plate_ocr": Operation(
@@ -154,7 +154,8 @@ OPERATIONS = {
         plate_ocr,
         ("image",),
         additional_on_evidence=True,
-        version="2",
+        version="3",
+        inference="vision",
         authorize_worker=True,
     ),
     "transcription": Operation(
@@ -199,6 +200,13 @@ OPERATIONS = {
         version="2",
         inference="text",
         optional_inference=("include_summary", True),
+        max_text_characters=MAX_TEXT_CHARS,
+    ),
+    "narrative_relationships": Operation(
+        "Suggest narrative relationships",
+        extract_relationships,
+        TEXT,
+        inference="text",
         max_text_characters=MAX_TEXT_CHARS,
     ),
     "content_events": Operation(
@@ -340,7 +348,7 @@ OPERATION_GROUPS = {
         "audio_metadata": (
             "Inspect recording properties and numerical signal intervals."
         ),
-        "ocr": "Compare printed text and inferred layout with the source image.",
+        "ocr": "Compare suggested text with the original image or scanned page.",
         "plate_ocr": "Compare possible plate readings and their source regions.",
         "transcription": (
             "Read candidate speech with recording timestamps and coverage gaps."
@@ -354,6 +362,7 @@ OPERATION_GROUPS = {
         "question_synthesis": (
             "Ask a question using a shared selection of text and findings."
         ),
+        "narrative_relationships": "Follow relationships to their original passages.",
         "entities": "Find identifiers and dates with the exact wording they came from.",
         "style_profiles": "Inspect descriptive writing measurements and examples.",
         "style_change": "Compare two writing samples and their coverage.",

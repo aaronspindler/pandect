@@ -20,7 +20,6 @@ from core.models import (
     AnalysisResult,
     AnalysisRun,
     CaseAnalysisBatch,
-    CaseSearchIndex,
     ChatAnalysisProposal,
     ChatMatch,
     ChatSource,
@@ -98,6 +97,10 @@ class AdminInspectionTests(TestCase):
     def test_project_models_have_an_admin_or_an_intentional_workflow(self):
         without_standalone_admin = {
             "cases.CaseMembership",  # Case inline
+            "core.HostedSearchIndex",  # Case settings and private index cleanup
+            "core.HostedSearchSource",  # Private index delivery cursor
+            "core.HostedSearchItem",  # Private indexing receipt
+            "core.NarrativeRelationship",  # Case relationship review
             "core.ChatAnalysisProposal",  # Reviewed in Evidence chat
             "core.ChatSelectionMember",  # Source-bound matching records
             "core.AnalysisReportIndex",  # Derived report discovery and validation cache
@@ -556,13 +559,10 @@ class AdminInspectionTests(TestCase):
                 self.assertFalse(type(child).objects.filter(pk=child.pk).exists())
         self.assertFalse(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
 
-        index = CaseSearchIndex.objects.create(
-            case=self.other_case, requested_by=self.viewer, profile="v1"
-        )
         self.client.force_login(self.operator)
         user_model = get_user_model()
         response = self.client.post(
             admin_url(user_model, "delete", self.viewer), {"post": "yes"}
         )
         self.assertEqual(response.status_code, 302)
-        self.assertFalse(CaseSearchIndex.objects.filter(pk=index.pk).exists())
+        self.assertFalse(user_model.objects.filter(pk=self.viewer.pk).exists())

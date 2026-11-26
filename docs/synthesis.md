@@ -39,7 +39,7 @@ limits. Retained dependency depth is limited to eight.
 Retained synthesis reruns use their processing route and the selected text and
 findings. External reruns require the case owner's current approval of the
 provider and model. Raw files are excluded. See
-[local analysis](local-analysis.md) and [external AI setup](analysis.md#external-ai-configuration).
+[processing boundaries](local-analysis.md) and [external AI setup](analysis.md#external-ai-configuration).
 
 Access and contributing originals are rechecked at enqueue, execution,
 publication and inspection. Missing sources/prior results withhold downstream
@@ -58,11 +58,11 @@ and abstention. Record model/runtime identity, latency, resource use, citation
 validity and interpretation errors. This guide claims no live qualification or
 deployment.
 
-Deliberately run the synthetic text-only harness against the configured private
-runtime, without database writes or external AI calls:
+Run the synthetic regression suite with the test settings. The suite exercises
+provider responses and citation validation with mocked Gateway requests:
 
 ```sh
-uv run --locked --env-file .env python manage.py evaluate_local_analysis --method question_synthesis > /tmp/synthesis-qualification.json
+uv run --locked python manage.py test text.tests.test_synthesis --settings=config.test_settings
 ```
 
 Prior-finding chains and representative case interpretation need separate evaluation.

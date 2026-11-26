@@ -27,11 +27,6 @@ def validate_output(data, sources, *, operation=None):
         size = len(json.dumps(data, allow_nan=False).encode())
     except ValueError, TypeError, RecursionError:
         raise AnalysisError("invalid_result") from None
-    if size > MAX_RESULT_BYTES and operation == "ocr" and data.get("visible_structure"):
-        from image.analysis.ai import omit_structure_at_result_limit
-
-        omit_structure_at_result_limit(data)
-        size = len(json.dumps(data, allow_nan=False).encode())
     if size > MAX_RESULT_BYTES:
         raise AnalysisError("result_limit")
     source_map = {str(x.id): x for x in sources}

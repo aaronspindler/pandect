@@ -5,7 +5,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
@@ -13,6 +13,8 @@ from django_tasks_db.models import DBTaskResult
 from core.analysis.forms import analysis_form
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
 from core.evidence.types import COMMUNICATION_KINDS
 from core.models import AnalysisRun
@@ -82,6 +84,7 @@ class MessageAnalysisSelectionTests(EvidenceViewTestMixin, TestCase):
                         self.assertFalse(forged.is_valid())
                         self.assertIn("sources", forged.errors)
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_service_rejects_calls_before_queueing_even_with_a_valid_message(self):
         message = {"kind": "text-message", "id": str(self.message.pk)}
         for operation in ("sessions", "comm_patterns", "session_summaries"):
@@ -96,12 +99,25 @@ class MessageAnalysisSelectionTests(EvidenceViewTestMixin, TestCase):
                             self.case.pk,
                             operation,
                             [message, {"kind": kind, "id": str(call.pk)}],
+                            **(
+                                external_grant_kwargs(self.case, operation)
+                                if operation == "session_summaries"
+                                else {}
+                            ),
                         )
         self.assertFalse(AnalysisRun.objects.exists())
         self.assertFalse(DBTaskResult.objects.exists())
         for operation in ("sessions", "comm_patterns", "session_summaries"):
             run, created = start_run(
-                self.users["owner"], self.case.pk, operation, [message]
+                self.users["owner"],
+                self.case.pk,
+                operation,
+                [message],
+                **(
+                    external_grant_kwargs(self.case, operation)
+                    if operation == "session_summaries"
+                    else {}
+                ),
             )
             self.assertTrue(created)
             self.assertEqual(run.inputs[0]["evidence_id"], str(self.message.pk))

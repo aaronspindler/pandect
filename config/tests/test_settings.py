@@ -51,15 +51,15 @@ class StartupTests(SimpleTestCase):
             ):
                 self.load_settings(PANDECT_TRUSTED_PROXY_COUNT=invalid)
 
-    def test_local_first_defaults_do_not_configure_public_services(self):
+    def test_defaults_leave_cloud_destinations_unconfigured(self):
         settings = self.load_settings()
         self.assertEqual(settings["PANDECT_MAP_TILE_URL"], "")
         self.assertEqual(settings["PANDECT_MAP_TILE_ORIGIN"], "")
         self.assertFalse(settings["PANDECT_GEOCODER_LOCAL"])
         self.assertFalse(settings["PANDECT_MAP_CONTEXT_LOCAL"])
-        self.assertEqual(settings["PANDECT_LOCAL_AI"]["text"]["url"], "")
-        self.assertEqual(settings["PANDECT_LOCAL_AI"]["transcription"]["url"], "")
-        self.assertEqual(settings["PANDECT_LOCAL_AI"]["token"], "")
+        self.assertFalse(settings["PANDECT_AI_GATEWAY"]["account"])
+        self.assertNotIn("PANDECT_LOCAL_AI", settings)
+        self.assertNotIn("PANDECT_DIRECT_AI", settings)
 
     def test_default_gateway_model_depends_on_provider_and_operation(self):
         workers = self.load_settings()["PANDECT_AI_GATEWAY"]
@@ -137,49 +137,9 @@ class StartupTests(SimpleTestCase):
         self.assertNotIn("daily_requests", gateway)
         self.assertEqual(gateway["max_request_bytes"], 8 * 1024**2)
         self.assertEqual(gateway["max_response_bytes"], 2 * 1024**2)
-        local = settings["PANDECT_LOCAL_AI"]
-        self.assertEqual(local["timeout"], 600)
-        self.assertEqual(local["max_request_bytes"], 8 * 1024**2)
-        self.assertEqual(local["max_response_bytes"], 2 * 1024**2)
-        self.assertEqual(local["text"]["context_tokens"], 16384)
-        self.assertEqual(local["max_output_tokens"], 4096)
 
-    def test_transcription_runtime_and_application_share_resource_bounds(self):
-        from inference.server import Runtime
-
-        settings = self.load_settings(
-            PANDECT_LOCAL_AI_TIMEOUT="1",
-            PANDECT_LOCAL_AI_MAX_REQUEST_BYTES="1",
-            PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES="1",
+    def test_stale_direct_keys_never_select_a_direct_route(self):
+        config = self.load_settings(
+            OPENAI_API_KEY="ignored", ANTHROPIC_API_KEY="ignored"
         )
-        with patch.dict(
-            os.environ,
-            {
-                "PANDECT_RUNTIME_MODEL": "synthetic-model",
-                "PANDECT_RUNTIME_MODEL_SHA256": "a" * 64,
-                "PANDECT_LOCAL_AI_TOKEN": "synthetic-token",
-            },
-            clear=True,
-        ):
-            runtime = Runtime()
-        local = settings["PANDECT_LOCAL_AI"]
-        self.assertEqual(runtime.timeout, local["timeout"])
-        self.assertEqual(runtime.max_request, local["max_request_bytes"])
-        self.assertEqual(runtime.max_response, local["max_response_bytes"])
-
-    def test_local_text_defaults_to_ollama_and_requires_explicit_pins(self):
-        defaults = self.load_settings()["PANDECT_LOCAL_AI"]["text"]
-        self.assertEqual(defaults["model"], "qwen3.5:9b")
-        self.assertEqual(defaults["runtime"], "")
-        self.assertEqual(defaults["sha256"], "")
-        self.assertNotIn("driver", defaults)
-        settings = self.load_settings(
-            PANDECT_LOCAL_TEXT_MODEL="qwen3.5:4b",
-            PANDECT_LOCAL_TEXT_RUNTIME="ollama@0.40.11",
-            PANDECT_LOCAL_TEXT_SHA256="a" * 64,
-        )
-        text = settings["PANDECT_LOCAL_AI"]["text"]
-        self.assertEqual(text["model"], "qwen3.5:4b")
-        self.assertEqual(text["runtime"], "ollama@0.40.11")
-        self.assertEqual(text["sha256"], "a" * 64)
-        self.assertEqual(text["url"], "")
+        self.assertEqual(config["PANDECT_AI_GATEWAY"]["text_provider"], "workers-ai")

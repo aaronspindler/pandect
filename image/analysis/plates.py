@@ -1,4 +1,4 @@
-"""Source-linked local plate search; readings remain unverified suggestions."""
+"""Source-linked plate search using approved recognition of prepared crops."""
 
 from core.analysis.errors import AnalysisError
 from core.analysis.sources import output, source_item, unsupported_source
@@ -8,7 +8,7 @@ from image.analysis import MIN_PLATE_LIKENESS
 MAX_PREVIEW_BYTES = 2 * 1024 * 1024
 
 
-def plate_ocr(sources, parameters, *, authorize):
+def plate_ocr(sources, parameters, *, authorize, client):
     if len(sources) != 1 or sources[0].kind != "image" or sources[0].derived_result_id:
         raise AnalysisError("plate_image_required")
     source = sources[0]
@@ -52,7 +52,9 @@ def plate_ocr(sources, parameters, *, authorize):
         weak = region["plate_score"] < MIN_PLATE_LIKENESS
         weak_regions += weak
         for attempt_index, attempt in enumerate(region["attempts"], 1):
-            text = attempt["text"]
+            text, incomplete = ("", True)
+            if attempt.get("image"):
+                text, incomplete = client.read_image(attempt["image"], plate=True)
             # The single-line plate profile needs at least three letters/digits.
             # Preserve shorter engine output as context, never invent characters.
             candidate = (
@@ -71,7 +73,7 @@ def plate_ocr(sources, parameters, *, authorize):
                 "Weak plate region": weak,
                 "Plate region number": region_index,
                 "Plate score signals": region["score_details"],
-                "OCR engine": parsed["engine"],
+                "OCR model": parameters["_execution"]["model"],
                 "Detection method": parsed["detector"],
                 "Preparation parser": parsed["version"],
                 "Input SHA-256": checksum,
@@ -91,9 +93,7 @@ def plate_ocr(sources, parameters, *, authorize):
                 "Scale after rectification": attempt["scale"],
                 "White border pixels": attempt["border"],
                 "Prepared pixel size": [attempt["width"], attempt["height"]],
-                "Segmentation": "Single line (7)",
-                "Word dictionaries": "Disabled",
-                "Minimum word confidence (0–100)": attempt["confidence"],
+                "Incomplete recognition": incomplete,
             }
             if not candidate:
                 values["Short OCR output"] = text or "None"
@@ -130,21 +130,19 @@ def plate_ocr(sources, parameters, *, authorize):
                         "No candidate plate regions found; inspect the original"
                     ),
                     "Detection method": parsed["detector"],
-                    "OCR engine": parsed["engine"],
+                    "OCR model": parameters["_execution"]["model"],
                     "Input SHA-256": checksum,
                 },
             )
         )
     warnings = [
-        "Local plate search returns suggestions. Rectangular objects can be mistaken "
+        "Plate readings are model suggestions. Rectangular objects can be mistaken "
         "for plates, and plates can be missed. Compare every reading with the "
-        "original; a reading does not establish a vehicle's identity or ownership. "
-        "Engine scores are not probabilities. Alternative readings are retained "
-        "without resolving conflicts or substituting characters."
+        "original. A reading cannot establish a vehicle's identity or ownership."
     ]
     warnings.append(
-        "Plate-likeness is an uncalibrated 0–100 heuristic, separate from OCR "
-        f"reading scores. Regions below {MIN_PLATE_LIKENESS} are hidden by default "
+        "Plate-likeness is an uncalibrated 0–100 heuristic. "
+        f"Regions below {MIN_PLATE_LIKENESS} are hidden by default "
         "and excluded from extracted text. Show weak regions to inspect their "
         "retained readings and previews. Filtering can hide real plates."
     )
@@ -178,7 +176,7 @@ def plate_ocr(sources, parameters, *, authorize):
             "Weak plate regions": weak_regions,
             "Default plate filter threshold": MIN_PLATE_LIKENESS,
             "Text candidates": readings,
-            "Processing location": "This server",
+            "Processing location": "Cloudflare AI Gateway",
             "Search limit reached": parsed["limited"],
         },
     )

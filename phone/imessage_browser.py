@@ -20,7 +20,6 @@ from people.models import Person
 from phone.models import TextMessageEvidence
 from phone.tests.test_imessage_views import (
     SYNTHETIC_MESSAGE_GATEWAY,
-    SYNTHETIC_MESSAGE_LOCAL,
     message_csv,
     whatsapp_csv,
 )
@@ -168,12 +167,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
 
     @override_settings(
         PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY,
-        PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,
     )
     def test_no_javascript_upload_review_people_and_import(self):
         self.db(external_grant_kwargs, self.case, "content_events")
-        self.case.ai_backend = Case.AIBackend.GATEWAY
-        self.db(self.case.save, update_fields=("ai_backend",))
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -611,9 +607,8 @@ class IMessageImportBrowserTests(BrowserTestCase):
 
     @override_settings(
         PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY | {"account": ""},
-        PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,
     )
-    def test_private_analysis_runs_automatically_without_external_approval(self):
+    def test_deterministic_processing_continues_with_external_ai_disabled(self):
         for engine in self.engines:
             account = Person.objects.create(
                 case=self.case, first_name=f"Account {engine}"
@@ -624,7 +619,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
             document = DocumentEvidence.objects.create(
                 case=self.case,
                 uploaded_by=self.owner,
-                title="Synthetic local AI import",
+                title="Synthetic import with external AI disabled",
                 file=SimpleUploadedFile("messages.csv", message_csv(), "text/csv"),
             )
             preview, _ = start_run(
@@ -683,7 +678,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
-                    self.capture(page, engine, f"local-ai-review-{width}-{height}")
+                    self.capture(page, engine, f"disabled-ai-review-{width}-{height}")
                 page.get_by_role("button", name="Import messages", exact=True).click()
                 page.wait_for_url(re.compile(r"/imessage/[0-9a-f-]+/(?:#.*)?$"))
                 final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
@@ -712,9 +707,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                             ).values_list("parameters__backend", flat=True),
                         )
                     ),
-                    {"local"},
+                    set(),
                 )
-                self.capture(page, engine, "local-ai-imported")
+                self.capture(page, engine, "disabled-ai-imported")
 
     def test_progress_completion_opens_prepared_review(self):
         existing = Person.objects.create(case=self.case, first_name="Existing person")

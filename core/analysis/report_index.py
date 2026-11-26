@@ -7,8 +7,6 @@ Keep v1 available to the existing-result migration.
 
 import math
 
-from django.contrib.postgres.search import SearchVector
-
 TIMING_FIELDS = (
     "records",
     "timed_records",
@@ -175,10 +173,6 @@ V1_LABELS = {
     "window_minutes": "Comparison window (minutes)",
     "median_response_interval_seconds": "Median response interval (seconds)",
 }
-
-
-def report_words():
-    return SearchVector("text", config="english")
 
 
 def measurements_v1(operation, metrics):

@@ -23,9 +23,9 @@ All cases searches accessible names/descriptions and filters owned/shared cases.
 
 **Search this case** at the top of each case screen finds evidence, people,
 vehicles, conversations, places, saved trips and findings. Results link to
-their sources. For example, paste a full evidence identifier to open its record
-or use a quoted phrase to find it in a retained transcript. With meaning search
-enabled, choose **Search by meaning** to find passages that use different wording.
+their sources. With external AI enabled, Cloudflare AI Search finds matches in
+the private case index. You can browse and filter retained records while external
+AI is disabled.
 See the [investigator interface](interface-design.md) for shortcuts and filters.
 
 Viewers inspect material and download originals. Editors also add/edit records
@@ -70,18 +70,6 @@ marks and notes.
 
 ## Case settings
 
-Under **Prepare conversations and documents for search**, the owner can review
-estimated work before separately enabling conversation summaries and document or
-transcript briefs. The estimate counts eligible saved conversations, messages,
-sources and sections. Background preparation queues missing work against the
-selected AI service. New groupings and retained text or extractions are checked
-as they arrive. **Check for missing work** also revisits recoverable failures.
-An external service requires a current case approval for its destination.
-Workers recheck the selected destination, model and standing approval. A changed
-service requires a fresh owner review to use it for generation. Disabling generation stops subsequent requests and publication.
-Previously completed suggestions retain their history. Search can use them while
-their exact underlying originals remain accessible.
-
 Settings leads with collaborators and invitations. Owners open **Rename case**
 to edit the name. Stale edits reopen the form and show the draft beside newer
 values for **Save reviewed changes**.
@@ -90,99 +78,13 @@ records, including archived evidence. There is no in-app undo; user accounts
 remain. See [operations](operations.md) and [evidence](evidence.md) for storage
 and backup limits.
 
-## AI backend
+## External AI and hosted search
 
-The case owner chooses **Local AI** (the default) or **External AI** under
-**Case settings → AI processing**. The selection applies to new automatic checks,
-evidence reprocessing, and on-demand AI checks without a dedicated service.
-Each check uses the selected backend when available. Choose the processing
-location, models and reasoning effort together, then use **Save changes**.
-Pandect opens a review when the selection enables a new external destination.
-Built-in checks and geographic services have their own requirements.
+Case owners can **Enable external AI** in Case settings. Every case starts with external AI disabled. Review the Cloudflare account, production namespace, investigation Agent URL, and model destinations before approving. Enabling creates a private AI Search instance for this case and queues indexing of active evidence passages and findings. Search queries, investigation questions, and relevant excerpts go through the approved Cloudflare services. Case Search also indexes source descriptions, reports, people and contact details, reported social accounts, vehicles, places of interest and investigator notes.
 
-Changing the selection applies to new requests. Queued requests and saved
-results keep their original service. Revoke external approval to stop subsequent
-requests to approved external destinations, including requests from queued work.
+Use **Models by task** to assign a model and supported reasoning effort. Each provider and material type has a separate approval. Text approvals cover case passages, questions, and source references. Vision approvals cover prepared images, plate crops and scanned PDF pages. Transcription approvals cover recording chunks. Inspect **Approved destinations** to review pending providers or revoke one. Geographic lookup uses its own approval.
 
-## External analysis approval
-
-Under **Case settings → AI processing**, choose a model for each task or
-keep its installation default. For supported models, choose the task's **Effort**
-or leave it on **Default**. **Save changes** applies all assignments together.
-On first use of a destination, review the provider that receives the material,
-the gateway where applicable, and the transfer and retention details.
-**Approve and save** applies the reviewed settings. Cancelling keeps the
-previous settings.
-
-Text approval covers the six listed text tasks, including Evidence chat
-questions, necessary follow-up context, relevant evidence excerpts and source
-references. Sharing recording chunks requires its own approval. Change models or
-effort within an approved destination and data scope. A change to the receiving
-service, gateway identity or transfer terms opens a new review. Earlier
-model-specific approvals continue to cover the settings originally reviewed.
-
-Use **Manage** beside the approval summary to inspect or revoke access. Each
-outbound request rechecks permission. A queued check whose model or effective
-effort has changed stops before its next send. Start another attempt to use the
-new assignment. Revocation stops subsequent transfers. Provider retention applies
-to requests already sent.
-
-New cases start without external approval. Owners and editors can start
-**Reprocess evidence** for retained material.
-
-## Hosted meaning search
-
-Under **Case settings → Meaning search**, the verified owner reviews the Cloudflare
-account and gateway, OpenAI key alias and embedding model. **Approve and start
-indexing** queues eligible active passages and covers future additions and
-restorations. The service also receives the text of queries that case members
-explicitly submit with **Search by meaning**. Keyword searches stay in Pandect.
-
-**Processing → Meaning-based search** shows indexing progress and how to resume stopped
-work. Changing the embedding destination requires a fresh approval. **Revoke
-meaning search approval** stops subsequent transfers, including queued work.
-Revocation preserves retained evidence. Search approval is independent of the
-case’s AI backend and external analysis approval.
-
-With a current meaning-search approval, the owner can also enable hosted
-meaning searches for Evidence Chat. The composer identifies the embedding
-destination. Chat can send a short search query derived from the question and
-relevant context, including terms from a source or earlier turn used to
-resolve a follow-up. Search queries use the existing passage index. Turning
-this permission off stops subsequent hosted chat searches and leaves the
-case's ordinary meaning-search and indexing approval in place. Earlier
-turns keep the transfer scope they had at submission.
-
-## Hosted passage ranking
-
-Under **Case settings → Hosted passage ranking**, the owner can approve the
-displayed Cloudflare account, gateway and Workers AI ranking model. Difficult
-chat questions and explicitly submitted related searches can send up to 200
-characters of a question and 24 candidate excerpts of up to 900 characters
-each. Excerpts may contain personal or sensitive case information. The scores
-order the originals. Gateway payload logging and cache reuse are disabled.
-Review provider retention and configure the gateway accordingly.
-
-This approval is independent of meaning search, background summaries and
-the answer model. Revoking or changing the destination prevents subsequent
-ranking transfers under the old grant, including queued turns.
-[Reranking configuration](local-analysis.md#optional-passage-ranking)
-
-## Evidence chat source selection
-
-If the operator configures `OPENAI_API_KEY`, a case owner can open **Case
-settings → Evidence chat source selection** and choose **Approve OpenAI source
-selection**. Each case starts with this permission off. Approval allows the
-worker to send a harder question and up to eight shortlisted source types,
-labels (up to 120 characters) and excerpts (up to 200 characters) directly to
-`gpt-6-luna` at `https://api.openai.com/v1/decisions`. This also applies when
-the selected answer model is local. The OpenAI account's billing and retention
-settings apply. The chat composer shows the transfer before submission.
-
-Revoking approval stops subsequent routing transfers. A turn submitted before
-approval, or under an earlier approval, can continue through ordinary chat.
-The routing choice prioritizes a source. The investigator still controls
-whether to start analysis. [OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
+**Disable external AI** stops new hosted work, invalidates pending AI work and queues deletion of the private search instance. Saved results, chats and source citations remain available to authorized case members. Native document extraction, metadata, imports and deterministic analysis remain available. Re-enabling requires current owner approval. Operators configure endpoints and credentials for both the web application and the worker. See [AI Gateway settings](analysis.md#external-ai-configuration).
 
 ## Account settings
 

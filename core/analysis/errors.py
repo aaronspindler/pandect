@@ -33,6 +33,13 @@ MODEL_VALIDATION_MESSAGES = {
 
 
 ERROR_MESSAGES = {
+    "chat_agent_not_configured": (
+        "Ask the operator to configure the Cloudflare investigation Worker."
+    ),
+    "chat_agent_cutover": "Ask a new question to use the Cloudflare agent.",
+    "chat_agent_unavailable": (
+        "The Cloudflare investigation service is unavailable. Retry this question."
+    ),
     **MODEL_VALIDATION_MESSAGES,
     "imessage_invalid_format": (
         "This file does not match a supported message CSV profile. "
@@ -95,58 +102,20 @@ ERROR_MESSAGES = {
         "to check the selected service and model, then start another run to "
         "record the current settings."
     ),
-    "local_ai_not_configured": (
-        "Local AI processing is unavailable. Ask the operator to configure "
-        "the private runtime and its verified model, then start another run."
-    ),
-    "local_ai_model_changed": (
-        "The local runtime or model differs from this run's retained settings. "
-        "No evidence was submitted to a replacement model. Ask the operator "
-        "to check its configuration, then start another run."
-    ),
-    "local_ai_authentication": (
-        "Local runtime authorization failed. Ask the operator to check "
-        "its access token before starting another run."
-    ),
-    "local_ai_busy": (
-        "The local runtime is busy or not ready. Wait before starting another run."
-    ),
-    "local_ai_unavailable": (
-        "The local runtime could not finish within the allowed time. "
-        "Ask the operator to check its availability and resources, then "
-        "start another run. Evidence was not sent to a cloud service."
-    ),
-    "local_ai_invalid_input": (
-        "The selected content is unsupported by the local runtime. "
-        "Review the supported input profile before starting another run."
-    ),
-    "local_ai_invalid_response": (
-        "The local AI output did not pass validation. No unvalidated "
-        "result was published."
-    ),
-    "local_ai_input_limit": (
-        "The selected content exceeds the local runtime request limit. "
-        "Choose a smaller source selection."
-    ),
-    "local_ai_output_limit": (
-        "The local runtime response exceeded the allowed size. "
-        "Choose a smaller source selection."
-    ),
-    "local_ai_context_limit": (
-        "The complete request and output allowance exceed the local model's "
-        "context window. Choose fewer or shorter sources; content was not truncated."
-    ),
-    "ocr_not_installed": (
-        "Local text extraction is unavailable. Ask the operator to install "
-        "Tesseract with its English language data, then start another run."
-    ),
-    "ocr_failed": (
-        "Local text extraction failed. Ask the operator to check Tesseract "
-        "and its English language data, then start another run."
-    ),
-    "ocr_invalid_output": (
-        "Local OCR returned invalid regions. No result was published."
-    ),
+    # Keep historical result pages readable after retiring the old runtime.
+    "local_ai_not_configured": "The former local AI service was unconfigured.",
+    "local_ai_model_changed": "The former local model no longer matched its pin.",
+    "local_ai_authentication": "The former local service rejected authorization.",
+    "local_ai_busy": "The former local service was busy.",
+    "local_ai_unavailable": "The former local service was unavailable.",
+    "local_ai_invalid_input": "The former local service rejected the selected input.",
+    "local_ai_invalid_response": "The local model response failed validation.",
+    "local_ai_input_limit": "The request exceeded the former model input limit.",
+    "local_ai_output_limit": "The response exceeded the former model output limit.",
+    "local_ai_context_limit": "The request exceeded the former model context limit.",
+    "ocr_not_installed": "The former OCR engine was unavailable.",
+    "ocr_failed": "The former OCR engine could not complete this run.",
+    "ocr_invalid_output": "The former OCR engine returned invalid regions.",
     "gateway_not_configured": (
         "External AI processing is not configured. Ask the operator to "
         "configure its credentials and supported models."

@@ -8,50 +8,16 @@ calls have nothing to decode/transcribe; supplied transcripts remain independent
 
 | Operation | Supported input | Output and important limits |
 | --- | --- | --- |
-| Extract document text | UTF-8 with optional BOM, individual `.eml` files, or unencrypted PDF | Line/page anchors. UTF-8 BOM removal is recorded. PDF pages with usable text retain native text. Other pages are rendered and checked with local printed-English OCR. Office formats are unsupported. |
+| Extract document text | UTF-8 with optional BOM, individual `.eml` files, or unencrypted PDF | Line/page anchors. UTF-8 BOM removal is recorded. PDF pages with usable text retain native text. Pages without native text are flagged for the separate approved OCR operation. Office formats are unsupported. |
 | Image metadata | JPEG and single-frame PNG | Decoded dimensions, raw EXIF/XMP, orientation, device/software claims, capture-time and GPS candidates. An absent timezone is left absent. Raw values stay available alongside interpretations. Multi-picture JPEGs inspect only the primary image with explicitly partial coverage. |
 | Audio metadata | [Supported WAV or AAC-in-M4A recording](original-previews.md#recordings) | Decoded duration, sample rate, channels and codec. Includes numerical RMS and one-second digital-zero/full-scale sample observations. Supplied values remain separate, with discrepancies disclosed. |
-| Read text in images | JPEG/PNG source or separately retained page image, printed English | Searchable OCR lines and word-anchored candidates for text blocks, rows, labelled fields and apparent messages. Complex layouts can have several readings. Handwriting, mixed text and other languages are unsupported. Use **Extract document text** for PDFs. |
-| Find vehicle plates | One retained JPEG/PNG image | Local geometric region detection and three Tesseract readings per possible plate. Crops, source rectangles, processing settings and engine scores remain reviewable. This is a bounded heuristic for roughly horizontal rectangular plates with a central Latin text line; other shapes, scripts and layouts can be missed. |
+| Read text in images | JPEG/PNG source or scanned PDF page, printed English | Candidate transcription with an exact source or one-based page reference. The model can miss or misread characters. |
+| Find vehicle plates | One retained JPEG/PNG image | Geometric detection and a model reading of a prepared crop for each possible plate. Crops, source rectangles, preparation details and detection scores remain reviewable. This is a bounded heuristic for roughly horizontal rectangular plates with a central Latin text line; other shapes, scripts and layouts can be missed. |
 | Transcription | [Supported WAV or AAC-in-M4A recording](original-previews.md#recordings), English input | Candidate text with source recording intervals and original-timeline chunk offsets. No speaker identity or diarization. |
 
-Tesseract/English data runs entirely on the worker, without credentials, network
-requests or remote fallback. Uploads and **Run checks again** queue image metadata,
-OCR and plate search; successful ordinary OCR queues identifier/date/keyword
-checks on that exact extraction. Current upload and reprocessing batches also
-recognize JPEG/PNG page images retained as Documents. **Read text in images**
-can be run manually on either evidence type.
+Uploads queue applicable deterministic file checks. With approved vision processing, image uploads also queue printed-English OCR and plate search. PDF documents queue native extraction and separate vision OCR for scanned pages. Search can index the extracted passages, and follow-up text analysis records the exact extraction it used.
 
-`.jpg`/`.jpeg` support includes 48 MP iPhone RAW exports saved as JPEG within
-byte/pixel limits. MPO previews/metadata/OCR inspect only the primary image,
-explicitly reporting partial coverage; downloads preserve every embedded picture.
-Animated PNG and native RAW decoding remain unsupported.
-
-Only **Printed English** is offered; historical results stay readable. Metadata
-version 3/OCR version 5 include larger JPEGs and primary-image handling. XMP
-interpretation ignores/counts terminal NULs while retaining raw claims; malformed
-XML or DTD/entity-bearing packets remain uninterpreted. OCR summaries separately
-count recognized regions, coverage and unsupported inputs, explicitly reporting
-no text, engine version and language. Queued old methods fail recoverably;
-start a new run without rewriting parameters/history.
-
-Tesseract scores are uncalibrated engine scores; each line keeps its minimum
-word score, with scores below 80 producing partial coverage. English selection
-is not language detection. High scores cannot rule out missed regions, handwriting
-or scripts. No text is partial/unresolved, never proof of blankness. Check against
-originals. Ordinary OCR can miss angled/small text, including plates; the separate
-plate profile is below. Synthetic printed images test real recognition; engine
-fixtures cover failures/publication, without establishing real-evidence accuracy.
-Automatic transcription uses the [case's selected AI backend](cases.md#ai-backend)
-when available: private whisper.cpp or case-approved Cloudflare Workers AI. The
-saved transcript supplies automatic text analysis. Routine inference is mocked. See
-[transcription qualification](local-analysis.md#transcription-qualification).
-Private Whisper timestamps may round the final boundary by up to 10 milliseconds.
-Saved playback anchors use the exact recording boundary and retain the reported
-model timestamp when clipped.
-Transcript text stays searchable as extracted content and opens at its saved
-source anchors. The findings catalogue surfaces timed segments flagged for
-uncertain speech so an investigator can check the audio.
+Only the primary picture in a multi-picture JPEG is inspected. Missing and uncertain text needs inspection against the original. Recording transcription sends bounded audio chunks to the [case-approved Cloudflare AI Gateway destination](cases.md#external-ai-and-hosted-search). Timed transcripts retain original recording intervals and chunk boundaries.
 
 ## Email extraction
 
@@ -78,115 +44,20 @@ case settings govern any later AI analysis of the retained text.
 
 ### Visible structure in images
 
-Open **Visible structure** on an image or document-page OCR result to inspect
-apparent messages, receipt rows, labelled fields and text blocks. Each field
-points to the words that support it on the private recognition preview. Its
-score is the lowest Tesseract word score for that field. Original line findings
-retain the engine's reading order. The layout view uses word positions and
-spacing to suggest groups and reading order.
-
-Keep both readings when text could run across rows or down columns. A clipped
-edge, competing labels, or a missing cell can leave a candidate incomplete.
-A message body can span aligned lines in one OCR paragraph. Nearby text with
-an unclear boundary stays separate. Misaligned cells between receipt rows keep
-their word regions and have no assigned column.
-A screenshot can imitate any interface. Participant and time labels describe
-visible text only. They do not establish an account, message time, thread or
-reply. Check the cited regions before interpreting a value or attribution.
-
-OCR version 6 saves these candidates in the same result as the original OCR
-lines. Search and subsequent text analysis use the lines once. Earlier results
-retain their saved format. Run OCR again to obtain a new version for an older
-image. Layout is bounded to 256 OCR lines and 1,024 words per source, with
-2 MiB for detailed layout entries per run and a 4 MiB total result limit. Omitted structure
-is disclosed with partial coverage. If a preview was omitted, the word
-coordinates and source link remain available for retained candidates.
-
-Local recognition checks use generated printed-English chat, receipt, form and
-mildly skewed JPEG page fixtures. They check literal readings and grouping.
-For each expected word, the intersection of its detected and known ink boxes
-must cover at least half their union. Controlled engine outputs exercise low scores,
-missing cells, repeated labels, cropped words and ambiguous columns. These
-checks cover the fixture conditions. Performance on arbitrary photographs,
-handwriting or interfaces has not been established.
+Older OCR results with saved layout retain their word spans, reading orders, confidence scores and private previews. The current vision method returns candidate text anchored to the original image or PDF page.
 
 ### Vehicle plate candidates
 
-Upload/**Run checks again** includes plate search. To run it separately, open
-**Case Tools → Analysis methods → Find vehicle plates** and select one original.
-Originals, vehicle records and earlier results remain unchanged.
-
-Version 2 uses headless OpenCV on a metadata-free preview up to 2048 pixels on
-its longest side, finding convex roughly horizontal quadrilaterals. It inspects
-1,000 contours at most, suppresses duplicate outlines, retains up to five regions and
-discloses reached limits. Geometric candidates are untrained: signs/windows can
-match; detecting nothing does not establish that no plate is present.
-
-Regions map back to original unrotated pixels and are cropped at original
-resolution, perspective-corrected within 1024 × 512 pixels. Three variants read
-the central 22–80% vertical band: 2× full width, then 2×/3× with 2% horizontal
-insets. Grayscale autocontrast, Lanczos resizing and a 20-pixel white border
-precede quality-95 JPEG encoding. Before borders, input is capped at 1200 × 400.
-English single-line Tesseract (`--psm 7`, word dictionaries disabled) makes at
-most 15 calls within parser CPU/memory/output/time limits.
-
-**Plate-likeness** is separate from OCR scoring. The fixed `plate-likeness.v1`
-0–100 heuristic awards up to 20 points for rectangularity/aspect, 60 for character
-rows, ten for readability and ten for variant agreement. Character-row analysis
-removes the first recognition JPEG's border, uses both Otsu polarities, component
-size/coverage and median baseline deviation, requiring 3–12 components and bounded
-foreground density. Agreement ignores ASCII case/punctuation without changing
-retained readings.
-
-This weighted ranking is neither a probability nor trained classification.
-Regions below 50 are hidden; **Show weak regions** reveals readings, scores,
-signals and private previews. Direct links reveal weak findings at their saved
-numbers. Downloads retain every finding. Signs may pass, and blurred, obscured,
-or unfamiliar plates may fail. No general accuracy is established.
-
-Above-threshold readings with at least three ASCII letters/digits become searchable
-candidates, preserving punctuation/conflicts. Weak OCR and shorter text remain
-context, excluded from search, highlights and extraction inputs. Unscored historical
-results keep their presentation; queued version 1 needs a new run. Outcomes are
-always **Partial**, because detection cannot establish exhaustive coverage.
-Candidates never update vehicles or establish identity, ownership, presence or
-association.
-
-Readings retain corners/rectangles, crop/resize settings, parser/detector/engine
-versions, minimum word scores and original/recognition-JPEG hashes. Private crops
-appear beside text; **Show region on source image** opens original-region previews
-through authorized artifact routes and immutable history. Parser crop previews
-allow 1 MiB within the cumulative 2 MiB retained-preview budget. Omissions retain
-readings/provenance with disclosure. No character substitution, jurisdiction
-guessing or automatic conflict resolution occurs. MPO searches only the primary.
+A bounded OpenCV step detects up to five roughly rectangular regions. It scores geometry and the alignment of character-like connected components, then rectifies and prepares a central text crop. The approved vision model receives the prepared JPEG. Each reading records that JPEG's checksum, the original checksum and the normalized original rectangle. The private crop and source preview are available within the artifact budget. A weak geometric candidate retains its reading for review and contributes no searchable text. Review every candidate against the original.
 
 ### Other extraction anchors
 
 PDF findings open the original at the cited one-based page. Native content-stream
 order may differ from visual order. When a page already has usable native text,
 extraction preserves it and does not search separately for text inside images on
-that page. Pages without native text use a local PDFium rendering and Tesseract
-recognition on the worker. They retain candidate text, engine and renderer
-versions, and the lowest word score when any words were recognized. Check candidate
-text against the original. Low scores, missing text and skipped pages appear as
-partial coverage. No recognized text leaves the page contents unresolved.
+that page. A separate approved OCR run renders only scanned pages, recording the PDFium version, source-page anchor, submitted JPEG checksum and model. The original remains in case storage.
 
-Version 2 of **Extract document text** adds this PDF OCR path. Existing results
-remain readable. On an earlier result or a partial extraction, an investigator
-can run the current method again. For an individual page beyond PDF OCR limits,
-an investigator can retain a separate JPEG/PNG page image with its source noted
-and run **Read text in images**.
-
-OCR prepares a JPEG up to 2048 pixels long, excluding EXIF/XMP and compositing
-transparency on white. Normalized rectangles use original **unrotated pixels**;
-resizing applies no orientation/cropping/rotation correction. Findings retain
-original dimensions/preparation version and separate unsupported/unrecognized
-input from text.
-
-Region previews reuse that exact JPEG for alignment, retaining up to 2 MiB decoded
-preview bytes per run. Omitted previews carry warnings without changing text or
-coverage. On the result list, **Compare extracted text with the image** opens
-the region overlay. Individual findings retain the marked region and source link.
+Image recognition prepares a JPEG up to 2,048 pixels on its longest side. Preparation strips EXIF/XMP and composites transparency on white. A check can read at most 16 images or scanned pages, and records omitted sources or pages as coverage gaps.
 
 EXIF/XMP are unverified claims. Times without offsets never acquire UTC; original
 and modified times stay separate. Invalid GPS remains raw without coordinates.
@@ -210,7 +81,7 @@ attachment-manifest hashes have different domains.
 
 Fresh isolated-mode Python parsers receive stdin bytes without case records,
 paths, Django settings or provider secrets. stderr is discarded; safe codes replace
-exceptions. Workers kill/reap process groups, including OCR children, after 20
+exceptions. Workers stop and reap parser process groups after 20
 seconds. CPU allows 15 seconds; core dumps are disabled and descriptors bounded.
 Output uses a private, file-size-limited temporary file, read to 8 MiB plus one
 byte and closed on success/failure. Linux enforces 1 GiB address space; macOS
@@ -222,26 +93,10 @@ of decoded audio. Decompression warnings fail closed. Unsupported encodings, enc
 PDFs, malformed/truncated files and limits produce visible outcomes/recoverable
 failures, never replaced originals or incomplete publication labelled complete.
 
-PDF OCR renders one page at a time at up to 288 DPI and 3,072 pixels on the
-longest side. It stops scheduling more pages after 12 seconds per document or
-45 seconds elapsed in a multi-document run, and retains any successfully read
-pages. The existing 20-second hard limit still applies to each isolated parser.
-
-Resource isolation is not an OS security sandbox. Confine unprivileged workers,
-private storage and networking. Tesseract receives prepared JPEG stdin, never
-paths/input lists, with 15-second calls, one thread, bounded private stdout and
-discarded stderr. Parser environments exclude secrets. Missing engines/English
-data yield safe recovery instructions, never remote fallback.
-
-Other inference uses shared pinned private runtimes or separately approved
-[external AI](analysis.md#external-ai-configuration). The inference client checks
-access immediately before and after requests. Shared runs handle recovery,
-revocation and atomic publication, retaining parser/model/source versions.
+PDF OCR renders one page at a time in the isolated parser. The prepared pixels are submitted separately through [AI Gateway](analysis.md#external-ai-configuration). The gateway client rechecks current case access, source eligibility, owner approval and the pinned execution configuration before sending each request. The worker rechecks these conditions before publishing the result.
 
 Primary references:
 
 - [pypdf extraction/content-stream limits](https://pypdf.readthedocs.io/en/stable/user/extract-text.html).
 - [Pillow metadata](https://pillow.readthedocs.io/en/stable/reference/Image.html) and [parser security](https://pillow.readthedocs.io/en/stable/handbook/security.html).
 - [Workers AI Whisper profile](https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/).
-- [Tesseract command line/TSV](https://tesseract-ocr.github.io/tessdoc/Command-Line-Usage.html).
-- [Tesseract installation/data](https://tesseract-ocr.github.io/tessdoc/Installation.html).

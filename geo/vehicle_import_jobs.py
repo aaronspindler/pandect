@@ -448,6 +448,9 @@ def _publish(batch, started):
                 item._prepare_original()
                 items.append(item)
             VehicleLocationEvidence.objects.bulk_create(items, batch_size=CHUNK_SIZE)
+            from core.case_search.indexing import add_sources
+
+            add_sources(case.pk, "vehicle-location", [item.pk for item in items])
         _authorize(batch)
         current.status = "complete"
         current.completed_at = current.finished_at = timezone.now()

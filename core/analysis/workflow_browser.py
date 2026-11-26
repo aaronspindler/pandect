@@ -16,8 +16,10 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
 from core.analysis.sources import source_id
-from core.analysis.tests.test_execution import LOCAL
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisRun, CaseAnalysisBatch
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from geo.trip_jobs import process_trips
@@ -115,8 +117,9 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
         page.evaluate("document.documentElement.style.fontSize = ''")
         page.set_viewport_size({"width": 1440, "height": 900})
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_compare_claim_with_keyboard_and_no_javascript(self):
+        external_grant_kwargs(self.case, "content_events")
         claim_text = "Booking R41 was cancelled."
         claim = TextMessageEvidence.objects.create(
             case=self.case,
@@ -179,7 +182,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(page.get_by_text("Queued", exact=True).first).to_be_visible()
                 run_id = UUID(page.url.rstrip("/").split("/")[-1])
                 with patch(
-                    "core.analysis.local.LocalClient.infer", return_value=mock_reply
+                    "core.analysis.gateway.GatewayClient.infer", return_value=mock_reply
                 ):
                     self.db(process_run, run_id)
                 page.reload()
@@ -205,6 +208,17 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
     def test_findings_person_connections_chronology_and_processing_without_javascript(
         self,
     ):
+        from core.models import AnalysisFinding
+
+        findings = AnalysisFinding.objects.filter(
+            case=self.case, preview__contains="person-00@example.test"
+        )
+        self.enterContext(
+            indexed(
+                self.case,
+                [("finding", "", key) for key in findings.values_list("pk", flat=True)],
+            )
+        )
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),

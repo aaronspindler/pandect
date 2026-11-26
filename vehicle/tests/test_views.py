@@ -7,6 +7,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
+from core.case_search.tests.fixtures import indexed
 from geo.models import VehicleLocationEvidence
 from vehicle.models import Vehicle
 
@@ -318,11 +319,14 @@ class VehicleInterfaceTests(TestCase):
         )
 
     def test_search_and_pagination_remain_case_scoped_and_keep_query_context(self):
-        Vehicle.objects.bulk_create(
+        records = Vehicle.objects.bulk_create(
             [
                 Vehicle(case=self.case, make=f"Paginated vehicle {index:02d}")
                 for index in range(30)
             ]
+        )
+        self.enterContext(
+            indexed(self.case, [("record", "vehicle", item.pk) for item in records])
         )
         self.client.force_login(self.viewer)
         response = self.client.get(self.url(), {"q": "Paginated vehicle", "page": 1})
@@ -436,6 +440,7 @@ class VehicleInterfaceTests(TestCase):
         self.vehicle.color = "Blue"
         self.vehicle.vin = "SYNTHETIC-VIN-001"
         self.vehicle.save()
+        self.enterContext(indexed(self.case, [("record", "vehicle", self.vehicle.pk)]))
         self.client.force_login(self.viewer)
         for query in (
             "Example Motors",

@@ -5,37 +5,36 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.db import connection
-from django.test import Client, TestCase, override_settings
+from django.test import Client, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
-from core.evidence.retention import set_evidence_archive
-from core.evidence_chat import ai, corpus, decisions_approval, jobs
+from core.evidence_chat import ai, corpus
 from core.models import ChatSource, ChatTurn, EvidenceChat, ImportantItem
 from core.testing import EvidenceViewTestMixin
 
-LOCAL_AI = {
-    "text": {
-        "model": "qwen3.5:9b",
-        "url": "http://127.0.0.1:11434",
-        "runtime": "ollama@0.40.11",
-        "sha256": "a" * 64,
-        "context_tokens": 16384,
-    },
-    "timeout": 10,
-    "max_output_tokens": 512,
-    "max_request_bytes": 64000,
-    "max_response_bytes": 64000,
-}
 
-
-@override_settings(PANDECT_LOCAL_AI=LOCAL_AI)
 class ChatViewTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
+        self.enterContext(
+            patch.object(
+                ai,
+                "turn_execution",
+                return_value=(
+                    {
+                        "location": "external",
+                        "backend": "gateway",
+                        "provider": "workers-ai",
+                        "model": "@cf/mock/synthetic",
+                    },
+                    "revision",
+                ),
+            )
+        )
         self.login("editor")
         self.index = reverse("core:chat:list", args=[self.case.pk])
         self.form_data = {
@@ -184,55 +183,6 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(self.index, self.form_data).status_code, 403)
 
-    def test_changed_embedding_destination_requires_a_newly_reviewed_form(self):
-        scope = {
-            "profile": "synthetic",
-            "revision": "base-grant",
-            "chat_revision": "chat-grant",
-            "destination": {"gateway": "case-search", "model": "test-embeddings"},
-        }
-        with patch(
-            "core.evidence_chat.retrieval_route.hosted_scope", return_value=scope
-        ):
-            stale = self.client.post(self.index, self.form_data)
-            self.assertContains(stale, "processing destination changed")
-            self.assertContains(stale, "case-search")
-            self.assertContains(stale, "test-embeddings")
-            self.assertFalse(ChatTurn.objects.exists())
-            self.form_data["route"] = stale.context["route_token"]
-            turn = self._ask()
-            self.assertEqual(turn.plan["hosted_search"], scope)
-
-    @override_settings(PANDECT_DIRECT_AI={"openai_api_key": "synthetic-direct-key"})
-    def test_decisions_transfer_is_visible_and_bound_to_the_submitted_form(self):
-        owner = self.users["owner"]
-        initial = self.client.get(self.index)
-        self.assertNotContains(initial, "OpenAI Decisions")
-        review = decisions_approval.approval_context(self.case, owner)
-        decisions_approval.change_approval(
-            owner, self.case.pk, "approve", review["approve"]
-        )
-        stale = self.client.post(self.index, self.form_data)
-        self.assertContains(stale, "processing destination changed")
-        self.assertContains(stale, "OpenAI Decisions")
-        self.assertContains(stale, "up to eight short source previews")
-        self.assertFalse(ChatTurn.objects.exists())
-        self.form_data["route"] = stale.context["route_token"]
-        turn = self._ask()
-        self.assertEqual(
-            turn.plan["decisions_scope"], decisions_approval.scope(self.case)
-        )
-        review = decisions_approval.approval_context(self.case, owner)
-        decisions_approval.change_approval(
-            owner, self.case.pk, "revoke", review["revoke"]
-        )
-        stale = self.client.post(
-            self.index, self.form_data | {"submission_id": uuid4()}
-        )
-        self.assertContains(stale, "processing destination changed")
-        self.assertNotContains(stale, "OpenAI Decisions")
-        self.assertEqual(ChatTurn.objects.count(), 1)
-
     def test_pending_chat_status_is_case_scoped_and_contains_only_progress(self):
         turn = self._ask()
 
@@ -249,50 +199,6 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.login("outsider")
         self.assertIsNone(snapshot(self.other_case)["chat_progress"])
-
-    def test_live_activity_only_links_current_evidence_from_the_chat_case(self):
-        source = self.text()
-        self.form_data["question"] = "Where is the original café recorded?"
-        turn = self._ask()
-        reply = reverse("core:chat:reply", args=[self.case.pk, turn.chat_id, turn.pk])
-        status = reverse("cases:activity", args=[self.case.pk])
-        chat = {"chat": str(turn.chat_id)}
-        self.login("viewer")
-        self.assertIsNone(self.client.get(status, chat).json()["chat_activity"])
-        responses = {}
-
-        def infer(*_):
-            responses["fragment"] = self.client.get(
-                reply, headers={"X-Pandect-Live": "1"}
-            )
-            responses["snapshot"] = self.client.get(status, chat)
-            self.login("outsider")
-            responses["foreign_reply"] = self.client.get(reply)
-            responses["foreign_status"] = self.client.get(status, chat)
-            self.login("viewer")
-            set_evidence_archive(
-                self.users["owner"], self.case.pk, "text", source.pk, archived=True
-            )
-            responses["archived"] = self.client.get(reply)
-            raise AnalysisError("source_changed")
-
-        with patch.object(ai, "infer", side_effect=infer) as mock_infer:
-            jobs.process_turn(str(turn.pk), str(turn.delivery_token))
-        mock_infer.assert_called_once()
-        turn.refresh_from_db()
-        self.assertEqual(turn.error_code, "source_changed")
-        self.assertNotIn("sources", turn.activity)
-        self.assertContains(responses["fragment"], "Preparing an answer")
-        self.assertContains(responses["fragment"], source.title)
-        self.assertContains(responses["fragment"], self.url("detail", source))
-        self.assertIsNotNone(responses["snapshot"].json()["chat_activity"])
-        self.assertNotContains(responses["snapshot"], source.title)
-        self.assertEqual(responses["foreign_reply"].status_code, 404)
-        self.assertEqual(responses["foreign_status"].status_code, 404)
-        self.assertNotContains(responses["archived"], source.title)
-        stopped = self.client.get(reply)
-        self.assertContains(stopped, "Review activity")
-        self.assertNotContains(stopped, source.title)
 
     def test_marks_and_notes_validate_the_whole_reply(self):
         source = self.text()

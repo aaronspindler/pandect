@@ -19,9 +19,7 @@ from core.analysis.processing import (
     case_imports,
     case_trip_generations,
 )
-from core.case_search.approval import search_approval_current
-from core.case_search.semantic_model import is_external, profile
-from core.models import AnalysisRun, CaseAnalysisBatch, CaseSearchIndex, ChatTurn
+from core.models import AnalysisRun, CaseAnalysisBatch, ChatTurn, HostedSearchIndex
 from socialmedia.models import InstagramCheck
 
 
@@ -60,12 +58,13 @@ def status(request, case_id):
                 InstagramCheck.objects.filter(monitor__case=case, status="running")
             )
         )
-        if (identity := profile()) and (
-            not is_external() or search_approval_current(case)
-        ):
+        if case.external_ai_enabled:
             pending |= Exists(
-                CaseSearchIndex.objects.filter(
-                    case=case, profile=identity, status__in=ACTIVE_RUNS
+                HostedSearchIndex.objects.filter(
+                    case_key=case.pk,
+                    revision=case.external_ai_revision,
+                    status="queued",
+                    retired=False,
                 )
             )
         active = Case.objects.filter(pending, pk=case.pk).exists()

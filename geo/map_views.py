@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Exists, F, OuterRef
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -33,17 +33,11 @@ from ui.live import render_live
 
 def poi_map_data(request, case, query, return_query):
     pois = PointOfInterest.objects.filter(person__case=case).select_related("person")
+    from core.case_search.discovery import discover
+
+    results = discover(case, request.user, query, kind="poi", records=True)
     if query:
-        pois = pois.filter(
-            Q(kind__icontains=query)
-            | Q(custom_label__icontains=query)
-            | Q(address__icontains=query)
-            | Q(source__icontains=query)
-            | Q(person__first_name__icontains=query)
-            | Q(person__last_name__icontains=query)
-            | Q(person__email__icontains=query)
-            | Q(person__phone_number__icontains=query)
-        )
+        pois = pois.filter(pk__in=results.records["poi"])
     page = Paginator(pois, 100).get_page(request.GET.get("poi_page"))
     points = []
     for index, poi in enumerate(page, start=page.start_index()):
@@ -62,7 +56,7 @@ def poi_map_data(request, case, query, return_query):
                     "url": poi.map_detail_url,
                 }
             )
-    return page, points
+    return page, points, results.notice
 
 
 def _map_context(request, case, *, trip=None):
@@ -71,10 +65,11 @@ def _map_context(request, case, *, trip=None):
         return_query = {"from_map": "1"} | map_query(request.GET)
     else:
         return_query = {"from_trip": trip.pk} | trip_query(request.GET)
-    poi_page, points = poi_map_data(request, case, query, return_query)
+    poi_page, points, notice = poi_map_data(request, case, query, return_query)
     return {
         **case_context(case, request.user),
         "poi_page": poi_page,
+        "search_notice": notice,
         "points": points,
         "poi_mapped_count": len(points),
         "query": query,

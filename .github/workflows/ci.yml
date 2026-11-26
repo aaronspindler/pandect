@@ -50,6 +50,15 @@ jobs:
         run: uv sync --locked
       - name: Validate source, dependency lock, and Compose configuration
         run: make static-check
+      - name: Validate the Cloudflare investigation Worker
+        if: steps.changes.outputs.full == 'true'
+        working-directory: cloudflare/investigator
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          npm ci
+          npm test
+          npm run check
       - name: Check changed whitespace
         if: steps.changes.outputs.base != '' && steps.changes.outputs.head != ''
         env:
@@ -82,7 +91,7 @@ jobs:
       POSTGRES_PORT: "5432"
     services:
       postgres:
-        image: pgvector/pgvector:0.8.7-pg18-trixie@sha256:ab49524d18df7200b74ac9a475e1db6297fc1eb57da4c214c63d10ecc4b754fa
+        image: postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
         env:
           POSTGRES_DB: pandect
           POSTGRES_USER: pandect
@@ -110,8 +119,6 @@ jobs:
             uv.lock
           # The static job already seeds the same locked dependencies on amd64.
           save-cache: ${{ matrix.architecture == 'arm64' }}
-      - name: Install local OCR
-        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
       - name: Install locked dependencies
         run: uv sync --locked
       - name: Apply initial migrations to PostgreSQL
@@ -156,7 +163,7 @@ jobs:
       PANDECT_BROWSER_ARTIFACTS: data/validation/browser/${{ matrix.engine }}
     services:
       postgres:
-        image: pgvector/pgvector:0.8.7-pg18-trixie@sha256:ab49524d18df7200b74ac9a475e1db6297fc1eb57da4c214c63d10ecc4b754fa
+        image: postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
         env:
           POSTGRES_DB: pandect_browser
           POSTGRES_USER: pandect
@@ -185,8 +192,6 @@ jobs:
           save-cache: false
       - name: Prefer Ubuntu's primary package mirrors
         run: sudo sed -i -E '/(azure|us-east-2\.ec2)\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
-      - name: Install local OCR
-        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
       - name: Install locked dependencies
         run: uv sync --locked
       - name: Install the selected browser and Linux dependencies

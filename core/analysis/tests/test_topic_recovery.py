@@ -16,22 +16,8 @@ from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
-LOCAL = {
-    "text": {
-        "url": "http://private-text.test:11434",
-        "model": "qwen3.5:9b",
-        "sha256": "a" * 64,
-        "runtime": "ollama@0.40.11",
-        "context_tokens": 32768,
-    },
-    "timeout": 120,
-    "max_request_bytes": 8388608,
-    "max_response_bytes": 2097152,
-    "max_output_tokens": 4096,
-}
 
-
-@override_settings(PANDECT_LOCAL_AI=LOCAL)
+@override_settings(PANDECT_AI_GATEWAY=CONFIG)
 class TopicRecoveryTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -42,7 +28,7 @@ class TopicRecoveryTests(EvidenceViewTestMixin, TestCase):
             body="Harbour delivery is unconfirmed. Harbour delivery remains proposed.",
         )
 
-    def start(self, *, backend="local", role="owner", previous_run=None):
+    def start(self, *, backend="gateway", role="owner", previous_run=None):
         return start_run(
             self.users[role],
             self.case.pk,
@@ -61,7 +47,7 @@ class TopicRecoveryTests(EvidenceViewTestMixin, TestCase):
         client = Mock(usage={"request_count": 1})
         client.infer.return_value = response
         client.infer.side_effect = error
-        with patch("core.analysis.local.LocalClient", return_value=client):
+        with patch("core.analysis.gateway.GatewayClient", return_value=client):
             process_run(run.pk)
         run.refresh_from_db()
         return run.status
@@ -107,9 +93,8 @@ class TopicRecoveryTests(EvidenceViewTestMixin, TestCase):
                 self.assertNotIn(
                     "PRIVATE UNVALIDATED RESPONSE", json.dumps(run.result.data)
                 )
-                self.assertEqual(run.result.provenance["execution"]["backend"], "local")
                 self.assertEqual(
-                    run.result.provenance["local_usage"]["request_count"], 1
+                    run.result.provenance["execution"]["backend"], "gateway"
                 )
 
     def test_private_validation_errors_are_not_retained(self):
@@ -118,34 +103,19 @@ class TopicRecoveryTests(EvidenceViewTestMixin, TestCase):
         self.assert_keywords_only(run)
         self.assertNotIn("PRIVATE MODEL ERROR", json.dumps(run.result.data))
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
-    def test_local_and_gateway_outages_keep_keywords_and_safe_recovery(self):
-        for backend, code in (
-            ("local", "local_ai_unavailable"),
-            ("gateway", "gateway_unavailable"),
-        ):
-            with self.subTest(backend=backend):
-                run = self.start(backend=backend)
-                if backend == "local":
-                    self.process(run, error=AnalysisError(code))
-                else:
-                    with patch(
-                        "core.analysis.gateway.GatewayClient.infer",
-                        side_effect=AnalysisError(code),
-                    ):
-                        process_run(run.pk)
-                    run.refresh_from_db()
-                self.assert_keywords_only(run)
-                self.assertIn(
-                    error_message(code), " ".join(run.result.data["warnings"])
-                )
+    def test_gateway_outages_keep_keywords_and_safe_recovery(self):
+        run = self.start()
+        self.process(run, error=AnalysisError("gateway_unavailable"))
+        self.assert_keywords_only(run)
+        self.assertIn(
+            error_message("gateway_unavailable"), " ".join(run.result.data["warnings"])
+        )
 
     def test_security_and_source_failures_do_not_publish_partial_results(self):
         for error, code in (
             (AnalysisError("access_removed"), "access_removed"),
             (AnalysisError("source_changed"), "source_changed"),
             (AnalysisError("execution_changed"), "execution_changed"),
-            (AnalysisError("local_ai_model_changed"), "local_ai_model_changed"),
             (PermissionDenied("PRIVATE AUTHORIZATION ERROR"), "access_removed"),
         ):
             with self.subTest(code=code, exception=type(error)):

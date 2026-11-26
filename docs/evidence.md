@@ -65,7 +65,7 @@ iMessage and WhatsApp. Message import retains its CSV, prepares a background
 review, and requires confirmed people and timezone before publishing ready
 messages from direct or group chats.
 New evidence queues built-in checks and eligible checks using the
-[case's selected AI backend](cases.md#ai-backend) after publication. Follow
+[case's selected AI backend](cases.md#external-ai-and-hosted-search) after publication. Follow
 progress in **Processing**. See
 [message imports](analysis-communications.md#message-csv-imports).
 

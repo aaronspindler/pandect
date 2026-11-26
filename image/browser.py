@@ -1,4 +1,4 @@
-"""Synthetic plate-search journey through the real local parser and private UI."""
+"""Inspect a hosted plate reading with its prepared crop and original image."""
 
 import re
 from pathlib import Path
@@ -7,15 +7,19 @@ from urllib.parse import urljoin
 from uuid import UUID
 
 from django.core.files.base import ContentFile
+from django.test import override_settings
 from playwright.sync_api import expect
 
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_openai_gateway import OPENAI
 from core.analysis.worker import process_run
 from image.models import ImageEvidence
 from image.testing import plate_scene
 
 
+@override_settings(PANDECT_AI_GATEWAY=OPENAI)
 class PlateBrowserTests(BrowserTestCase):
     artifact_subdirectory = "plate-browser"
 
@@ -23,6 +27,7 @@ class PlateBrowserTests(BrowserTestCase):
         super().setUp()
         self.owner = self.make_user("plate-browser-owner")
         self.case = Case.objects.create(owner=self.owner, name="Synthetic plate case")
+        external_grant_kwargs(self.case, "plate_ocr")
         self.original = plate_scene(distractors=True)
         self.image = ImageEvidence.objects.create(
             case=self.case,
@@ -31,10 +36,13 @@ class PlateBrowserTests(BrowserTestCase):
             file=ContentFile(self.original, name="synthetic-plate.jpeg"),
         )
         self.gateway = self.enterContext(
-            patch("core.analysis.gateway.GatewayClient.request")
+            patch(
+                "core.analysis.gateway.GatewayClient.read_image",
+                return_value=("TEST 482", False),
+            )
         )
 
-    def test_queue_local_plate_search_inspect_crops_and_original_region(self):
+    def test_queue_hosted_plate_search_inspect_crops_and_original_region(self):
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -155,15 +163,11 @@ class PlateBrowserTests(BrowserTestCase):
                 region.press("Space")
                 expect(source_image).to_be_visible()
                 page.set_viewport_size({"width": 1440, "height": 900})
-                page.get_by_role(
-                    "link", name="All findings in this result", exact=True
-                ).click()
-                expect(page.locator(".analysis-finding-link")).to_have_count(3)
                 toggle = page.get_by_role("link", name="Show weak regions", exact=True)
                 toggle.focus()
                 expect(toggle).to_be_focused()
                 toggle.press("Enter")
-                expect(page.locator(".analysis-finding-link")).to_have_count(15)
+                expect(page.locator(".analysis-finding-link")).to_have_count(5)
                 page.locator("#finding-link-1").click()
                 expect(
                     page.get_by_text(
@@ -176,8 +180,7 @@ class PlateBrowserTests(BrowserTestCase):
                     "link", name="All findings in this result", exact=True
                 ).click()
                 page.get_by_role("link", name="Hide weak regions", exact=True).click()
-                expect(page.locator(".analysis-finding-link")).to_have_count(3)
-                page.locator(".analysis-finding-link").first.click()
+                expect(page.get_by_role("heading", name=plate_text)).to_be_visible()
                 expect(
                     page.get_by_text("Heuristic score, not a probability.", exact=False)
                 ).to_be_visible()
@@ -212,4 +215,4 @@ class PlateBrowserTests(BrowserTestCase):
                         "link", name="Download original", exact=True
                     ).first.click()
                 self.assertEqual(Path(waiting.value.path()).read_bytes(), self.original)
-        self.gateway.assert_not_called()
+        self.assertTrue(self.gateway.called)

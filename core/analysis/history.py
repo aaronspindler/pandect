@@ -2,16 +2,12 @@
 
 from collections import Counter
 from datetime import timedelta
-from functools import reduce
-from operator import or_
 
 from django.conf import settings
-from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db.models import F, Q, Value
 from django.db.models.functions import Abs, Extract, Least, Length
 
 from core.analysis.sources import source_id
-from core.case_search.documents import FIELDS, searchable
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, LOCATION_KINDS
 from phone.models import CommunicationContext
@@ -216,21 +212,46 @@ def wording_selection(case, batch, choices, anchor_texts):
     terms = sorted(words, key=lambda word: (-words[word], word))[:8]
     if not terms:
         return choices
-    keywords = reduce(or_, (SearchQuery(term, config="simple") for term in terms))
-    peers = []
-    for kind in ("text", "text-message"):
-        query = searchable(_historical(case, batch, kind, choices), FIELDS[kind])
-        ranked = (
-            query.annotate(body_length=Length("body"))
-            .filter(search_vector=keywords, body_length__lte=characters)
-            .annotate(rank=SearchRank(F("search_vector"), keywords))
-            .order_by("-rank", "-created_at", "pk")
-            .values_list("rank", "pk", "body_length")[:MAX_HISTORY]
+    if not case.external_ai_enabled or batch.scope.get("search_revision") != str(
+        case.external_ai_revision
+    ):
+        return choices
+    from core.case_search.hosted import HostedSearchError, search
+
+    try:
+        hits = search(
+            case,
+            batch.requested_by,
+            " ".join(terms),
+            through=batch.created_at,
+            limit=MAX_HISTORY,
         )
-        peers.extend((-rank, str(pk), kind, length) for rank, pk, length in ranked)
+    except HostedSearchError:
+        return choices
+    candidates = [
+        ref
+        for locator, _ in hits
+        for ref in locator.get("dependencies", ())
+        if ref["kind"] in ("text", "text-message")
+    ]
+    available = {}
+    for kind in ("text", "text-message"):
+        ids = {ref["id"] for ref in candidates if ref["kind"] == kind}
+        for pk, length in (
+            _historical(case, batch, kind, choices)
+            .filter(pk__in=ids)
+            .annotate(length=Length("body"))
+            .values_list("pk", "length")
+        ):
+            available[kind, str(pk)] = length
+    unique = dict.fromkeys((ref["kind"], ref["id"]) for ref in candidates)
     return _fit(
         choices,
-        (({"kind": kind, "id": pk}, length) for _, pk, kind, length in sorted(peers)),
+        (
+            ({"kind": kind, "id": pk}, available[kind, pk])
+            for kind, pk in unique
+            if (kind, pk) in available
+        ),
         limit,
         characters,
     )

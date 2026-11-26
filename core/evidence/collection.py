@@ -1,10 +1,10 @@
 """Paginated evidence collections shared by readers and person records."""
 
 from django.core.paginator import Paginator
-from django.db.models import Case, CharField, Q, Value, When
+from django.db.models import Case, CharField, Value, When
 from django.urls import reverse
 
-from core.analysis.search import derived_content_condition, derived_text_matches
+from core.case_search.discovery import discover
 from core.evidence.navigation import collection_params
 from core.evidence.queries import (
     matching_checksum,
@@ -12,13 +12,10 @@ from core.evidence.queries import (
     scoped_evidence,
     selected_person,
 )
-from core.evidence.search import retained_content_condition, retained_text_matches
 from core.evidence.types import (
     COMMUNICATION_KINDS,
-    FILE_KINDS,
     KIND_LABELS,
     KINDS,
-    LOCATION_KINDS,
 )
 from core.evidence.workspace_rows import attach_workspace_rows
 from people.models import Person
@@ -40,7 +37,7 @@ def person_attribution(kind, person):
     )
 
 
-def collection_context(case, params, *, workspace_rows=False):
+def collection_context(case, params, *, actor=None, workspace_rows=False):
     query = params.get("q", "")[:200].strip()
     checksum = params.get("checksum", "")[:64]
     selected_kind = params.get("type", "")
@@ -50,6 +47,7 @@ def collection_context(case, params, *, workspace_rows=False):
     if state not in {"active", "archived", "all"}:
         state = "active"
     person = selected_person(case, params.get("person"))
+    results = discover(case, actor, query, kind=selected_kind)
     queries = []
     for kind in KINDS:
         if selected_kind and kind != selected_kind:
@@ -62,46 +60,7 @@ def collection_context(case, params, *, workspace_rows=False):
         if state != "all":
             queryset = queryset.filter(is_archived=state == "archived")
         if query:
-            condition = (
-                Q(title__icontains=query)
-                | Q(description__icontains=query)
-                | Q(source__icontains=query)
-                | Q(source_description__icontains=query)
-                | Q(source_url__icontains=query)
-            )
-            if kind in FILE_KINDS:
-                condition |= Q(original_filename__icontains=query)
-            if kind in LOCATION_KINDS:
-                condition |= Q(address__icontains=query)
-            if kind in COMMUNICATION_KINDS:
-                for participant in ("sender", "recipient"):
-                    for field in ("first_name", "last_name", "email", "phone_number"):
-                        condition |= Q(**{f"{participant}__{field}__icontains": query})
-            queryset, content_condition = retained_content_condition(
-                queryset, case=case, kind=kind, query=query
-            )
-            condition |= content_condition
-            queryset, extracted_condition = derived_content_condition(
-                queryset, case=case, kind=kind, query=query
-            )
-            condition |= extracted_condition
-            if kind == "person-location":
-                condition |= (
-                    Q(person__first_name__icontains=query)
-                    | Q(person__last_name__icontains=query)
-                    | Q(person__email__icontains=query)
-                    | Q(person__phone_number__icontains=query)
-                )
-            if kind == "vehicle-location":
-                condition |= (
-                    Q(vehicle__make__icontains=query)
-                    | Q(vehicle__model__icontains=query)
-                    | Q(vehicle__license_plate__icontains=query)
-                    | Q(vehicle__vin__icontains=query)
-                    | Q(raw_row__Asset__icontains=query)
-                    | Q(**{"raw_row__Serial Number__icontains": query})
-                )
-            queryset = queryset.filter(condition)
+            queryset = queryset.filter(pk__in=results.evidence[kind])
         queries.append(
             queryset.order_by()
             .annotate(
@@ -135,6 +94,7 @@ def collection_context(case, params, *, workspace_rows=False):
     suffix = "?" + params.urlencode() if params else ""
     for row in rows:
         row["label"] = KIND_LABELS[row["kind"]]
+        row["content_match"] = results.excerpts.get((row["kind"], str(row["id"])))
         row["url"] = (
             reverse(
                 "core:evidence:detail",
@@ -146,13 +106,6 @@ def collection_context(case, params, *, workspace_rows=False):
             )
             + suffix
         )
-    matches = derived_text_matches(case=case, rows=rows, query=query)
-    matches.update(retained_text_matches(case=case, rows=rows, query=query))
-    for row in rows:
-        match = matches.get((row["kind"], row["id"]))
-        row["content_match"] = match
-        if match and "anchor" in match:
-            match["url"] = f"{row['url']}#{match['anchor']}"
     pagination = {}
     for name, number in (
         ("previous", page.previous_page_number() if page.has_previous() else None),
@@ -167,6 +120,7 @@ def collection_context(case, params, *, workspace_rows=False):
         "page_obj": page,
         "pagination": pagination,
         "query": query,
+        "search_notice": results.notice,
         "checksum": checksum,
         "selected_kind": selected_kind,
         "state": state,

@@ -48,6 +48,7 @@
     </div>
     {% endif %}
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}" {% if message.level >= 40 %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>{% endfor %}</div>{% endif %}
+    {% block page_search_notice %}{% if search_notice %}{% include "ui/components/search_notice.html" with announce=True %}{% endif %}{% endblock %}
     {% block before_content %}{% endblock %}
     {% block content %}{% endblock %}
   </main>

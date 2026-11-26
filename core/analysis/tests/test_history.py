@@ -1,13 +1,15 @@
 """Automatic comparisons retain bounded case history and exact new anchors."""
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.tests.test_execution import LOCAL
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
 from core.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationEvidence
@@ -17,7 +19,6 @@ from text.models import TextEvidence
 from vehicle.models import Vehicle
 
 
-@override_settings(PANDECT_LOCAL_AI={})
 class IngestHistoryTests(EvidenceViewTestMixin, TestCase):
     def prepare(self, kind, item):
         batch, _ = start_added_evidence_analysis(
@@ -80,8 +81,10 @@ class IngestHistoryTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(ids(batch.runs.get(operation="entities")), [str(message.pk)])
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_only_qualifying_delayed_reply_extends_automatic_session_history(self):
+        external_grant_kwargs(self.case, "session_summaries")
+        external_grant_kwargs(self.case, "session_summaries")
         moment = timezone.now()
         peer = Person.objects.create(case=self.case, first_name="Peer")
         values = {
@@ -139,7 +142,14 @@ class IngestHistoryTests(EvidenceViewTestMixin, TestCase):
         anchor = text(words)
         other = text(words, case=self.other_case)
         self.assertNotEqual(other.case_id, anchor.case_id)
-        batch = self.prepare("text", anchor)
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
+        passages = [
+            ({"dependencies": [{"kind": "text", "id": str(item.pk)}]}, 0)
+            for item in (old_left, old_right, other, peer)
+        ]
+        with patch("core.case_search.hosted.search", return_value=passages):
+            batch = self.prepare("text", anchor)
         run = batch.runs.get(operation="copied_text")
         self.assertEqual(
             {source["evidence_id"] for source in run.inputs},

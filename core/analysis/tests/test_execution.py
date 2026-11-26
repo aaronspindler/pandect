@@ -1,21 +1,13 @@
 """Private routes, case approval, pinned execution and legacy history."""
 
-import json
-from copy import deepcopy
-from datetime import timedelta
-from io import BytesIO
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
-from django.core.files.base import ContentFile
 from django.test import SimpleTestCase, TestCase, override_settings
-from django.utils import timezone
 
-from audio.models import AudioEvidence
-from cases.models import CaseMembership
 from core.analysis.approval import revoke_case_execution
-from core.analysis.errors import AnalysisError, error_message
+from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
     available_executions,
     configured_executions,
@@ -24,40 +16,18 @@ from core.analysis.execution import (
     snapshot_execution,
 )
 from core.analysis.services import start_run
-from core.analysis.testing import external_grant_kwargs, wav_bytes
+from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
-from core.models import AnalysisRun, GatewayRequest
+from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
 from geo.testing import LOCAL_GEOCODER
-from phone.models import TextMessageEvidence
 from text.models import TextEvidence
-
-LOCAL = {
-    "text": {
-        "url": "http://private-text.test:8080",
-        "model": "qwen3.5:9b",
-        "sha256": "a" * 64,
-        "runtime": "ollama@0.40.11",
-        "context_tokens": 32768,
-    },
-    "transcription": {
-        "url": "http://private-audio.test:8080",
-        "model": "synthetic-whisper",
-        "sha256": "b" * 64,
-        "runtime": "synthetic-whisper-revision",
-    },
-    "token": "never-retain-this-token",
-    "timeout": 120,
-    "max_request_bytes": 8388608,
-    "max_response_bytes": 2097152,
-    "max_output_tokens": 4096,
-}
 
 
 class ExecutionSelectionTests(SimpleTestCase):
-    @override_settings(PANDECT_AI_GATEWAY={}, PANDECT_LOCAL_AI={})
+    @override_settings(PANDECT_AI_GATEWAY={})
     def test_empty_gateway_configuration_does_not_enable_a_route(self):
         self.assertEqual(configured_executions("content_events", {}), {})
         self.assertEqual(configured_executions("transcription", {}), {})
@@ -66,7 +36,7 @@ class ExecutionSelectionTests(SimpleTestCase):
             "",
         )
 
-    def test_all_five_ai_paths_and_optional_local_modes(self):
+    def test_gateway_methods_and_deterministic_options(self):
         for operation, parameters, purpose in (
             ("transcription", {}, "transcription"),
             ("content_events", {}, "text"),
@@ -75,11 +45,13 @@ class ExecutionSelectionTests(SimpleTestCase):
             ("text_topics", {"include_summary": False}, None),
             ("conversation_link", {"semantic_links": True}, "text"),
             ("conversation_link", {}, None),
-            ("ocr", {}, None),
+            ("ocr", {}, "vision"),
         ):
             with self.subTest(operation=operation, parameters=parameters):
                 self.assertEqual(requires_inference(operation, parameters), purpose)
-                self.assertFalse(processing_external(operation, parameters))
+                self.assertEqual(
+                    processing_external(operation, parameters), purpose is not None
+                )
                 self.assertEqual(
                     processing_external(operation, parameters, "gateway"),
                     purpose is not None,
@@ -87,20 +59,7 @@ class ExecutionSelectionTests(SimpleTestCase):
         with self.assertRaises(ValidationError):
             processing_external("content_events", {}, "direct-provider")
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
-    def test_snapshot_contains_artifact_and_bounds_but_no_secret(self):
-        execution = snapshot_execution("content_events", {})
-        self.assertEqual(execution["sha256"], "a" * 64)
-        self.assertEqual(execution["context_tokens"], 32768)
-        self.assertEqual(execution["driver"], "ollama")
-        self.assertEqual(execution["adapter_version"], "ollama-1")
-        self.assertEqual(execution["inference_settings"]["temperature"], 0)
-        self.assertFalse(execution["inference_settings"]["think"])
-        self.assertNotIn("token", execution)
-        self.assertNotIn(LOCAL["token"], str(execution))
 
-
-@override_settings(PANDECT_LOCAL_AI=LOCAL)
 class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -149,24 +108,6 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
         return client
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
-    def test_new_runs_default_local_and_approval_never_selects_cloud(self):
-        external_grant_kwargs(self.case, "content_events")
-        run = self.start()
-        self.assertFalse(run.external_processing)
-        self.assertEqual(run.parameters["_execution"]["backend"], "local")
-        with (
-            patch(
-                "core.analysis.local.LocalClient", return_value=self.local_client(run)
-            ),
-            patch("core.analysis.gateway.GatewayClient.request") as cloud,
-        ):
-            self.assertEqual(self.process(run), "complete")
-        cloud.assert_not_called()
-        self.assertEqual(GatewayRequest.objects.count(), 0)
-        self.assertEqual(run.result.provenance["execution"]["sha256"], "a" * 64)
-        self.assertEqual(run.result.provenance["local_usage"]["request_count"], 1)
-
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_cloud_requires_current_case_approval_for_the_exact_destination(self):
         parameters = {"backend": "gateway"}
         with self.assertRaisesMessage(
@@ -180,16 +121,14 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
                 },
             )
         self.assertEqual(
-            set(available_executions(self.case, "content_events", {})), {"local"}
+            set(available_executions(self.case, "content_events", {})), set()
         )
         grant = external_grant_kwargs(self.case, "content_events")
         self.assertEqual(
             set(available_executions(self.case, "content_events", {})),
-            {"local", "gateway"},
+            {"gateway"},
         )
-        with self.assertRaisesMessage(
-            AnalysisError, "external_processing_not_approved"
-        ):
+        with self.assertRaisesMessage(AnalysisError, "execution_changed"):
             start_run(
                 self.users["outsider"],
                 self.other_case.pk,
@@ -205,10 +144,8 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
                 "core.analysis.gateway.GatewayClient.infer",
                 return_value=self.suggestion(run),
             ),
-            patch("core.analysis.local.LocalClient") as local,
         ):
             self.assertEqual(self.process(run), "complete")
-        local.assert_not_called()
         self.assertEqual(
             run.result.provenance["external_approval"]["approved_by"],
             str(self.users["owner"].pk),
@@ -230,98 +167,6 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(old.error_code, "external_processing_not_approved")
         retry = self.start(parameters=parameters, previous_run=old, **new_grant)
         self.assertEqual(retry.previous_run_id, old.pk)
-
-    def test_each_text_mode_runs_local_with_existing_source_validation(self):
-        messages = [
-            TextMessageEvidence.objects.create(
-                case=self.case,
-                uploaded_by=self.users["owner"],
-                title=f"Message {index}",
-                body="The visit is cancelled.",
-                sender=self.person,
-                recipient=self.person,
-                occurred_at=timezone.now() + timedelta(minutes=index),
-            )
-            for index in range(2)
-        ]
-        selections = [{"kind": "text-message", "id": str(item.pk)} for item in messages]
-        for operation, parameters in (
-            ("content_events", {}),
-            ("session_summaries", {}),
-            ("text_topics", {"include_summary": True}),
-            ("conversation_link", {"semantic_links": True}),
-        ):
-            with self.subTest(operation=operation):
-                run = self.start(operation, selections, parameters=parameters)
-                with (
-                    patch(
-                        "core.analysis.local.LocalClient",
-                        return_value=self.local_client(run),
-                    ),
-                    patch("core.analysis.gateway.GatewayClient.request") as cloud,
-                ):
-                    self.assertEqual(self.process(run), "complete", run.error_code)
-                cloud.assert_not_called()
-                self.assertFalse(run.external_processing)
-                self.assertEqual(run.result.provenance["execution"]["backend"], "local")
-
-    def test_local_transcription_keeps_original_intervals_and_private_search(self):
-        audio = AudioEvidence.objects.create(
-            case=self.case,
-            uploaded_by=self.users["owner"],
-            title="Synthetic PCM",
-            file=ContentFile(wav_bytes(), name="synthetic.wav"),
-        )
-        run = self.start("transcription", [{"kind": "audio", "id": str(audio.pk)}])
-        client = Mock()
-        client.request.return_value = {
-            "text": "Synthetic speech",
-            "segments": [
-                {"text": "Synthetic speech", "start": 0, "end": 1},
-            ],
-        }
-        client.usage = {"request_count": 2, "input_tokens": None}
-        with (
-            patch("core.analysis.local.LocalClient", return_value=client),
-            patch("core.analysis.gateway.GatewayClient.request") as cloud,
-        ):
-            self.assertEqual(self.process(run), "complete", run.error_code)
-        cloud.assert_not_called()
-        interval = run.result.data["items"][0]["anchors"][0]
-        self.assertEqual((interval["start_seconds"], interval["end_seconds"]), (0, 1))
-        self.assertEqual(run.result.passages.get().text, "Synthetic speech")
-        self.assertEqual(
-            run.result.data["items"][0]["values"]["Average log probability"],
-            "Not supplied",
-        )
-
-    def test_revocation_during_transcription_stops_before_another_chunk(self):
-        audio = AudioEvidence.objects.create(
-            case=self.case,
-            uploaded_by=self.users["editor"],
-            title="Synthetic multi-chunk recording",
-            file=ContentFile(wav_bytes(seconds=31), name="synthetic.wav"),
-        )
-        run = self.start(
-            "transcription", [{"kind": "audio", "id": str(audio.pk)}], role="editor"
-        )
-
-        def respond(request, *, timeout):
-            if request.get_method() == "GET":
-                identity = LOCAL["transcription"] | {"kind": "transcription"}
-                return BytesIO(json.dumps(identity).encode())
-            CaseMembership.objects.filter(
-                case=self.case, user=self.users["editor"]
-            ).delete()
-            return BytesIO(b'{"text": "Synthetic first chunk"}')
-
-        with patch("core.analysis.local.build_opener") as build:
-            request = build.return_value.open
-            request.side_effect = respond
-            self.assertEqual(self.process(run), "failed")
-        self.assertEqual(request.call_count, 2)
-        self.assertEqual(run.error_code, "access_removed")
-        self.assertFalse(hasattr(run, "result"))
 
     def test_private_geographic_results_need_no_ai_or_external_approval(self):
         observation = LocationEvidence.objects.create(
@@ -396,169 +241,26 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.error_code, "external_processing_not_approved")
         self.assertFalse(hasattr(run, "result"))
 
-    def test_configuration_drift_refuses_work_and_preserves_submission_identity(self):
-        submission_id = uuid4()
-        run = self.start(submission_id=submission_id)
-        changed = deepcopy(LOCAL)
-        changed["text"]["sha256"] = "c" * 64
-        with override_settings(PANDECT_LOCAL_AI=changed):
-            self.assertEqual(self.start(submission_id=submission_id).pk, run.pk)
-            with (
-                patch("core.analysis.local.LocalClient") as local,
-                patch("core.analysis.gateway.GatewayClient.request") as cloud,
-            ):
-                self.assertEqual(self.process(run), "failed")
-            local.assert_not_called()
-            cloud.assert_not_called()
-        run.refresh_from_db()
-        self.assertEqual(run.error_code, "execution_changed")
-        self.assertIn("settings changed", error_message(run.error_code))
-        self.assertIn("start another run", error_message(run.error_code))
-        self.assertEqual(run.parameters["_execution"]["sha256"], "a" * 64)
-
-    def test_caller_cannot_supply_a_trusted_execution_snapshot(self):
-        run = self.start(parameters={"_execution": {"backend": "gateway"}})
-        self.assertEqual(run.parameters["_execution"]["backend"], "local")
-
-    def test_local_runtime_failure_never_falls_back_or_publishes(self):
-        run = self.start()
-        with (
-            patch(
-                "core.analysis.local.LocalClient.infer",
-                side_effect=AnalysisError("local_ai_unavailable"),
-            ),
-            patch("core.analysis.gateway.GatewayClient.request") as cloud,
-        ):
-            self.assertEqual(self.process(run), "failed")
-        cloud.assert_not_called()
-        self.assertFalse(hasattr(run, "result"))
-
-    def test_ollama_runs_preserve_provenance_failure_recovery_and_revocation(self):
-        configured = deepcopy(LOCAL)
-        configured["text"] |= {
-            "driver": "ollama",
-            "runtime": "ollama@0.40.11",
-            "model": "qwen3.5:9b",
-        }
-        from core.analysis.tests.test_ollama import (
-            COMPLETION,
-            INFO,
-            RENDER,
-            TAGS,
-            VERSION,
-        )
-
-        with (
-            override_settings(PANDECT_LOCAL_AI=configured),
-            patch("core.analysis.local.build_opener") as transport,
-            patch("core.analysis.gateway.GatewayClient.request") as cloud,
-        ):
-            run = self.start(role="editor")
-            complete = COMPLETION | {
-                "message": {
-                    "role": "assistant",
-                    "content": json.dumps(self.suggestion(run)),
-                }
-            }
-            transport.return_value.open.side_effect = [
-                BytesIO(json.dumps(reply).encode())
-                for reply in (VERSION, TAGS, INFO, RENDER, VERSION, complete, VERSION)
-            ]
-            self.assertEqual(self.process(run), "complete", run.error_code)
-            self.assertFalse(run.external_processing)
-            self.assertEqual(run.result.provenance["execution"]["driver"], "ollama")
-            self.assertEqual(run.result.provenance["local_usage"]["output_tokens"], 8)
-
-            failed = self.start(role="editor")
-            transport.return_value.open.side_effect = [
-                BytesIO(json.dumps(VERSION).encode()),
-                BytesIO(b'{"models":[]}'),
-            ]
-            self.assertEqual(self.process(failed), "failed")
-            self.assertEqual(failed.error_code, "local_ai_model_changed")
-            self.assertFalse(hasattr(failed, "result"))
-
-            retried = self.start(role="editor", previous_run=failed)
-            self.assertEqual(retried.previous_run_id, failed.pk)
-            count = 0
-
-            def revoke_after_completion(request, **kwargs):
-                nonlocal count
-                replies = (VERSION, TAGS, INFO, RENDER, VERSION, complete, VERSION)
-                reply = replies[count]
-                count += 1
-                if count == 6:
-                    CaseMembership.objects.filter(
-                        case=self.case, user=self.users["editor"]
-                    ).delete()
-                return BytesIO(json.dumps(reply).encode())
-
-            transport.return_value.open.side_effect = revoke_after_completion
-            self.assertEqual(self.process(retried), "failed")
-            self.assertEqual(retried.error_code, "access_removed")
-            self.assertFalse(hasattr(retried, "result"))
-            cloud.assert_not_called()
-            self.assertEqual(GatewayRequest.objects.count(), 0)
-
-    def test_removed_text_backend_snapshot_fails_before_dispatch(self):
-        run = self.start()
-        execution = run.parameters["_execution"]
-        execution.pop("driver")
-        execution["adapter_version"] = "2"
-        execution["inference_settings"] = {
-            "temperature": 0,
-            "enable_thinking": False,
-            "cache_prompt": False,
-        }
-        AnalysisRun.objects.filter(pk=run.pk).update(parameters=run.parameters)
-        with (
-            patch("core.analysis.local.build_opener") as transport,
-            patch("core.analysis.gateway.GatewayClient.request") as cloud,
-        ):
-            self.assertEqual(self.process(run), "failed")
-            self.assertEqual(run.error_code, "execution_changed")
-            transport.assert_not_called()
-            cloud.assert_not_called()
-        self.assertNotIn("driver", run.parameters["_execution"])
-        self.assertFalse(hasattr(run, "result"))
-
-    def test_revocation_after_local_inference_withholds_results(self):
-        run = self.start(role="editor")
-
-        def revoke(prompt, schema):
-            CaseMembership.objects.filter(
-                case=self.case, user=self.users["editor"]
-            ).delete()
-            return self.suggestion(run)
-
-        with patch("core.analysis.local.LocalClient.infer", side_effect=revoke):
-            self.assertEqual(self.process(run), "failed")
-        run.refresh_from_db()
-        self.assertEqual(run.error_code, "access_removed")
-        self.assertFalse(hasattr(run, "result"))
-
     def test_legacy_queued_cloud_run_stops_and_keeps_its_route_and_parameters(self):
-        selected = self.start()
+        selected = self.start("entities")
         legacy = AnalysisRun.objects.create(
             case=self.case,
             requested_by=self.users["owner"],
             operation="content_events",
-            method_version=selected.method_version,
+            method_version="1",
             inputs=selected.inputs,
             external_processing=True,
             parameters={},
         )
         with (
             patch("core.analysis.gateway.GatewayClient.infer") as external,
-            patch("core.analysis.local.LocalClient") as local,
         ):
             self.assertEqual(self.process(legacy), "failed")
         external.assert_not_called()
-        local.assert_not_called()
         legacy.refresh_from_db()
         self.assertEqual(legacy.parameters, {})
         self.assertTrue(legacy.external_processing)
-        self.assertEqual(legacy.error_code, "external_processing_not_approved")
+        self.assertEqual(legacy.error_code, "execution_changed")
 
     @override_settings(PANDECT_GEOCODER_LOCAL=False, PANDECT_MAP_CONTEXT_LOCAL=False)
     def test_private_geographic_services_need_explicit_operator_trust(self):

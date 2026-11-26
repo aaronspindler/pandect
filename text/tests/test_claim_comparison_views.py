@@ -12,8 +12,8 @@ from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.form_base import SOURCE_PAGE_SIZE
 from core.analysis.sources import source_id
-from core.analysis.testing import preview_image_bytes
-from core.analysis.tests.test_execution import LOCAL
+from core.analysis.testing import external_grant_kwargs, preview_image_bytes
+from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
@@ -22,7 +22,7 @@ from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageE
 from text.models import TextEvidence
 
 
-@override_settings(PANDECT_LOCAL_AI=LOCAL)
+@override_settings(PANDECT_AI_GATEWAY=CONFIG)
 class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
     operation = "claim_comparison"
     claim_text = "Booking R41\r\nwas cancelled."
@@ -30,6 +30,7 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
 
     def setUp(self):
         super().setUp()
+        external_grant_kwargs(self.case, "claim_comparison")
         self.login("editor")
         self.create_url = reverse("core:analysis:create", args=[self.case.pk])
         self.confirm_url = reverse("core:analysis:claim_confirm", args=[self.case.pk])
@@ -97,18 +98,15 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(queued.status_code, 302)
         self.assertEqual(self.confirm(draft).url, queued.url)
         run = AnalysisRun.objects.get(operation=self.operation)
-        self.assertFalse(run.external_processing)
+        self.assertTrue(run.external_processing)
         span = run.parameters["claim"]
         self.assertEqual(
             self.message.body[span["start"] : span["end"]], self.claim_text
         )
 
-        with (
-            patch(
-                "core.analysis.local.LocalClient.infer", return_value=self.run_reply()
-            ),
-            patch("core.analysis.gateway.GatewayClient.infer") as gateway,
-        ):
+        with patch(
+            "core.analysis.gateway.GatewayClient.infer", return_value=self.run_reply()
+        ) as gateway:
             process_run(run.pk)
         run.refresh_from_db()
         self.assertEqual(run.status, "complete", run.error_code)
@@ -125,7 +123,7 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             self.notice.body[anchor["start"] : anchor["end"]], self.response_quote
         )
-        gateway.assert_not_called()
+        gateway.assert_called_once()
         self.login("viewer")
         reading = self.client.get(queued.url)
         self.assertContains(reading, "Potentially supporting")
@@ -282,6 +280,15 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
             query=reader_query,
             fragment="evidence-reader",
         )
+        from core.case_search.discovery import Discovery
+
+        matches = Discovery()
+        matches.evidence["text"].update(
+            TextEvidence.objects.filter(case=self.case).values_list("pk", flat=True)
+        )
+        self.enterContext(
+            patch("core.case_search.discovery.discover", return_value=matches)
+        )
         first = self.client.get(f"{method_url}&q=Cancellation")
         choices = first.context["form"].source_page
         self.assertTrue(choices.has_next())
@@ -393,7 +400,7 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         CaseMembership.objects.filter(
             case=self.case, user=self.users["editor"]
         ).delete()
-        with patch("core.analysis.local.LocalClient.infer") as infer:
+        with patch("core.analysis.gateway.GatewayClient.infer") as infer:
             process_run(run.pk)
         infer.assert_not_called()
         run.refresh_from_db()
@@ -431,7 +438,7 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(snapshot["sha256"], attachment.sha256)
 
         with patch(
-            "core.analysis.local.LocalClient.infer", return_value=self.run_reply()
+            "core.analysis.gateway.GatewayClient.infer", return_value=self.run_reply()
         ):
             process_run(run.pk)
         reading = self.client.get(queued.url)
@@ -442,8 +449,8 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.confirm(self.prepare()).status_code, 302)
         original = AnalysisRun.objects.get(operation=self.operation)
         with patch(
-            "core.analysis.local.LocalClient.infer",
-            side_effect=AnalysisError("local_ai_unavailable"),
+            "core.analysis.gateway.GatewayClient.infer",
+            side_effect=AnalysisError("gateway_unavailable"),
         ):
             process_run(original.pk)
         original.refresh_from_db()
@@ -456,7 +463,7 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(retry.inputs, original.inputs)
         self.assertEqual(retry.parameters, original.parameters)
         with patch(
-            "core.analysis.local.LocalClient.infer", return_value=self.run_reply()
+            "core.analysis.gateway.GatewayClient.infer", return_value=self.run_reply()
         ):
             process_run(retry.pk)
         retry.refresh_from_db()

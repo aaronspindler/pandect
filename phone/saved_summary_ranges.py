@@ -157,9 +157,7 @@ def _reserved_ordinals(case, session, first, last, executions):
             status != "complete"
             and parameters.get("_search_generation") == "conversations"
         ):
-            policy = case.search_generation_policy.get("conversations", {})
-            if policy.get("revision") != parameters.get("_generation_revision"):
-                continue
+            continue
         route = parameters.get("backend")
         if route not in executions or parameters.get("_execution") != executions[route]:
             continue

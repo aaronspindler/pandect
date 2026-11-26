@@ -31,67 +31,28 @@ replacing an active worker.
 
 ### Upgrade an existing PostgreSQL 18 installation for case search
 
-The `db.image` reference in [compose.yaml](../compose.yaml) pins PostgreSQL 18
-with pgvector for both supported architectures. The search migrations enable
-`vector` and `pg_trgm` and add tables and indexes. A database administrator can
-enable these extensions in the application database before migration if the
-migration role lacks that privilege.
-The application role also needs `TEMPORARY` on its database for search results
-that depend on validated findings or extracted passages.
-
-For a populated local development installation:
-
-1. From the existing Compose project, record the database volume name, its
-   mount at `/var/lib/postgresql`, and the result of
-   `SELECT system_identifier FROM pg_control_system()`. Check the server is
-   PostgreSQL 18 using the same data directory, architecture and Debian variant
-   as the replacement. Record case/evidence counts and original checksums.
-2. Pull the pinned `db` image and [capture a matching backup](#capture-a-matching-backup).
-   Keep all writers stopped. Include every private storage root used by this database.
-3. Run `docker compose up -d --no-deps --wait db` with the same project and
-   volume. Compare the cluster identifier and mount to the recorded values
-   before applying migrations. Verify both extension names appear in
-   `pg_available_extensions`.
-4. Select the installation's usual Compose profiles and run `docker compose build`.
-   Then run
-   `docker compose run --rm --no-deps web python manage.py migrate --noinput`.
-   Verify the recorded inventory and original checksums. Run
-   `docker compose up --no-build --wait` with those profiles, then run the
-   worker diagnostic. Keep the rollback backup. If the data directory needs a
-   different major version or the original cluster cannot be verified, use
-   **Restore in a separate Compose project** below and retain the original volumes.
-
-For an existing Dokploy database, stop its writers and back up the managed
-database and private evidence storage together before changing the image. A new
-resource verified to be unused needs no pre-upgrade snapshot. For an in-place
-PostgreSQL 18 update, retain the private service name and the verified mount.
-Check both extensions are available, then follow the
-[worker-first procedure](#first-dokploy-deployment) and verify authenticated
-search on the target.
-
-The message full-text migration builds a stored PostgreSQL search vector from
-existing message metadata and body text and replaces the previous functional
-index. PostgreSQL maintains it on inserts, bulk imports, and metadata edits.
-Allow for a table rewrite, index build and an exclusive lock during migration
-on large message exports. Message originals and their checksums are preserved.
-
-### Switch the meaning search provider
-
-Capture a matching backup and drain writers before migrating an existing index.
-The migration accepts both 384- and 1,536-dimensional vectors, records the
-profile on existing passages and updates the unique offset constraint. Allow
-for the table update and its locks on a large case. Deploy matching migrated
-worker and web versions before selecting `openai-gateway` on both services.
-Follow the [provider setup](local-analysis.md#case-search-embeddings). Check
-the [synthetic hosted qualification](validation.md#hosted-meaning-search)
-before asking a real case owner to approve external indexing.
-
-A model change rebuilds the index from retained sources. Monitor complete
-sources and passages in Processing. To stop external search, revoke the case
-grant or set the installation provider to `disabled`. Keep the widened schema
-when switching providers. Returning to older application code and its
-384-dimensional schema requires the coordinated pre-upgrade backup once hosted
-vectors exist.
+1. Record the current app revision, database image and volume mounts. Record the
+   case, original, checksum, saved answer, result and review inventory. Stop the
+   web process and drain all queue consumers, including profile-specific workers.
+2. [Capture a matching backup](#capture-a-matching-backup) of the database and
+   every private file root. Restore it into an isolated project with the former
+   database image and matching app. Compare the inventory, verify private file
+   checksums, open saved answers and follow their citations in the restored copy.
+3. Build the new app. With the old database still online and every writer stopped,
+   run `docker compose run --rm --no-deps web python manage.py migrate --noinput`.
+   The cutover removes rebuildable search tables and fences historical approvals.
+   It preserves evidence, findings, reviews and chat history. The migration
+   performs no transfers. Verify the inventory again and check every case has
+   External AI off.
+4. Use the same PostgreSQL 18 data directory, volume and architecture with the
+   standard image pinned in Compose. If another application uses the vector
+   extension in the same database, move that application or retain a compatible
+   database image. Start matching web and worker versions. Open saved sources,
+   verify counts and check worker readiness before enabling external AI.
+5. The verified owner can now enable external AI in Case Settings. Review the
+   named destinations, then check provisioning and indexing progress. For
+   rollback, restore both the pre-upgrade database and its matching evidence
+   files under the previous application image.
 
 ### Backup contents
 
@@ -193,12 +154,11 @@ worker diagnostic after startup. External storage needs coordinated snapshots,
 restoration, and preserved storage keys. See
 [evidence lifecycle and cleanup recovery](evidence.md#private-storage-and-deletion).
 
-## Local image text extraction
+## Image and document text extraction
 
-The application image includes Tesseract and English data. Host workers need the
-[development packages](development.md#run-python-on-the-host). OCR requires no AI
-credentials or remote fallback; supported profiles and version recovery are in
-[extraction](analysis-extraction.md).
+Native document text extraction runs during deterministic intake. Model-backed
+OCR requires the case owner's Cloudflare approval. Inspect source page and image
+anchors in the retained result. See [extraction](analysis-extraction.md).
 
 ## Upgrades and hosted deployment
 
@@ -255,7 +215,7 @@ immutable digest. Dokploy runs native **worker** and **web** Applications plus
 managed **PostgreSQL**, without Compose.
 
 1. In the production project, create a managed PostgreSQL resource using the
-   digest-pinned pgvector image from the `db` service in [Compose](../compose.yaml),
+   digest-pinned PostgreSQL image from the `db` service in [Compose](../compose.yaml),
    with a new database, role, and strong password.
    Keep it private; use its internal hostname and port 5432 in the application
    configuration. For a new PostgreSQL 18 resource, mount a named volume at
@@ -290,8 +250,7 @@ managed **PostgreSQL**, without Compose.
    `text/event-stream` without caching or buffering. If an earlier installation
    routes that prefix to a separate service, point it at web during cutover.
    Worker and database stay private.
-6. Deploy the singleton worker first. Its startup applies migrations, queues
-   missing indexes for cases eligible for the configured meaning search provider, emits
+6. Deploy the singleton worker first. Its startup applies migrations, emits
    `PANDECT_WORKER_PREPARED <APP_COMMIT_SHA>`, and starts `db_worker`. Migration
    failure stops startup before the marker or worker. Confirm the new worker's
    running task, image digest, and release marker. Deploy web and check the

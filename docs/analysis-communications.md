@@ -50,8 +50,7 @@ Review negation, sarcasm, hearsay, quotation, relative dates, missing exchanges,
 conflicts and planned/completed actions in the originals.
 Topic and claim requests allow up to 128,000 selected characters and 100
 suggestions. Runtime context and request limits also apply without truncation.
-Missing text is insufficient. Private inference is the default. Review and
-approve the configured destination to use [external AI](analysis.md#external-ai-configuration).
+The case owner enables the configured [Cloudflare AI route](analysis.md#external-ai-configuration) before these checks can run. A record without usable text is reported as insufficient.
 
 ## Compare a claim
 
@@ -64,16 +63,16 @@ context to identify one occurrence if the wording repeats. The comparison
 accepts up to 12,000 characters across the selection and up to 1,000 characters
 for the claim. Runtime limits can require a smaller selection.
 
-**Back to evidence selection** restores the selected sources, title search, and
+**Back to evidence selection** restores the selected sources, search query, and
 source page. If that page is unavailable, the picker opens the first page with
-the same title search and available selections. The picker reports any deleted
+the same search query and available selections. The picker reports any deleted
 selections it clears. From an Evidence record that needs an extraction,
 **Choose from all case evidence** broadens the search while keeping the
 original return link. **Cancel** and the result's **Back to evidence** link
 retain the starting record and filters. If that record was removed, they open
 the filtered Evidence collection.
 
-The queued comparison uses the configured [private text service](local-analysis.md).
+The queued comparison uses the case-approved [Cloudflare model](analysis.md#external-ai-configuration).
 The result retains the original claim, source-linked quotations, and potentially
 supporting, potentially conflicting, or unresolved suggestions. Matching
 checksums flag exact copies. Every selected source remains available for review.
@@ -180,7 +179,7 @@ the message numbers covered by each report and the status of other ranges.
 An archived message, a message containing only whitespace, or a single message
 over 16,000 characters leaves a gap.
 Other eligible ranges can finish. **Request summary** can fill missing ranges
-using the [case’s selected AI backend](cases.md#ai-backend). A summary of an
+using the [case’s selected AI backend](cases.md#external-ai-and-hosted-search). A summary of an
 earlier fragment remains attached to its original membership.
 
 **Read inferred message sessions**, **Inspect message timing** and **Summarize
@@ -307,7 +306,7 @@ The full CSV remains available for source review.
 Confirmation publishes only ready messages from the reviewed selection.
 
 Publication queues built-in methods and eligible checks on the
-[case's selected AI backend](cases.md#ai-backend) for newly added messages.
+[case's selected AI backend](cases.md#external-ai-and-hosted-search) for newly added messages.
 Publication captures those execution settings when it queues analysis.
 
 Confirmation queues method 2, separate from the immutable preview run. Publication

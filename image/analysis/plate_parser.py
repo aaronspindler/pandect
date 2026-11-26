@@ -1,15 +1,13 @@
-"""Bounded geometric plate candidates and local OCR; no Django or networks."""
+"""Bounded geometric plate candidates and prepared recognition crops."""
 
 import base64
 import hashlib
 import io
 import math
-from collections import Counter
 
 from PIL import Image, ImageOps
 
 from core.parser_contract import ParserFailure
-from image.analysis.ai_parser import _tesseract, text_regions
 from image.parsers import _image
 
 MAX_CANDIDATES = 5
@@ -17,7 +15,7 @@ MAX_CONTOURS = 1000
 MAX_CROP_PREVIEW_BYTES = 1024 * 1024
 
 
-def plate_likeness(candidate, recognition_image, attempts):
+def plate_likeness(candidate, recognition_image):
     """Fixed ranking heuristic, not an estimated probability of a real plate."""
     import cv2
     import numpy as np
@@ -84,30 +82,14 @@ def plate_likeness(candidate, recognition_image, attempts):
     geometry = 10 * candidate["rectangularity"] + 10 * min(
         1, (aspect - 1) / 0.8, (6.5 - aspect) / 2
     )
-    readings = []
-    scores = []
-    for attempt in attempts:
-        normalized = "".join(
-            c.upper() for c in attempt["text"] if c.isascii() and c.isalnum()
-        )
-        if 3 <= len(normalized) <= 12:
-            readings.append(normalized)
-            scores.append(attempt["confidence"])
-    agreeing = max(Counter(readings).values(), default=0)
-    readability = max(scores, default=0) / 10
-    agreement = 10 * agreeing / len(attempts) if agreeing >= 2 else 0
     return {
-        "plate_score": round(
-            max(0, min(100, geometry + best["points"] + readability + agreement))
-        ),
+        "plate_score": round(max(0, min(100, 1.25 * (geometry + best["points"])))),
         "score_details": {
-            "Scoring method": "plate-likeness.v1; uncalibrated heuristic",
+            "Scoring method": "plate-likeness.geometry.v2; uncalibrated heuristic",
             "Geometry points (0–20)": round(geometry, 2),
             "Panel aspect ratio": round(aspect, 3),
             "Rectangular fill fraction": round(candidate["rectangularity"], 3),
             "Character row points (0–60)": round(best["points"], 2),
-            "OCR readability points (0–10)": round(readability, 2),
-            "Reading agreement points (0–10)": round(agreement, 2),
             "Character-like components": best["characters"],
             "Character row width fraction": round(best["span"], 3),
             "Median baseline deviation fraction": round(best["baseline_deviation"], 3),
@@ -200,7 +182,6 @@ def parse(operation, content, options):
         return prepared
     with Image.open(io.BytesIO(base64.b64decode(prepared["image"]))) as preview:
         candidates, limited = candidate_quads(preview)
-    engine = _tesseract(["--version"]).splitlines()[0][:100]
     preview_bytes = 0
     with Image.open(io.BytesIO(content), formats=["JPEG", "PNG"]) as original:
         for candidate in candidates:
@@ -245,73 +226,43 @@ def parse(operation, content, options):
                     borderValue=(255, 255, 255),
                 )
             )
-            attempts = []
-            scoring_image = None
-            for enlargement, inset in ((2, 0), (2, 0.02), (3, 0.02)):
-                text_crop = [inset, 0.22, 1 - inset, 0.8]
-                line = rectified.crop(
-                    tuple(
-                        round(value * size[index % 2])
-                        for index, value in enumerate(text_crop)
-                    )
+            text_crop = [0.02, 0.22, 0.98, 0.8]
+            line = rectified.crop(
+                tuple(
+                    round(value * size[index % 2])
+                    for index, value in enumerate(text_crop)
                 )
-                gray = ImageOps.autocontrast(ImageOps.grayscale(line))
-                factor = min(enlargement, 1200 / gray.width, 400 / gray.height)
-                pixels = gray.resize(
-                    (
-                        max(1, round(gray.width * factor)),
-                        max(1, round(gray.height * factor)),
-                    ),
-                    Image.Resampling.LANCZOS,
-                )
-                pixels = ImageOps.expand(pixels, border=20, fill="white")
-                buffer = io.BytesIO()
-                pixels.save(buffer, format="JPEG", quality=95)
-                encoded = buffer.getvalue()
-                if scoring_image is None:
-                    scoring_image = encoded
-                raw = _tesseract(
-                    [
-                        "stdin",
-                        "stdout",
-                        "-l",
-                        "eng",
-                        "--psm",
-                        "7",
-                        "-c",
-                        "load_system_dawg=0",
-                        "-c",
-                        "load_freq_dawg=0",
-                        "tsv",
-                    ],
-                    encoded,
-                )
-                regions = text_regions(raw, pixels.width, pixels.height)
-                attempt = {
-                    "text": " ".join(region["text"] for region in regions),
-                    "confidence": min(
-                        (region["confidence"] for region in regions), default=0
-                    ),
-                    "width": pixels.width,
-                    "height": pixels.height,
-                    "scale": factor,
-                    "border": 20,
-                    "text_crop": text_crop,
-                    "image_sha256": hashlib.sha256(encoded).hexdigest(),
-                }
-                if len(attempt["text"].encode()) > 4096:
-                    raise ParserFailure("extracted_text_limit")
-                if preview_bytes + len(encoded) <= MAX_CROP_PREVIEW_BYTES:
-                    attempt["image"] = base64.b64encode(encoded).decode("ascii")
-                    preview_bytes += len(encoded)
-                attempts.append(attempt)
+            )
+            gray = ImageOps.autocontrast(ImageOps.grayscale(line))
+            factor = min(2, 1200 / gray.width, 400 / gray.height)
+            pixels = gray.resize(
+                (
+                    max(1, round(gray.width * factor)),
+                    max(1, round(gray.height * factor)),
+                ),
+                Image.Resampling.LANCZOS,
+            )
+            pixels = ImageOps.expand(pixels, border=20, fill="white")
+            buffer = io.BytesIO()
+            pixels.save(buffer, format="JPEG", quality=95)
+            encoded = buffer.getvalue()
+            attempt = {
+                "width": pixels.width,
+                "height": pixels.height,
+                "scale": factor,
+                "border": 20,
+                "text_crop": text_crop,
+                "image_sha256": hashlib.sha256(encoded).hexdigest(),
+            }
+            if preview_bytes + len(encoded) <= MAX_CROP_PREVIEW_BYTES:
+                attempt["image"] = base64.b64encode(encoded).decode("ascii")
+                preview_bytes += len(encoded)
             candidate |= {
                 "rectified_size": list(size),
-                "attempts": attempts,
-            } | plate_likeness(candidate, scoring_image, attempts)
+                "attempts": [attempt],
+            } | plate_likeness(candidate, encoded)
     return prepared | {
         "candidates": candidates,
         "limited": limited,
-        "engine": engine,
         "detector": f"OpenCV {cv2.__version__} geometric quadrilaterals v1",
     }

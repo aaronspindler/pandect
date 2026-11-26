@@ -145,16 +145,12 @@ class AudioAnalysisTests(SimpleTestCase):
         with self.assertRaises(AnalysisError):
             transcription([source], {}, client=client)
 
-    def test_private_end_timestamp_rounding_preserves_exact_audio_anchor(self):
+    def test_model_timestamp_outside_submitted_audio_is_rejected(self):
         source = file_source(wav_bytes(seconds=0.9975), "audio")
         client = Mock()
         client.request.return_value = {
             "text": "Candidate speech",
             "segments": [{"start": 0, "end": 1, "text": "Candidate speech"}],
         }
-        result = transcription([source], {"backend": "local"}, client=client)
-        item = result["items"][0]
-        self.assertEqual(item["anchors"][0]["end_seconds"], 0.9975)
-        self.assertEqual(item["values"]["Model end (seconds)"], 1)
         with self.assertRaises(AnalysisError):
             transcription([source], {"backend": "gateway"}, client=client)

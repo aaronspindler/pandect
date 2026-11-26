@@ -25,6 +25,24 @@
       {% elif row.withheld %}
         <p>{{ row.withheld }}</p>
       {% elif row.turn.status == 'complete' %}
+        {% if row.turn.plan.agent_version %}
+          <p class="chat-meta">Evidence cutoff <time datetime="{{ row.turn.started_at|date:'c' }}">{{ row.turn.started_at|date:'j M Y, H:i T' }}</time>.{% if row.newer_material %} Case material has changed since this investigation.{% endif %}</p>
+          {% if row.newer_material and can_edit and route_token %}
+          <form method="post" action="{% url 'core:chat:update' case.pk row.turn.chat_id row.turn.pk %}">
+            {% csrf_token %}<input type="hidden" name="route" value="{{ route_token }}"><input type="hidden" name="submission_id" value="{{ row.update_submission }}">
+            <button class="button button-secondary" type="submit">Update with current evidence</button>
+          </form>{% endif %}
+          {% if row.turn.plan.updated_from %}<p><a href="{% url 'core:chat:reply' case.pk row.turn.chat_id row.turn.plan.updated_from %}">Original assessment</a></p>{% endif %}
+          {% with coverage=row.turn.plan.coverage %}
+            {% if coverage.queued or coverage.running or coverage.search_index == 'queued' or coverage.search_index == 'unprepared' %}<p class="chat-meta">Some evidence was still processing or indexing at the cutoff. A later investigation may have more evidence to review.</p>{% endif %}
+            {% if coverage.search_index == 'failed' %}<p class="chat-meta">Search indexing had failed for part of the case at the cutoff. The investigation used the available evidence. <a href="{% url 'core:analysis:processing' case.pk %}">Inspect processing</a>.</p>{% elif row.turn.plan.search_preparing and not coverage.search_index %}<p class="chat-meta">Some search passages were unavailable during this investigation.</p>{% endif %}
+            {% if coverage.failed or coverage.partial %}<p class="chat-meta">Case processing had incomplete coverage at the cutoff{% if coverage.failed %} · {{ coverage.failed }} failed check{{ coverage.failed|pluralize }}{% endif %}{% if coverage.partial %} · {{ coverage.partial }} partial check{{ coverage.partial|pluralize }}{% endif %}. <a href="{% url 'core:analysis:processing' case.pk %}">Inspect processing</a>.</p>{% endif %}
+          {% endwith %}
+          {% if row.turn.plan.relevant_gaps %}<details><summary>Processing gaps for reviewed evidence</summary>
+            <ul>{% for gap in row.turn.plan.relevant_gaps %}<li><a href="{% url 'core:analysis:detail' case.pk gap.run %}">{{ gap.method }}</a> · {{ gap.status }} at cutoff</li>{% endfor %}</ul>
+          </details>{% endif %}
+          {% if row.turn.plan.approved_result_at %}<p class="chat-meta">This answer also uses the approved extraction published {{ row.turn.plan.approved_result_at }}.</p>{% endif %}
+        {% endif %}
         {% if row.answer.clarification %}
           <p><strong>Clarification requested</strong></p><p class="chat-answer">{{ row.answer.clarification }}</p>
         {% else %}
@@ -58,8 +76,6 @@
           {% endif %}
           {% if row.answer.lead %}<h3>Suggested next check</h3><p class="chat-answer">{{ row.answer.lead }}</p>{% endif %}
         {% endif %}
-        {% if row.deep_child %}<p><a href="{{ row.deep_child }}">Open deeper review</a></p>
-        {% elif row.deep_offer and can_edit %}<p><a class="button button-secondary" href="{% url 'core:chat:deep_review' case.pk thread.pk row.turn.pk %}">{% if row.turn.plan.unreviewed %}Continue reviewing remaining entries{% else %}Review more matching material{% endif %}</a></p>{% endif %}
         {% if row.turn.plan.recorded_selection.snapshot %}
           <p><a class="record-link" href="{% url 'core:chat:selection' case.pk thread.pk row.turn.pk %}">{% if row.turn.plan.recorded_selection.context_only %}Inspect records matching the filters{% else %}Inspect matching records{% endif %} ({{ row.turn.plan.recorded_selection.coverage.matched }})</a></p>
           {% if row.turn.plan.recorded_selection.field == 'recipients' or row.turn.plan.recorded_selection.field == 'senders' %}
@@ -74,7 +90,7 @@
           {% if row.proposal.status == 'offered' and can_edit %}
             <p><a class="button button-secondary" href="{% url 'core:chat:proposal' case.pk thread.pk row.turn.pk %}">Review proposed check</a></p>
           {% elif row.linked_reply %}<p><a href="{{ row.linked_reply }}">Open linked reply after extraction</a></p>
-          {% elif row.proposal.status == 'approved' %}<p>Waiting for the approved extraction and linked reply.</p>
+          {% elif row.proposal.status == 'approved' and not row.proposal.continuation_id %}<p>Waiting for the approved extraction before continuing this investigation.</p>
           {% elif row.proposal.status == 'stopped' %}<p>The approved extraction stopped ({{ row.proposal.run.get_status_display }}).</p>{% endif %}
           {% if row.proposal.run_id %}<p><a href="{% url 'core:analysis:detail' case.pk row.proposal.run_id %}">Open extraction</a></p>{% endif %}
         {% endif %}

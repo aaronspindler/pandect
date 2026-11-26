@@ -1,5 +1,7 @@
 """Account for the original question and the answer linked to an approved check."""
 
+from decimal import Decimal
+
 from django.db.models import Q
 
 from core.models import ChatAnalysisProposal
@@ -16,8 +18,13 @@ def _stage(label, entries):
                 reported += entry[actual]
             else:
                 reserved += entry[bound]
+    estimates = [
+        Decimal(entry["estimated_usd"]) for entry in entries if "estimated_usd" in entry
+    ]
     return {
         "label": label,
+        "estimated_usd": format(sum(estimates), ".6f") if estimates else "",
+        "unpriced": len(entries) - len(estimates),
         "requests": len(entries),
         "bytes": sum(entry["bytes"] for entry in entries),
         "reported": reported,
@@ -26,6 +33,8 @@ def _stage(label, entries):
 
 
 def interaction_usage(turn):
+    if turn.plan.get("agent_version"):
+        return [_stage("Cloudflare investigation", turn.model_usage)]
     proposal = (
         ChatAnalysisProposal.objects.filter(
             Q(parent_id=turn.pk) | Q(continuation_id=turn.pk),
@@ -42,8 +51,7 @@ def interaction_usage(turn):
     )
     if proposal is None:
         return None
-    # The approved PDF extraction uses the local parser and optional local OCR.
-    # Neither operation dispatches model requests.
+    # Pre-cutover linked answers retain their original usage breakdown.
     rows = [
         _stage("Original question", proposal["parent__model_usage"]),
         _stage("Local PDF extraction", []),

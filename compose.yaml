@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:0.8.7-pg18-trixie@sha256:ab49524d18df7200b74ac9a475e1db6297fc1eb57da4c214c63d10ecc4b754fa
+    image: postgres:18.7-trixie@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pandect}
       POSTGRES_USER: ${POSTGRES_USER:-pandect}
@@ -48,30 +48,13 @@ services:
       PANDECT_AI_TRANSCRIPTION_MODEL: ${PANDECT_AI_TRANSCRIPTION_MODEL:-@cf/openai/whisper-large-v3-turbo}
       PANDECT_AI_TEXT_MODEL_CHOICES: ${PANDECT_AI_TEXT_MODEL_CHOICES:-}
       PANDECT_AI_TRANSCRIPTION_MODEL_CHOICES: ${PANDECT_AI_TRANSCRIPTION_MODEL_CHOICES:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      PANDECT_OPENAI_MODEL: ${PANDECT_OPENAI_MODEL:-}
-      PANDECT_ANTHROPIC_MODEL: ${PANDECT_ANTHROPIC_MODEL:-}
-      PANDECT_LOCAL_TEXT_URL: ${PANDECT_LOCAL_TEXT_URL:-}
-      PANDECT_LOCAL_TEXT_MODEL: ${PANDECT_LOCAL_TEXT_MODEL:-qwen3.5:9b}
-      PANDECT_LOCAL_TEXT_SHA256: ${PANDECT_LOCAL_TEXT_SHA256:-}
-      PANDECT_LOCAL_TEXT_RUNTIME: ${PANDECT_LOCAL_TEXT_RUNTIME:-}
-      PANDECT_LOCAL_TRANSCRIPTION_URL: ${PANDECT_LOCAL_TRANSCRIPTION_URL:-}
-      PANDECT_LOCAL_TRANSCRIPTION_MODEL: ${PANDECT_LOCAL_TRANSCRIPTION_MODEL:-whisper-large-v3-turbo}
-      PANDECT_LOCAL_TRANSCRIPTION_SHA256: ${PANDECT_LOCAL_TRANSCRIPTION_SHA256:-}
-      PANDECT_LOCAL_TRANSCRIPTION_RUNTIME: ${PANDECT_LOCAL_TRANSCRIPTION_RUNTIME:-whisper.cpp@d1be6fde11ac6e0407606b4e42fe72d34add8037}
-      PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE: ${PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE:-}
-      PANDECT_LOCAL_AI_TOKEN: ${PANDECT_LOCAL_AI_TOKEN:-}
-      PANDECT_SEARCH_EMBEDDING_PROVIDER: ${PANDECT_SEARCH_EMBEDDING_PROVIDER:-local}
-      PANDECT_SEARCH_RERANK_PROVIDER: ${PANDECT_SEARCH_RERANK_PROVIDER:-disabled}
-      PANDECT_LOCAL_RERANK_URL: ${PANDECT_LOCAL_RERANK_URL:-}
-      PANDECT_LOCAL_RERANK_REVISION: ${PANDECT_LOCAL_RERANK_REVISION:-}
-      PANDECT_LOCAL_RERANK_VERSION: ${PANDECT_LOCAL_RERANK_VERSION:-}
-      PANDECT_LOCAL_RERANK_TOKEN: ${PANDECT_LOCAL_RERANK_TOKEN:-}
-      PANDECT_LOCAL_EMBEDDING_URL: ${PANDECT_LOCAL_EMBEDDING_URL:-}
-      PANDECT_LOCAL_EMBEDDING_MODEL: ${PANDECT_LOCAL_EMBEDDING_MODEL:-all-minilm:22m}
-      PANDECT_LOCAL_EMBEDDING_SHA256: ${PANDECT_LOCAL_EMBEDDING_SHA256:-}
-      PANDECT_LOCAL_EMBEDDING_RUNTIME: ${PANDECT_LOCAL_EMBEDDING_RUNTIME:-}
+      PANDECT_CLOUDFLARE_ACCOUNT_ID: ${PANDECT_CLOUDFLARE_ACCOUNT_ID:-}
+      PANDECT_CLOUDFLARE_SEARCH_NAMESPACE: ${PANDECT_CLOUDFLARE_SEARCH_NAMESPACE:-production}
+      PANDECT_CLOUDFLARE_SEARCH_TOKEN: ${PANDECT_CLOUDFLARE_SEARCH_TOKEN:-}
+      PANDECT_AGENT_URL: ${PANDECT_AGENT_URL:-}
+      PANDECT_AGENT_SECRET: ${PANDECT_AGENT_SECRET:-}
+      PANDECT_AI_PRICES_USD_PER_MILLION: ${PANDECT_AI_PRICES_USD_PER_MILLION:-}
+      PANDECT_AI_VISION_MODEL: ${PANDECT_AI_VISION_MODEL:-}
       PANDECT_GEOCODER_URL: ${PANDECT_GEOCODER_URL:-}
       PANDECT_GEOCODER_LOCAL: ${PANDECT_GEOCODER_LOCAL:-false}
       PANDECT_GEOCODER_NAME: ${PANDECT_GEOCODER_NAME:-}
@@ -100,7 +83,6 @@ services:
       - "127.0.0.1:${PANDECT_WEB_PORT:-8000}:8000"
     volumes:
       - app_data:/app/data
-    networks: [default, inference]
     depends_on:
       db:
         condition: service_healthy
@@ -117,12 +99,11 @@ services:
   worker:
     image: ${COMPOSE_PROJECT_NAME:-pandect}-app
     environment: *app_environment
-    command: ["sh", "-c", "python manage.py prepare_case_search && exec python manage.py db_worker --no-reload"]
+    command: ["python", "manage.py", "db_worker", "--no-reload"]
     restart: unless-stopped
     stop_grace_period: 30s
     volumes:
       - app_data:/app/data
-    networks: [default, inference]
     depends_on:
       web:
         condition: service_healthy
@@ -162,42 +143,9 @@ services:
       instagram-pilot:
         condition: service_healthy
 
-  local-transcription:
-    profiles: [local-ai]
-    image: ${COMPOSE_PROJECT_NAME:-pandect}-inference
-    build: ./inference
-    environment:
-      PANDECT_RUNTIME_MODEL: ${PANDECT_LOCAL_TRANSCRIPTION_MODEL:-whisper-large-v3-turbo}
-      PANDECT_RUNTIME_MODEL_SHA256: ${PANDECT_LOCAL_TRANSCRIPTION_SHA256:-}
-      PANDECT_LOCAL_AI_TOKEN: ${PANDECT_LOCAL_AI_TOKEN:-}
-    volumes:
-      - type: bind
-        source: ${PANDECT_LOCAL_TRANSCRIPTION_MODEL_FILE:-./data/models/transcription.bin}
-        target: /models/model
-        read_only: true
-        bind:
-          create_host_path: false
-    networks: [inference]
-    read_only: true
-    tmpfs: ["/tmp:mode=0700,uid=1000,gid=1000,size=64m"]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    pids_limit: 128
-    mem_limit: 4g
-    cpus: 4
-    restart: unless-stopped
-    stop_grace_period: 15s
-    healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 600s
 
 networks:
   instagram:
-    internal: true
-  inference:
     internal: true
 
 volumes:

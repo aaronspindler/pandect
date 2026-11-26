@@ -2,6 +2,7 @@
 {% block title %}Repeated identifiers · {{ case.name }}{% endblock %}
 {% block content %}
 <header class="page-header"><div><h1>{% if connection %}{{ identifier_label }} occurrences{% else %}Repeated identifiers{% endif %}</h1><p class="muted">Exact string matches in analyzed material. Matching values do not establish identity, ownership, or association.</p></div><a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a></header>
+<p><a href="{% url 'core:analysis:relationships' case.pk %}">Review narrative relationships</a></p>
 {% if connection %}
 <p>{{ connection.original_count }} retained original{{ connection.original_count|pluralize }}. Repeated extraction versions of the same original are grouped together.</p>
 {% if connection.checksum_count < connection.original_count %}<p class="notice">Some originals have identical checksums. Copies are not independent corroboration.</p>{% endif %}

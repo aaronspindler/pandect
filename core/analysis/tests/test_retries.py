@@ -4,6 +4,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
@@ -49,6 +50,37 @@ class FailedRetryTests(EvidenceViewTestMixin, TestCase):
                 }
                 | kwargs
             ),
+        )
+
+    def test_acknowledgment_preserves_failure_and_requires_current_editor_access(self):
+        failed = self.run_for(self.text())
+        url = reverse("core:analysis:acknowledge", args=[self.case.pk, failed.pk])
+        for role, status in (("viewer", 403), ("outsider", 404)):
+            self.login(role)
+            self.assertEqual(self.client.post(url).status_code, status)
+        self.login("editor")
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.assertEqual(self.client.post(url).status_code, 302)
+        failed.refresh_from_db()
+        self.assertEqual(failed.status, "failed")
+        self.assertEqual(failed.failure_acknowledged_by, self.users["editor"])
+        first = failed.failure_acknowledged_at
+        self.login("owner")
+        self.assertEqual(self.client.post(url).status_code, 302)
+        failed.refresh_from_db()
+        self.assertEqual(failed.failure_acknowledged_at, first)
+        self.assertEqual(self.request_retries(), (None, False))
+        detail = self.client.get(
+            reverse("core:analysis:detail", args=[self.case.pk, failed.pk])
+        )
+        self.assertContains(detail, "Missing coverage acknowledged")
+        self.assertContains(detail, "Run again")
+        completed = self.run_for(self.text(), status="complete")
+        self.assertEqual(
+            self.client.post(
+                reverse("core:analysis:acknowledge", args=[self.case.pk, completed.pk])
+            ).status_code,
+            404,
         )
 
     def test_replay_of_a_coalesced_request_does_not_retry_new_failures(self):

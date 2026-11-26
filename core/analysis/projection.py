@@ -42,6 +42,7 @@ def is_ai_suggestion(operation, finding):
     if operation == "claim_comparison":
         return values.get("Interpretation") == "AI suggestion"
     if operation in {
+        "narrative_relationships",
         "content_events",
         "session_summaries",
         "text_topics",

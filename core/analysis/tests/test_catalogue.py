@@ -38,6 +38,8 @@ from text.models import TextEvidence
 class CatalogueTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
         self.note = self.text()
         self.url = reverse("core:analysis:browse", kwargs={"case_id": self.case.pk})
 
@@ -81,8 +83,34 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
             project_result(result)
         return result
 
+    def stub_finding_search(self, *results):
+        from types import SimpleNamespace
+
+        def matched(case, actor, query, **kwargs):
+            passages = []
+            for result in results:
+                for finding in result.findings.all():
+                    if query.casefold() in finding.search_text.casefold():
+                        locator = {
+                            "pk": str(finding.pk),
+                            "surface": "finding",
+                            "dependencies": [],
+                        }
+                        passages.append(
+                            (
+                                SimpleNamespace(locator=locator, url="/synthetic"),
+                                0,
+                                query,
+                            )
+                        )
+            return passages
+
+        self.enterContext(patch("core.case_search.hosted.hits", side_effect=matched))
+
     def page(self, **params):
-        return catalogue_page(self.case, QueryDict(urlencode(params)))
+        return catalogue_page(
+            self.case, QueryDict(urlencode(params)), actor=self.users["owner"]
+        )
 
     def test_method_choices_include_distinct_retained_methods_from_this_case(self):
         for case, operation in (
@@ -185,8 +213,8 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
         self.assertIn("page=2", first["next_url"])
 
     def test_return_to_findings_restores_case_query_and_ignores_other_targets(self):
-        for sample in range(2):
-            self.publish(parameters={"sample": sample})
+        results = [self.publish(parameters={"sample": n}) for n in range(2)]
+        self.stub_finding_search(*results)
         self.login("viewer")
         selection = {"q": "needle", "kind": "text", "history": "all", "page": "2"}
         with patch("core.analysis.catalogue.PER_PAGE", 1):
@@ -244,6 +272,7 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
 
     def test_latest_is_selected_before_search_filters(self):
         older = self.publish()
+        self.stub_finding_search(older)
         self.publish(
             items=[
                 {
@@ -266,7 +295,7 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
         self.assertNotIn("review", page["rows"][0])
 
     def test_literal_search_excludes_archived_sources_and_escapes_output(self):
-        self.publish()
+        self.stub_finding_search(self.publish())
         self.login("viewer")
         response = self.client.get(self.url, {"q": "100% _ <script>"})
         self.assertContains(response, "&lt;script&gt;")
@@ -474,7 +503,7 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
 
     def test_search_includes_complete_values_but_returns_bounded_excerpts(self):
         inputs = snapshot_sources(self.case, [{"kind": "text", "id": self.note.pk}])
-        self.publish(
+        result = self.publish(
             items=[
                 {
                     "label": "Long retained measurement",
@@ -483,6 +512,7 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
                 }
             ]
         )
+        self.stub_finding_search(result)
         page = self.page(q="Unique tail value")
         self.assertEqual(page["page_obj"].paginator.count, 1)
         self.assertIn("Unique tail value", page["rows"][0]["excerpt"])

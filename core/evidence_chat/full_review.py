@@ -1,5 +1,7 @@
 """Freeze, inspect and verify an exhaustive Evidence Chat review."""
 
+import re
+from hashlib import sha256
 from itertools import batched
 
 from django.db import connection, transaction
@@ -7,6 +9,7 @@ from django.db.models import Count
 
 from cases.models import CaseActivity
 from core.analysis.errors import AnalysisError
+from core.analysis.inference_payloads import encode_json
 from core.models import ChatMatch, ChatSource
 
 from . import activity, corpus, engine, engine_counts
@@ -43,25 +46,20 @@ def freeze_review(
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         case = authorize_turn(turn, context)
         store_context(turn, context)
-        if turn.review_of_id:
-            from .deep_review import manifest_rows
-
-            rows = manifest_rows(turn)
-        else:
-            rows = (
-                source_row(turn, locator, "pending")
-                for locator in corpus.discover(
-                    case,
-                    turn.include_archived,
-                    through=turn.started_at,
-                    original_kinds=filters.get("kinds"),
-                    count_filters=filters
-                    if engine_counts.is_filtered_count(question, filters)
-                    else None,
-                    review=True,
-                    filters=explicit_scope,
-                )
+        rows = (
+            source_row(turn, locator, "pending")
+            for locator in corpus.discover(
+                case,
+                turn.include_archived,
+                through=turn.started_at,
+                original_kinds=filters.get("kinds"),
+                count_filters=filters
+                if engine_counts.is_filtered_count(question, filters)
+                else None,
+                review=True,
+                filters=explicit_scope,
             )
+        )
         for batch in batched(rows, 200, strict=False):
             ChatSource.objects.bulk_create(
                 batch,
@@ -105,8 +103,6 @@ def _checked_review(turn, windows, spans):
     except AnalysisError as error:
         if error.code not in (
             "model_content_limit",
-            "local_ai_context_limit",
-            "local_ai_input_limit",
             "gateway_input_limit",
         ):
             raise
@@ -168,7 +164,61 @@ def _read_review_spans(turn, pending, filters, *, literal=False):
     return work, readable, spans
 
 
-def review_batch(turn):
+def _literal_batch(term, windows):
+    records = [
+        {
+            "text": window.text,
+            "start": window.start,
+            "length": window.locator["length"],
+            "ranges": window.literal_ranges,
+        }
+        for window in windows
+    ]
+    identities = [(w.locator["key"], w.locator["version"]) for w in windows]
+    digest = sha256(encode_json([identities, records, term])).hexdigest()
+    return {"literal": term, "batch": digest, "records": records}
+
+
+def _literal_results(reply, batch, windows):
+    if reply.get("batch") != batch["batch"]:
+        raise AnalysisError("source_changed")
+    rows = reply.get("offsets")
+    if not isinstance(rows, list) or len(rows) != len(windows):
+        raise AnalysisError("model_result_structure")
+    term = batch["literal"]
+    left = r"(?<!\w)" if re.match(r"\w", term[0]) else ""
+    right = r"(?!\w)" if re.match(r"\w", term[-1]) else ""
+    expected = re.compile(left + re.escape(term) + right, re.IGNORECASE)
+    outcomes = []
+    for window, offsets in zip(windows, rows, strict=True):
+        if not isinstance(offsets, list) or len(offsets) > LITERAL_CITATIONS_PER_RECORD:
+            raise AnalysisError("model_result_structure")
+        citations = []
+        for offset in offsets:
+            if type(offset) is not int or not 0 <= offset < len(window.text):
+                raise AnalysisError("model_quote_mismatch")
+            # Verify only the exact position proposed by the Worker. The
+            # overlap places clipped boundary matches inside an adjacent span.
+            match = expected.match(window.text, offset)
+            if not match or (left and offset == 0 and window.start):
+                raise AnalysisError("model_quote_mismatch")
+            start, end = window.start + offset, window.start + match.end()
+            if (
+                right
+                and match.end() == len(window.text)
+                and end < window.locator["length"]
+            ):
+                raise AnalysisError("model_quote_mismatch")
+            if not any(
+                first <= start and end <= last for first, last in window.literal_ranges
+            ):
+                raise AnalysisError("model_quote_mismatch")
+            citations.append({"start": start, "end": end, "quote": match[0]})
+        outcomes.append(("match" if citations else "miss", citations))
+    return outcomes
+
+
+def review_batch(turn, *, literal_result=None):
     filters = turn.plan["filters"]
     literal = turn.plan.get("literal")
     pending = list(
@@ -202,8 +252,14 @@ def review_batch(turn):
                         }
                     )
                 outcomes.append((outcome, citations))
-    elif literal:
-        outcomes = engine_counts.literal_outcomes(literal, readable)
+    elif literal and readable:
+        batch = _literal_batch(literal, readable)
+        if literal_result is None:
+            authorize_turn(turn, spans, review=True)
+            return batch
+        outcomes = _literal_results(literal_result, batch, readable)
+    elif literal_result is not None:
+        raise AnalysisError("source_changed")
     elif readable:
         outcomes = _checked_review(turn, readable, spans)
 
@@ -309,6 +365,9 @@ def _draft_review(turn):
             turn.plan["question"],
             windows,
         )
+        from .investigation import _supported
+
+        draft = _supported(turn, draft, used)
         authorize_turn(turn, used)
         turn.plan["draft"] = draft
         turn.plan["examples"] = len(used)
@@ -321,7 +380,7 @@ def verify_batch(turn):
     versions = evidence_versions(case)
     accounted = turn.sources.filter(case=case).exclude(status="context")
     candidates = accounted.order_by("pk")
-    if turn.review_of_id and turn.plan.get("unreviewed"):
+    if turn.plan.get("unreviewed"):
         # An untouched entry has supplied no model input, claim or match.
         # The saved reply still validates its manifest membership in PostgreSQL.
         candidates = candidates.exclude(status="unread", cursor=0)
@@ -366,6 +425,7 @@ def _finish_review(turn, accounted):
             .distinct()
             .count()
         )
+    turn.plan.setdefault("stop_reason", "review_complete")
     turn.plan["matched_records"] = records
     turn.plan["stage"] = "complete"
     total_records = accounted.values("record_key").distinct().count()
@@ -376,21 +436,21 @@ def _finish_review(turn, accounted):
             f"The review identified {records} distinct matching records "
             f"among {total_records} reviewed."
         )
-    if turn.review_of_id:
-        count = turn.plan["deep_scope"]["count"]
+    if turn.plan.get("unreviewed"):
         summary = (
-            f"Fully reviewed {turn.reviewed} of {turn.total} verified source entries "
-            f"from {count} selected entries. "
+            f"The review reached its model usage limit. Fully reviewed "
+            f"{turn.reviewed} of {turn.total} source entries. "
             f"{records} distinct records have cited matches."
         )
-        if turn.plan.get("approved_limit_reached"):
-            summary += " The approved generation limit was reached."
+        turn.plan["stop_reason"] = "budget"
     if turn.gaps:
         summary += f" Coverage is incomplete for {turn.gaps} source entries."
     lead = "Review the sources with incomplete coverage." if turn.gaps else ""
     draft = turn.plan.pop("draft", None) or engine.empty_answer()
     if n := turn.plan.get("examples"):
         summary += f" The narrative uses {n} representative matching records."
+    if draft.get("summary"):
+        summary += " " + draft["summary"]
     draft["summary"] = summary
     draft["lead"] = draft.get("lead") or lead
     complete_turn(turn, draft)

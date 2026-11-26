@@ -14,6 +14,7 @@ from django.views.decorators.http import require_safe
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.catalogue import FindingScopeForm, finding_queryset, finding_rows
+from core.case_search.discovery import discover
 from core.models import AnalysisFindingSource
 
 IDENTIFIERS = {
@@ -58,8 +59,9 @@ def connections(request, case_id):
     findings = finding_queryset(
         case, {key: value for key, value in filters.items() if key != "q"}
     ).exclude(match_kind="")
+    results = discover(case, request.user, filters.get("q"), kind="finding")
     if filters.get("q"):
-        findings = findings.filter(match_key__icontains=filters["q"])
+        findings = findings.filter(pk__in=results.findings)
     if filters.get("identifier_type"):
         findings = findings.filter(match_kind=filters["identifier_type"])
     if not valid:
@@ -98,6 +100,7 @@ def connections(request, case_id):
     )
     context = case_context(case, request.user) | {
         "nav_section": "connections",
+        "search_notice": results.notice,
         "form": form,
         "filters": filters,
     }

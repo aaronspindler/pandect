@@ -2,16 +2,20 @@
 
 import re
 from datetime import UTC, datetime
+from unittest.mock import patch
 from urllib.parse import urljoin
 from uuid import UUID
 
 from django.core.files.base import ContentFile
+from django.test import override_settings
 from django.urls import reverse
 from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.services import start_run
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_openai_gateway import OPENAI
 from core.analysis.worker import process_run
 from core.models import AnalysisRun
 from geo.models import LocationEvidence, PersonLocationEvidence
@@ -32,12 +36,13 @@ class SightingBrowserTests(BrowserTestCase):
         for user, role in ((self.editor, "editor"), (self.viewer, "viewer")):
             CaseMembership.objects.create(case=self.case, user=user, role=role)
 
-    def run_analysis(self, operation, kind, records):
+    def run_analysis(self, operation, kind, records, **approval):
         run, _ = start_run(
             self.owner,
             self.case.pk,
             operation,
             [{"kind": kind, "id": str(record.pk)} for record in records],
+            **approval,
         )
         process_run(run.pk)
         run.refresh_from_db()
@@ -230,7 +235,9 @@ class SightingBrowserTests(BrowserTestCase):
                     page.get_by_role("link", name="Create sighting group")
                 ).to_have_count(0)
 
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
     def test_plate_region_and_spatial_comparison_links_open_retained_sources(self):
+        approval = external_grant_kwargs(self.case, "plate_ocr")
         images = [
             ImageEvidence.objects.create(
                 case=self.case,
@@ -242,8 +249,13 @@ class SightingBrowserTests(BrowserTestCase):
             )
             for title, angle in (("Market photograph", 0), ("Harbour photograph", 8))
         ]
-        for image in images:
-            self.run_analysis("plate_ocr", "image", [image])
+        with patch(
+            "core.analysis.gateway.GatewayClient.read_image",
+            return_value=("TEST 482", False),
+        ) as recognize:
+            for image in images:
+                self.run_analysis("plate_ocr", "image", [image], **approval)
+            self.assertGreaterEqual(recognize.call_count, len(images))
         locations = [
             LocationEvidence.objects.create(
                 case=self.case,

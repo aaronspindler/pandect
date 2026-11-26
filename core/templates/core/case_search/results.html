@@ -6,42 +6,14 @@
 <header class="page-header"><h1>Case search</h1></header>
 {% include 'ui/components/form_errors.html' with form=search_form %}
 {% if search_form.q.errors %}<div id="case-query-errors">{{ search_form.q.errors }}</div>{% endif %}
-<div class="case-search-tools">
-  <details class="case-search-filters"{% if search_form.errors %} open{% endif %}>
-    <summary>Filters and sorting{% if active_filters %}<span class="muted"> · {{ active_filters|join:" · " }}</span>{% endif %}</summary>
-    <div class="case-search-filter-fields">
-      {% for field in search_form %}{% if field.name != 'q' %}<div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endif %}{% endfor %}
-    </div>
-    <p class="muted">Dates use {{ display_timezone }}.</p>
-    <div class="actions"><button type="submit" form="case-search" class="button button-secondary">Apply filters</button>{% if active_filters %}<a class="record-link" href="{% querystring type=None start=None end=None sort=None page=None meaning=None %}">Clear filters</a>{% endif %}</div>
-  </details>
-  <details class="case-search-tips">
-    <summary>Search tips</summary>
-    <p>Use quotation marks for an exact phrase, <code>OR</code> for alternatives, or a minus sign to exclude a word. For example, <code>"meeting place" OR rendezvous -tentative</code>.</p>
-  </details>
-  {% if case_search_query or search_form.errors %}<a class="record-link" href="{% url 'core:search:results' case.pk %}">Clear search</a>{% endif %}
-</div>
-{% if page_obj != None %}
-<section class="case-search-matches" aria-labelledby="keyword-matches-heading">
-  <div class="case-search-results-heading"><h2 id="keyword-matches-heading">{{ page_obj.paginator.count }} keyword match{{ page_obj.paginator.count|pluralize:"es" }}</h2>
-    {% if meaning_requested %}<a href="#related-passages">Related passages{% if related %} ({{ related|length }}){% endif %}</a>{% elif offer_meaning %}
-    <form method="post" action="{% querystring meaning=None page=None %}#related-passages">
-      {% csrf_token %}<input type="hidden" name="search_token" value="{{ search_token }}"><button type="submit" name="meaning" value="1" class="button button-secondary"{% if hosted_meaning or hosted_rank %} aria-describedby="meaning-destination"{% endif %}>Search by meaning</button>
-      {% if hosted_meaning or hosted_rank %}<small id="meaning-destination">{% if hosted_meaning %}Sends this query to OpenAI through Cloudflare. {% endif %}{% if hosted_rank %}Reranking sends your query and candidate excerpts to Cloudflare Workers AI.{% endif %}</small>{% endif %}
-    </form>{% endif %}
-  </div>
-  {% if spelling %}<p>Did you mean <a href="{% querystring q=spelling page=None meaning=None %}">{{ spelling }}</a>?</p>{% endif %}
-  {% if page_obj %}{% include 'core/case_search/rows.html' with rows=page_obj terms=terms only %}{% elif not related %}<p>Try another word{% if active_filters %} or broaden your filters{% endif %}.</p>{% endif %}
-  {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Case search pages">
-    {% if page_obj.has_previous %}<a href="{% querystring page=page_obj.previous_page_number meaning=None %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="{% querystring page=page_obj.next_page_number meaning=None %}">Next</a>{% endif %}
-  </nav>{% endif %}
-</section>
-{% if show_related %}
-<section class="case-search-matches" aria-labelledby="related-passages">
-  <h2 id="related-passages" tabindex="-1">Related passages</h2>
-  {% if meaning_status %}<p class="muted">{{ meaning_status }} <a href="{% url 'core:analysis:processing' case.pk %}#case-search-index">Indexing status</a></p>{% endif %}
-  {% if related %}{% include 'core/case_search/rows.html' with rows=related terms='' only %}{% elif not meaning_status %}<p>No additional related passages were found.</p>{% endif %}
-</section>
+<details class="case-search-filters"{% if search_form.errors %} open{% endif %}>
+  <summary>Filter passages</summary>
+  <div class="case-search-filter-fields">{% for field in search_form %}{% if field.name != 'q' %}<div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endif %}{% endfor %}</div>
+  <button type="submit" form="case-search" class="button button-secondary">Apply filters</button>
+</details>
+{% if notice %}<p role="status">{{ notice }}</p>{% elif index.status != 'ready' %}<p>{{ index.label }} <a href="{% url 'core:analysis:processing' case.pk %}#case-search-index">Indexing status</a></p>{% endif %}
+{% if case_search_query and not notice and not search_form.errors %}
+<section aria-labelledby="passages-heading"><h2 id="passages-heading">Matching passages</h2>
+{% if rows %}{% include 'core/case_search/rows.html' with rows=rows query=case_search_query only %}{% else %}<p>No current passages matched this query.</p>{% endif %}</section>
 {% endif %}
-{% elif not search_form.errors %}<p>Enter a name, identifier, or phrase in <a href="#case-search-query">Search this case</a>.</p>{% endif %}
 {% endblock %}

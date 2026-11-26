@@ -216,6 +216,7 @@ def create(request, case_id, kind=None, evidence_id=None):
         )
         sources_page = max(1, sources_page + (-1 if sources_reverse else 1))
     form_options = {
+        "actor": request.user,
         "case": case,
         "operation": operation,
         "query": query,
@@ -327,6 +328,7 @@ def create(request, case_id, kind=None, evidence_id=None):
                 form.readiness.get(value, {}).get("blocking")
                 for value in (form["sources"].value() or ())
             ),
+            "search_notice": form.search_notice,
             "source_options": [
                 (
                     choice,

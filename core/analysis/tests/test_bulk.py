@@ -77,7 +77,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
     def url(self, name="rerun_all"):
         return reverse(f"core:analysis:{name}", args=[self.case.pk])
 
-    def test_all_types_use_local_checks_and_preserve_existing_results(self):
+    def test_all_types_use_deterministic_checks_and_preserve_existing_results(self):
         sources = {kind: self.source(kind) for kind in KINDS}
         for kind in CALL_KINDS:
             parent = "phone_call" if kind == "phone-call" else "facetime"
@@ -107,8 +107,6 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
                 "text_topics",
                 "native_text",
                 "image_metadata",
-                "ocr",
-                "plate_ocr",
                 "audio_metadata",
                 "location_quality",
                 "normalize_addresses",

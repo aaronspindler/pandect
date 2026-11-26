@@ -13,7 +13,7 @@ from ui.live import render_live
 def browse(request, case_id):
     case = get_case(request.user, case_id)
     context = case_context(case, request.user) | catalogue_page(
-        case, request.GET, return_to_list=True
+        case, request.GET, actor=request.user, return_to_list=True
     )
     response = render_live(
         request,

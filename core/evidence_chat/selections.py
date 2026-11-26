@@ -2,15 +2,13 @@
 
 from zoneinfo import ZoneInfo
 
-from django.contrib.postgres.functions import RandomUUID
 from django.core.paginator import Paginator
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models import BigIntegerField, BooleanField, Count, Func, Q, Value
 from django.db.models.functions import Coalesce, TruncWeek
 from django.urls import reverse
 
 from core.analysis.errors import AnalysisError
-from core.case_search.documents import FIELDS, searchable
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.models import ChatSelectionMember, ChatTurn
@@ -43,9 +41,7 @@ def _populations(case, spec):
             continue
         rows = corpus.rows(case, "original", kind, False, through=spec["through"])
         if kind == "text" and (phrase := spec.get("phrase")):
-            rows = searchable(rows, FIELDS["text"]).filter(
-                search_document__icontains=phrase, body__contains=phrase
-            )
+            rows = rows.filter(body__contains=phrase)
         if pair := spec.get("pair"):
             rows = rows.filter(reported_pair(*pair))
         if since := spec.get("after"):
@@ -143,72 +139,18 @@ def member_ids(turn):
 
 
 @transaction.atomic
-def freeze(turn, spec):
-    """Copy only identities and recorded clocks, entirely inside PostgreSQL."""
-    if (
-        not ChatTurn.objects.select_for_update()
-        .filter(
-            pk=turn.pk,
-            case_id=turn.case_id,
-            chat__case_id=turn.case_id,
-            status="running",
-            delivery_token=turn.delivery_token,
-        )
-        .exists()
-    ):
-        raise AnalysisError("processing_cancelled")
-    members = ChatSelectionMember.objects.filter(turn_id=turn.pk)
-    members.delete()  # Redelivery can replace an unpublished checkpoint.
-    with connection.cursor() as cursor:
-        for kind, rows in populations(turn, spec):
-            source = (
-                rows.order_by()
-                .annotate(
-                    member_id=RandomUUID(),
-                    owner_id=Value(turn.pk),
-                    kind_value=Value(kind),
-                )
-                .values_list(
-                    "member_id",
-                    "owner_id",
-                    "kind_value",
-                    "pk",
-                    count_clock(kind),
-                    "calendar_only",
-                    "is_forward",
-                    "version",
-                )
-            )
-            sql, params = source.query.sql_with_params()
-            cursor.execute(
-                "INSERT INTO core_chatselectionmember "
-                " (id, turn_id, kind, evidence_id, event_at, date_only, "
-                "forwarded, source_version) " + sql,
-                params,
-            )
-    return str(turn.pk)
-
-
-def totals(rows, *, only_timed=False):
-    forwarded = Q(forwarded=True)
-    if only_timed:
-        forwarded &= Q(event_at__isnull=False, date_only=False)
-    return rows.aggregate(
-        count=Count("pk"),
-        undated=Count("pk", filter=Q(event_at__isnull=True, date_only=False)),
-        forwarded=Count("pk", filter=forwarded),
-        date_only=Count("pk", filter=Q(date_only=True)),
-    )
-
-
 def current_membership(turn, spec):
     """Compare frozen and current identities, versions, and source clocks in SQL."""
     frozen = snapshot_rows(turn, spec["snapshot"])
     if not snapshot_owner(turn, spec["snapshot"]).exists():
         return False
     for kind, rows in populations(turn, spec):
-        actual = rows.order_by().values_list(
-            "pk", count_clock(kind), "calendar_only", "is_forward", "version"
+        actual = (
+            rows.filter(pk__in=frozen.filter(kind=kind).values("evidence_id"))
+            .order_by()
+            .values_list(
+                "pk", count_clock(kind), "calendar_only", "is_forward", "version"
+            )
         )
         prior = (
             frozen.filter(kind=kind)
@@ -222,19 +164,6 @@ def current_membership(turn, spec):
         if prior.difference(actual).exists():
             return False
     return True
-
-
-def coverage(spec, members, inspected):
-    count = members["count"]
-    if spec.get("count_day"):
-        count -= members["undated"] + members["date_only"]
-    return {
-        "matched": count,
-        "unknown_time": members["undated"],
-        "date_only": members["date_only"],
-        "inspected": inspected,
-        "forwarded": members["forwarded"],
-    }
 
 
 def group_rows(members, field, timezone_name):
@@ -382,114 +311,3 @@ def page(turn, number, group):
         if (item.kind, item.evidence_id) in titles
     ]
     return result
-
-
-def times(rows, field):
-    chronological = rows.filter(event_at__isnull=False, date_only=False)
-    order = "event_at" if field == "first" else "-event_at"
-    return chronological.filter(
-        event_at=chronological.order_by(order).values("event_at")[:1]
-    )
-
-
-def answer_for_fields(turn, selection):
-    """Group or compare mixed originals at their respective recorded clocks."""
-    from . import engine
-
-    members = snapshot_rows(turn, selection["snapshot"])
-    if selection.get("count_day"):
-        members = members.filter(event_at__isnull=False, date_only=False)
-    coverage = selection["coverage"]
-    field = selection["field"]
-    rows = times(members, field) if field in ("first", "last") else members
-    limit = recorded_messages.GROUP_LIMIT if field in ("first", "last") else 1
-    if field in ("types", "weeks"):
-        totals = grouped(members, field, turn.plan.get("timezone", "UTC"))
-    else:
-        totals = []
-    evidence = list(rows.order_by("kind", "evidence_id")[:limit])
-    answer = engine.empty_answer()
-    windows = []
-    for row in evidence:
-        original = corpus.rows(
-            turn.case, "original", row.kind, False, through=turn.started_at
-        ).filter(pk=row.evidence_id)
-        item = corpus.clipped(original, corpus.body_field("original", row.kind)).first()
-        if item is None:
-            raise AnalysisError("source_changed")
-        found = corpus.material(turn.case, "original", row.kind, item, False)
-        if not found:
-            raise AnalysisError("source_changed")
-        ranges = []
-        metadata, _, _ = corpus.original_metadata(item, row.kind, value_ranges=ranges)
-        offset = 0
-        quote = f"Type: {KIND_LABELS[row.kind]}"
-        if row.event_at and not row.date_only:
-            clock = count_clock(row.kind)
-            label = {
-                "observed_at": "Observed at",
-                "occurred_at": "Occurred",
-                "collected_at": "Collected",
-            }[clock] + ": "
-            value = (
-                row.event_at.isoformat()
-                if clock == "observed_at"
-                else str(row.event_at)
-            )
-            position = next(
-                (
-                    a
-                    for a, b in ranges
-                    if metadata[a:b] == value and metadata[:a].endswith(label)
-                ),
-                None,
-            )
-            if position is None:
-                raise AnalysisError("source_changed")
-            quote = label + value
-            offset = position - len(label)
-        if not metadata.startswith(quote, offset):
-            raise AnalysisError("source_changed")
-        start = found.locator["metadata_start"] + offset
-        windows.append(engine.Window(found.locator, start, quote))
-        answer["claims"].append(
-            {
-                "text": found.locator["label"] + " · " + quote,
-                "citations": [
-                    {
-                        "key": found.locator["key"],
-                        "start": start,
-                        "end": start + len(quote),
-                        "quote": quote,
-                    }
-                ],
-            }
-        )
-    coverage["inspected"] = len(windows)
-    count = coverage["matched"]
-    label = ", ".join(KIND_LABELS[k] for k in selection.get("kinds", ["text-message"]))
-    unit = "record" if count == 1 else "records"
-    summary = f"{count} active {unit} matched the recorded filters ({label})."
-    if phrase := selection.get("phrase"):
-        summary += f" Exact wording in the original text: “{phrase}”."
-    if isinstance(day := selection.get("count_day"), str):
-        summary += f" The selected local date is {day}."
-    if field in ("types", "weeks"):
-        title = (
-            "By evidence type"
-            if field == "types"
-            else "By week beginning in the selected time zone"
-        )
-        values = [
-            f"{label}: {n}" for label, n in totals[: recorded_messages.GROUP_LIMIT]
-        ]
-        if values:
-            summary += " " + title + ": " + "; ".join(values) + "."
-        if len(totals) > recorded_messages.GROUP_LIMIT:
-            summary += " Showing the first twelve groups."
-    elif field in ("first", "last"):
-        summary += f" Showing the {field} precisely timed records, including ties."
-    if selection.get("after") or selection.get("updated_after"):
-        summary += " Showing new or restored matches since that answer."
-    answer["summary"] = summary
-    return answer, windows

@@ -7,7 +7,6 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from core.analysis.report_index import report_words
 from core.storage import original_upload_path
 
 
@@ -105,6 +104,18 @@ class AnalysisRun(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
+    failure_acknowledged_at = models.DateTimeField(
+        null=True, blank=True, editable=False
+    )
+    failure_acknowledged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        editable=False,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+
     class Meta:
         ordering = ["-created_at", "id"]
         indexes = [
@@ -123,6 +134,18 @@ class AnalysisRun(models.Model):
             ),
         ]
         constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    failure_acknowledged_at__isnull=True,
+                    failure_acknowledged_by__isnull=True,
+                )
+                | models.Q(
+                    status="failed",
+                    failure_acknowledged_at__isnull=False,
+                    failure_acknowledged_by__isnull=False,
+                ),
+                name="analysis_failure_acknowledgment",
+            ),
             models.UniqueConstraint(
                 fields=("case", "requested_by", "submission_id"),
                 name="analysis_run_submission_scope",
@@ -216,9 +239,6 @@ class AnalysisReportIndex(models.Model):
     text = models.TextField()
     timing_values = models.JSONField(null=True)
     verified_messages = models.JSONField(default=dict)
-
-    class Meta:
-        indexes = [GinIndex(report_words(), name="analysis_report_words")]
 
     def __str__(self):
         return f"Saved measurements for result {self.result_id}"
@@ -412,7 +432,7 @@ class GatewayRequest(models.Model):
 
 
 class ExtractedPassage(models.Model):
-    """Concrete lexical-search projection of retained extraction output."""
+    """Retained, source-linked text for exact citations and hosted indexing."""
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)

@@ -10,6 +10,7 @@ from playwright.sync_api import expect
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from geo.trip_jobs import process_trips
 from geo.trip_processing import prepare_case_trips, saved_trips
@@ -63,6 +64,7 @@ class JourneyClaimBrowserTests(BrowserTestCase):
         page.set_viewport_size({"width": 1440, "height": 900})
 
     def test_keyboard_comparison_and_citation_without_javascript(self):
+        self.enterContext(indexed(self.case, [("original", "text", self.claim.pk)]))
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),

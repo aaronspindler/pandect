@@ -1,5 +1,6 @@
 {% extends "ui/base.html" %}
 {% load static %}
+{% block page_search_notice %}{% endblock %}
 {% block title %}{% if item %}{{ display_title|default:item.title }}{% else %}Evidence{% endif %} · {{ case.name }}{% endblock %}
 {% block body_class %}workspace-page{% endblock %}
 {% block extra_head %}{% if item %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endif %}<link rel="stylesheet" href="{% static 'core/workspace.css' %}">{% endblock %}
@@ -50,7 +51,9 @@
     </div>
     {% partialdef records inline %}
     <div data-collection-kind="evidence" data-collection-count="{{ page_obj.paginator.count }}" id="evidence-records" class="evidence-records" tabindex="0" role="region" aria-label="Evidence records">
-      {% if rows %}
+      {% if search_notice %}
+        {% include "ui/components/search_notice.html" %}
+      {% elif rows %}
       <table class="evidence-table" role="table" aria-label="Evidence">
         <thead role="rowgroup">
           <tr role="row">

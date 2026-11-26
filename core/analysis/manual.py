@@ -27,7 +27,7 @@ def selected_analysis_variants(case, operation, parameters):
     ai = requires_inference(operation, parameters)
     executions = (
         selected_ai_executions(case, operation, parameters)
-        if ai and not specification.private_inference
+        if ai
         else available_executions(case, operation, parameters)
     )
     for backend, execution in executions.items():

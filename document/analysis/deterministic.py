@@ -1,22 +1,10 @@
 """Document text with inspectable page and line coverage."""
 
-from time import monotonic
-
 from core.analysis.errors import AnalysisError
 from core.analysis.sources import output, source_item
 from core.parser_contract import MAX_TEXT
 from core.parsers import read_source, run_parser
 from document.email_parser import is_email_filename
-
-OCR_RUN_SECONDS = 45
-OCR_COVERAGE = {
-    "recognized": "Candidate text from local OCR",
-    "low_score": "Candidate text from local OCR with low-scoring words",
-    "no_text": "No text recognized; inspect the original page",
-    "parser_timeout": "OCR exceeded the time limit; inspect the original page",
-    "ocr_not_installed": "OCR unavailable; ask the operator to install Tesseract",
-    "ocr_failed": "OCR failed; ask the operator to check Tesseract and English data",
-}
 
 
 def _pdf_item(source, page, common):
@@ -25,21 +13,10 @@ def _pdf_item(source, page, common):
         label = "native text"
         values["Coverage"] = "Native text found"
     else:
-        label = "local OCR"
-        values |= {
-            "Method": "Local PDF page OCR",
-            "Coverage": OCR_COVERAGE.get(
-                page["ocr_status"], "OCR could not read this page; inspect the original"
-            ),
-        }
-        if "ocr_engine" in page:
-            values |= {
-                "OCR engine": page["ocr_engine"],
-                "OCR renderer": f"PDFium {page['ocr_renderer']}",
-                "OCR language": "English",
-            }
-        if "ocr_minimum_score" in page:
-            values["Minimum OCR word score"] = page["ocr_minimum_score"]
+        label = "no native text"
+        values["Coverage"] = (
+            "No native text. Scanned page text requires approved image recognition."
+        )
     return source_item(
         source,
         f"Page {page['page']} · {label}",
@@ -74,7 +51,6 @@ def native_text(sources, parameters):
     total_pages = 0
     total_text_bytes = 0
     supported = 0
-    ocr_deadline = monotonic() + OCR_RUN_SECONDS
     for source in sources:
         if source.kind != "document" or source.attachment is not None:
             raise AnalysisError("unsupported_input")
@@ -86,7 +62,6 @@ def native_text(sources, parameters):
                 "email": is_email_filename(
                     getattr(source.item, "original_filename", "")
                 ),
-                "ocr_deadline": ocr_deadline,
             },
         )
         if parsed["status"] == "unsupported":
@@ -113,7 +88,7 @@ def native_text(sources, parameters):
             for page in parsed["pages"]:
                 if not page["native_text"]:
                     scanned_pages += 1
-                    incomplete_pages += page["ocr_status"] != "recognized"
+                    incomplete_pages += 1
                 total_text_bytes += len(page["text"].encode())
                 items.append(_pdf_item(source, page, common))
         elif parsed["format"] == "Email":
@@ -149,9 +124,7 @@ def native_text(sources, parameters):
         )
     if scanned_pages:
         warnings.append(
-            "Local OCR reads printed English on pages without native text. "
-            "Recognition can misread or miss content. No recognized text leaves "
-            "the page contents unresolved."
+            "Pages without native text need the approved image recognition check."
         )
     if incomplete_pages:
         warnings.append(

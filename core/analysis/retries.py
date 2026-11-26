@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.http import Http404
+from django.utils import timezone
 
 from cases.permissions import get_case
 from core.analysis.bulk import start_case_analysis
@@ -93,10 +94,27 @@ def retry_analysis(actor, case_id, run_id, *, submission_id=None):
     return run, created, ""
 
 
+@transaction.atomic
+def acknowledge_failure(actor, case_id, run_id):
+    case = get_case(actor, case_id, edit=True, lock=True)
+    run = case_run(case, run_id)
+    if run.status != AnalysisRun.Status.FAILED:
+        raise Http404("Failed check not found.")
+    if not run.failure_acknowledged_at:
+        run.failure_acknowledged_at = timezone.now()
+        run.failure_acknowledged_by = actor
+        run.save(update_fields=("failure_acknowledged_at", "failure_acknowledged_by"))
+    return run
+
+
 def failed_checks(case):
     runs = AnalysisRun.objects.filter(case=case)
     return (
-        runs.filter(status=AnalysisRun.Status.FAILED, operation__in=OPERATIONS)
+        runs.filter(
+            status=AnalysisRun.Status.FAILED,
+            operation__in=OPERATIONS,
+            failure_acknowledged_at__isnull=True,
+        )
         .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
         .filter(Q(batch__isnull=True) | Q(batch__case=case))
         .filter(~Exists(runs.filter(previous_run=OuterRef("pk"))))

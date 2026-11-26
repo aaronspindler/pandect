@@ -1,15 +1,10 @@
-"""Review one local PDF extraction and resume its original question exactly once."""
+"""Approve missing PDF text extraction against the evidence at the original cutoff."""
 
-from functools import reduce
-from operator import or_
 from uuid import uuid4
 
 from django.conf import settings
-from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Value
-from django.db.models.functions import Lower, StrIndex
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils.crypto import constant_time_compare
@@ -32,9 +27,7 @@ from core.models import ChatAnalysisProposal, ChatTurn
 from core.parser_contract import MAX_BYTES
 from core.storage import private_file
 
-from . import activity, ai, corpus, engine
-from .corpus_search import terms_for
-from .search_budget import reserve_lookup, timed_query
+from . import ai, corpus, engine
 
 
 def _document(case, pk):
@@ -76,96 +69,34 @@ def check_offer(proposal):
     return document
 
 
-def _passages(case, run, question):
-    """Read at most four short passages from this specific retained extraction."""
-    from .passage_windows import lexical_spans, window_offsets
-
-    rows = corpus.rows(case, "passage", "", False).filter(
-        result__run=run, kind="document"
-    )
-    terms = terms_for(question)
-    if terms:
-        query = reduce(or_, (SearchQuery(t, config="simple") for t in terms))
-        rows = rows.alias(
-            relevance=SearchRank(SearchVector("text", config="simple"), query)
-        ).order_by("-relevance", "item_index", "pk")
-    else:
-        rows = rows.order_by("item_index", "pk")
-    # The query is already confined to the one PDF (at most 100 pages).
-    positions = {
-        f"pos_{n}": StrIndex(Lower("text"), Value(term)) for n, term in enumerate(terms)
-    }
-    windows = []
-    for item in corpus.clipped(rows.annotate(**positions), "text")[:4]:
-        hits = [(term, getattr(item, f"pos_{n}") - 1) for n, term in enumerate(terms)]
-        spans = lexical_spans(item, "text", terms, hits)
-        offset = window_offsets(spans)[0] if spans else 0
-        sampled = corpus.clipped(rows.filter(pk=item.pk), "text", offset, 900).first()
-        material = sampled and corpus.material(
-            case, "passage", "document", sampled, False, offset, 900
-        )
-        if material and material.text:
-            windows.append(engine.Window(material.locator, offset, material.text))
-    return windows
-
-
-def _answer_from_run(turn, run, context, check):
-    reserve_lookup(turn)
-    with timed_query():
-        windows = _passages(turn.case, run, turn.question)
-    activity.record(turn, "read_extraction", windows)
-    if not windows:
-        status = {
-            "unsupported": "The document format was unsupported by this extraction.",
-            "partial": "The partial extraction contains no readable passages.",
-        }.get(
-            run.status, "No readable passages from this extraction could be verified."
-        )
-        return engine.empty_answer(status), context
-    result, used = engine.representative_answer(
-        turn, check, turn.question, (windows + context)[:10]
-    )
-    if run.status == "partial":
-        result["summary"] = "The document extraction has partial coverage."
-    return result, used
-
-
-def evaluate(turn, decision, windows, *, remaining):
-    """Resolve a typed request against one numbered source. Never start work here."""
-    loc = decision["locator"]
-    try:
-        doc = _document(turn.case, loc["pk"])
-    except AnalysisError:
-        result = decision["answer"]
-        result["summary"] = "This source is ineligible for a PDF text extraction."
-        return result, windows
+def prepare_agent_proposal(turn, selected, purpose, windows, result):
+    loc = selected.locator
+    if loc["surface"] != "original" or loc["kind"] != "document":
+        raise AnalysisError("model_citation_source")
+    doc = _document(turn.case, loc["pk"])
+    if doc.created_at > turn.started_at:
+        raise AnalysisError("source_changed")
     version = get_operation("native_text").version
-    snapshots = snapshot_sources(turn.case, _selection(doc))
-    run = find_extraction(turn.case_id, snapshots, version, published=True)
-    if run and run.status in PUBLISHED:
-        from .checkpoints import authorize_turn
-
-        turn.plan["saved_extraction"] = str(run.pk)
-        if remaining or run.status in ("empty", "unsupported", "insufficient"):
-            return _answer_from_run(
-                turn,
-                run,
-                windows,
-                lambda selected, **kw: authorize_turn(turn, selected, **kw),
-            )
-        result = decision["answer"]
+    run = find_extraction(
+        turn.case_id,
+        snapshot_sources(turn.case, _selection(doc)),
+        version,
+        published=True,
+    )
+    if run or ChatAnalysisProposal.objects.filter(parent=turn).exists():
         result["summary"] = (
-            "A saved extraction is available. The lookup limit was reached."
+            "The extraction is processing. An updated answer can use its results."
+            if run and run.status in ACTIVE
+            else "This extraction was already checked. Its coverage is limited."
         )
-        return result, windows
+        return
     turn.plan["proposed_extraction"] = {
         "document": str(doc.pk),
         "sha256": doc.sha256,
         "method_version": version,
-        "purpose": decision["purpose"],
+        "purpose": purpose,
         "context": [[w.locator["key"], w.start] for w in windows],
     }
-    return decision["answer"], windows
 
 
 def record_proposal(turn):
@@ -290,48 +221,58 @@ def resume_idle_chat(case_id, chat_id):
     if turns.filter(status__in=ACTIVE).exists():
         return
     parent = ready.parent
-    latest = turns.order_by("-ordinal").values_list("ordinal", flat=True).first()
-    child = ChatTurn.objects.create(
-        chat_id=chat_id,
-        case_id=case_id,
-        ordinal=latest + 1,
-        asked_by_id=parent.asked_by_id,
-        submission_id=uuid4(),
-        question=parent.question,
-        execution=parent.execution,
-        approval_revision=parent.approval_revision,
-        plan={
-            "approved_proposal": str(ready.pk),
-            "stage": "approved_extraction",
-            "timezone": parent.plan.get("timezone", "UTC"),
-        },
+    # Only the original question gains access to this newly approved result.
+    # The cutoff, usage ledger, original inputs and other tool references survive.
+    try:
+        check_offer(ready)
+    except AnalysisError as exc:
+        ready.status = "stopped"
+        ready.error_code = exc.code
+        ready.save(update_fields=["status", "error_code"])
+        return
+    if parent.plan.get("agent_version") != 1:
+        ready.status = "stopped"
+        ready.error_code = "chat_agent_cutover"
+        ready.save(update_fields=["status", "error_code"])
+        return
+    parent.status = "queued"
+    parent.completed_at = None
+    parent.delivery_token = uuid4()
+    parent.plan.update(
+        stage="approved_extraction",
+        approved_proposal=str(ready.pk),
+        saved_extraction=str(ready.run_id),
     )
-    ready.continuation = child
+    parent.save(update_fields=("status", "completed_at", "delivery_token", "plan"))
+    ready.continuation = parent
     ready.save(update_fields=["continuation"])
-    enqueue_turn(child)
+    enqueue_turn(parent)
 
 
 def check_continuation(turn):
     proposal = (
-        ChatAnalysisProposal.objects.select_related("parent__chat", "run")
+        ChatAnalysisProposal.objects.select_related("run", "document")
         .filter(
+            pk=turn.plan["approved_proposal"],
+            parent=turn,
             continuation=turn,
-            parent__case_id=turn.case_id,
-            parent__chat_id=turn.chat_id,
-            parent__asked_by_id=turn.asked_by_id,
             run__case_id=turn.case_id,
-            status="approved",
+            document__case_id=turn.case_id,
+            run__status__in=PUBLISHED,
             run__result__case_id=turn.case_id,
+            status="approved",
         )
         .first()
     )
-    if proposal is None or proposal.run.status not in PUBLISHED:
+    if proposal is None:
         raise AnalysisError("source_changed")
-    document = check_offer(proposal)
+    doc = _document(turn.case, proposal.document_id)
     if (
-        not equivalent_extractions(
+        doc.sha256 != proposal.sha256
+        or doc.created_at > turn.started_at
+        or not equivalent_extractions(
             turn.case_id,
-            snapshot_sources(turn.case, _selection(document)),
+            snapshot_sources(turn.case, _selection(doc)),
             proposal.method_version,
         )
         .filter(pk=proposal.run_id)
@@ -341,27 +282,23 @@ def check_continuation(turn):
     return proposal
 
 
-def finish_continuation(turn):
-    from .answer_jobs import finish_answer
-    from .checkpoints import authorize_turn
-
+def approved_agent_passages(turn):
     proposal = check_continuation(turn)
-    refs = dict(
-        proposal.parent.sources.filter(case_id=turn.case_id).values_list(
-            "key", "locator"
+    rows = (
+        corpus.rows(turn.case, "passage", "", False)
+        .filter(
+            result__run_id=proposal.run_id,
+            kind="document",
+            evidence_id=proposal.document_id,
         )
+        .order_by("item_index", "pk")
     )
-    context = []
-    for key, start in proposal.context:
-        loc = refs.get(key)
-        passage = loc and corpus.read_window(turn.case, loc, start, 900)
-        if passage is None:
-            raise AnalysisError("source_changed")
-        context.append(engine.Window(loc, start, passage["text"]))
-    result, used = _answer_from_run(
-        turn,
-        proposal.run,
-        context,
-        lambda windows, **kw: authorize_turn(turn, windows, **kw),
-    )
-    finish_answer(turn, result, used)
+    windows = []
+    for row in corpus.clipped(rows, "text", size=1200)[:6]:
+        material = corpus.material(
+            turn.case, "passage", "document", row, False, size=1200
+        )
+        if material and material.text:
+            windows.append(engine.Window(material.locator, 0, material.text))
+    turn.plan["approved_result_at"] = proposal.run.result.created_at.isoformat()
+    return windows

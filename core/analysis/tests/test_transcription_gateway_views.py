@@ -20,7 +20,7 @@ TRANSCRIPTION_GATEWAY = OPENAI_ONLY | {"workers_token": CONFIG["workers_token"]}
 UNAVAILABLE = "The service for this run is unavailable."
 
 
-@override_settings(PANDECT_AI_GATEWAY=OPENAI_ONLY, PANDECT_LOCAL_AI={})
+@override_settings(PANDECT_AI_GATEWAY=OPENAI_ONLY)
 class TranscriptionGatewayViewTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -66,8 +66,8 @@ class TranscriptionGatewayViewTests(EvidenceViewTestMixin, TestCase):
     def test_retry_is_blocked_until_workers_configuration_is_restored(self):
         with self.settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_GATEWAY):
             external_grant_kwargs(self.case, "transcription")
-            self.case.ai_backend = "gateway"
-            self.case.save(update_fields=["ai_backend"])
+            self.case.external_ai_enabled = True
+            self.case.save(update_fields=["external_ai_enabled"])
             _, payload = self.reviewed_create()
             queued = self.client.post(self.create_url, payload)
         original = AnalysisRun.objects.get()

@@ -75,38 +75,6 @@ def literal_question(turn):
     return ""
 
 
-def literal_outcomes(term, windows):
-    left = r"(?<!\w)" if re.match(r"\w", term[0]) else ""
-    right = r"(?!\w)" if re.match(r"\w", term[-1]) else ""
-    pattern = re.compile(left + re.escape(term) + right, re.I)
-    outcomes = []
-    for w in windows:
-        refs = []
-        for match in pattern.finditer(w.text):
-            if left and not match.start() and w.start:
-                continue
-            if (
-                right
-                and match.end() == len(w.text)
-                and w.start + match.end() < w.locator["length"]
-            ):
-                continue
-            start, end = w.start + match.start(), w.start + match.end()
-            if not any(
-                first <= start and end <= last for first, last in w.literal_ranges
-            ):
-                continue
-            refs.append(
-                {
-                    "start": start,
-                    "end": end,
-                    "quote": match[0],
-                }
-            )
-        outcomes.append(("match" if refs else "miss", refs))
-    return outcomes
-
-
 def _people(case, value):
     value = value.strip().strip('"“”')
     return list(

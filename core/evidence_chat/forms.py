@@ -11,13 +11,3 @@ class QuestionForm(forms.Form):
         label="Question",
         widget=forms.Textarea(attrs={"rows": 3}),
     )
-
-
-class DeeperReviewForm(forms.Form):
-    confirmation = forms.CharField(widget=forms.HiddenInput)
-    question = forms.CharField(
-        label="Question for this review",
-        max_length=2000,
-        widget=forms.Textarea(attrs={"rows": 3}),
-    )
-    request_limit = forms.IntegerField(label="Maximum generation requests", min_value=1)

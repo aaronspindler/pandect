@@ -619,6 +619,9 @@ def _publication_records(batch, rows, started):
                 )
     for kind, records in calls.items():
         CALL_TYPES[kind].objects.bulk_create(records, batch_size=CHUNK_SIZE)
+        from core.case_search.indexing import add_sources
+
+        add_sources(batch.case_id, kind, [row.pk for row in records])
     CallPersonLink.objects.bulk_create(links, batch_size=CHUNK_SIZE)
     CallHistoryRow.objects.bulk_update(changed, ("disposition",), batch_size=CHUNK_SIZE)
     return resolved

@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from django.core.exceptions import ValidationError
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -16,6 +16,8 @@ from core.analysis.services import start_run
 from core.analysis.source_resolution import resolve_inputs, resolve_snapshots
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import source_id
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
@@ -24,6 +26,7 @@ from text.analysis.synthesis import finding_text, synthesize
 from text.models import TextEvidence
 
 
+@override_settings(PANDECT_AI_GATEWAY=CONFIG)
 class SynthesisTests(EvidenceViewTestMixin, TestCase):
     def make_text(self, *, body):
         return TextEvidence.objects.create(
@@ -52,6 +55,7 @@ class SynthesisTests(EvidenceViewTestMixin, TestCase):
             "question_synthesis",
             choices or [self.choice],
             parameters=parameters or self.parameters,
+            **external_grant_kwargs(self.case, "question_synthesis"),
         )[0]
 
     def response(self, record_id=None, quote="The meeting is cancelled.", **citation):
@@ -77,7 +81,7 @@ class SynthesisTests(EvidenceViewTestMixin, TestCase):
         run = self.start()
         infer = Mock(return_value=self.response())
         with patch(
-            "core.analysis.local.LocalClient",
+            "core.analysis.gateway.GatewayClient",
             return_value=SimpleNamespace(infer=infer, usage={}),
         ):
             process_run(run.pk)
@@ -135,7 +139,7 @@ class SynthesisTests(EvidenceViewTestMixin, TestCase):
             f"finding:{result.pk}:0", quote, start=surface.index(quote)
         )
         with patch(
-            "core.analysis.local.LocalClient",
+            "core.analysis.gateway.GatewayClient",
             return_value=SimpleNamespace(infer=Mock(return_value=answer), usage={}),
         ):
             process_run(run.pk)
@@ -164,7 +168,7 @@ class SynthesisTests(EvidenceViewTestMixin, TestCase):
     def test_invented_quotes_and_missing_sources_fail_before_publication(self):
         run = self.start()
         with patch(
-            "core.analysis.local.LocalClient",
+            "core.analysis.gateway.GatewayClient",
             return_value=SimpleNamespace(
                 infer=Mock(return_value=self.response(quote="The meeting happened.")),
                 usage={},

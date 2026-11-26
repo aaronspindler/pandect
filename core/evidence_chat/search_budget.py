@@ -1,4 +1,4 @@
-"""Limits for ordinary chat searches against local case indexes."""
+"""Bound source verification for historical saved selections."""
 
 from contextlib import contextmanager
 from time import monotonic
@@ -6,30 +6,8 @@ from time import monotonic
 from django.db import OperationalError, connection, transaction
 
 from core.analysis.errors import AnalysisError
-from core.models import ChatTurn
 
-# Three planned reads plus one interrupted delivery. Each ranking can open at
-# most 64 candidate identities, including unsuccessful integrity checks.
-MAX_LOOKUPS = 4
-MAX_CANDIDATES = 64
 SQL_SECONDS = 3
-
-
-def reserve_lookup(turn):
-    attempts = turn.plan.get("lookup_attempts", 0)
-    if attempts >= MAX_LOOKUPS:
-        raise AnalysisError("chat_budget_exhausted")
-    # A worker owns a unique delivery token. Save before reading any candidates
-    # so recovery from a crash consumes the original allowance.
-    turn.plan["lookup_attempts"] = attempts + 1
-    updated = ChatTurn.objects.filter(
-        pk=turn.pk,
-        case_id=turn.case_id,
-        delivery_token=turn.delivery_token,
-        status=ChatTurn.Status.RUNNING,
-    ).update(plan=turn.plan)
-    if not updated:
-        raise AnalysisError("processing_cancelled")
 
 
 @contextmanager

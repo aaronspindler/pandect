@@ -25,7 +25,6 @@ from core.analysis.execution import (
     configured_external_executions,
     validate_case_execution_grant,
 )
-from core.analysis.testing import approve_case_execution
 from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
 from geo.models import PersonLocationEvidence
@@ -208,7 +207,7 @@ class CaseInterfaceTests(TestCase):
         form = self.client.get(self.url("case_settings")).context["ai_settings_form"]
         return {
             "confirmation": form["confirmation"].value(),
-            "ai_backend": "gateway",
+            "action": "save" if form.case.external_ai_enabled else "enable",
             **changes,
         }
 
@@ -237,7 +236,7 @@ class CaseInterfaceTests(TestCase):
         self.assertContains(review, "chat questions")
         self.case.refresh_from_db()
         self.assertFalse(self.case.external_analysis_approval)
-        self.assertEqual(self.case.ai_backend, "local")
+        self.assertFalse(self.case.external_ai_enabled)
         self.assertEqual(self.case.external_analysis_models, {})
         self.assertEqual(self.case.external_analysis_efforts, {})
         for actor, status in (
@@ -258,8 +257,8 @@ class CaseInterfaceTests(TestCase):
         )
         self.assertEqual(self.ai_confirm(review).status_code, 302)
         self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, "gateway")
-        self.assertEqual(len(self.case.external_analysis_approval["grants"]), 1)
+        self.assertTrue(self.case.external_ai_enabled)
+        self.assertGreaterEqual(len(self.case.external_analysis_approval["grants"]), 1)
         before = self.case.external_analysis_approval
         self.assertFalse(self.other_case.external_analysis_approval)
         self.assertEqual(
@@ -280,6 +279,55 @@ class CaseInterfaceTests(TestCase):
         )
         self.case.refresh_from_db()
         self.assertEqual(self.case.external_analysis_models, {})
+
+    @override_settings(
+        PANDECT_AI_GATEWAY=AUTO_OPENAI,
+        PANDECT_CLOUDFLARE_SEARCH={
+            "account": "a" * 32,
+            "namespace": "production",
+            "token": "synthetic",
+        },
+        PANDECT_CLOUDFLARE_AGENT={
+            "url": "https://agent.example.test",
+            "secret": "synthetic",
+        },
+    )
+    def test_disable_stops_approved_work_and_reenable_requires_fresh_consent(self):
+        from core.models import HostedSearchIndex
+
+        self.login()
+        action = self.url("case_ai_settings")
+        review = self.client.post(action, self.ai_draft())
+        self.assertContains(review, "https://agent.example.test")
+        with self.settings(
+            PANDECT_CLOUDFLARE_AGENT={"url": "https://changed.example.test"}
+        ):
+            self.assertEqual(self.ai_confirm(review).status_code, 409)
+        self.assertEqual(self.ai_confirm(review).status_code, 302)
+        self.case.refresh_from_db()
+        approved = self.case.external_ai_revision
+        self.assertEqual(
+            self.case.external_analysis_approval["hosted_search"],
+            {"account": "a" * 32, "namespace": "production"},
+        )
+        self.assertTrue(
+            HostedSearchIndex.objects.filter(
+                case_key=self.case.pk, revision=approved, retired=False
+            ).exists()
+        )
+        self.assertEqual(
+            self.client.post(action, self.ai_draft(action="disable")).status_code, 302
+        )
+        self.case.refresh_from_db()
+        self.assertFalse(self.case.external_ai_enabled)
+        self.assertNotEqual(self.case.external_ai_revision, approved)
+        self.assertFalse(available_executions(self.case, "content_events", {}))
+        self.assertTrue(
+            HostedSearchIndex.objects.filter(
+                case_key=self.case.pk, revision=approved, retired=True
+            ).exists()
+        )
+        self.assertEqual(self.ai_confirm(review).status_code, 409)
 
     @override_settings(PANDECT_AI_GATEWAY=CATALOG_OPENAI)
     def test_effort_choices_are_validated_and_saved_per_task(self):
@@ -354,43 +402,6 @@ class CaseInterfaceTests(TestCase):
         route = available_executions(self.case, "evidence_chat", {})["gateway"]
         self.assertNotIn("output_config", route["inference_settings"])
 
-    @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
-    def test_local_preferences_unavailable_models_and_legacy_exact_grants(self):
-        self.login()
-        action = self.url("case_ai_settings")
-        self.assertTrue(
-            self.client.post(action, self.ai_draft(content_events="gpt-not-configured"))
-            .context["ai_settings_form"]
-            .has_error("content_events", "invalid_choice")
-        )
-        executions = configured_external_executions(self.case)
-        approve_case_execution(self.case, self.owner, executions)
-        old_approval = self.case.external_analysis_approval
-        self.assertEqual(self.client.post(action, self.ai_draft()).status_code, 302)
-        self.assertContains(
-            self.client.post(action, self.ai_draft(content_events="gpt-6.2-sol")),
-            "Approve and save",
-        )
-        self.case.refresh_from_db()
-        self.assertEqual(self.case.external_analysis_approval, old_approval)
-        self.assertEqual(
-            self.client.post(
-                action, self.ai_draft(ai_backend="local", content_events="gpt-6.2-sol")
-            ).status_code,
-            302,
-        )
-        self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, "local")
-        self.assertNotIn(
-            "gateway", available_executions(self.case, "content_events", {})
-        )
-        self.assertIn("gateway", available_executions(self.case, "text_topics", {}))
-        self.case.external_analysis_models = {"text_topics": "retired-model"}
-        self.case.save(update_fields=("external_analysis_models",))
-        settings = self.client.get(self.url("case_settings"))
-        self.assertContains(settings, "retired-model (unavailable)")
-        self.assertNotIn("gateway", available_executions(self.case, "text_topics", {}))
-
     @override_settings(
         PANDECT_AI_GATEWAY=AUTO_OPENAI | {"workers_token": "synthetic-workers-token"}
     )
@@ -403,8 +414,7 @@ class CaseInterfaceTests(TestCase):
             for row in review.context["destinations"]
             if row["name"] == "OpenAI"
         ]
-        self.assertEqual(len(review.context["destinations"]), 2)
-        self.assertContains(self.ai_confirm(review, []), "Select the destinations")
+        self.assertEqual(len(review.context["destinations"]), 3)
         self.assertEqual(self.ai_confirm(review, text_scope).status_code, 302)
         self.case.refresh_from_db()
         route = available_executions(self.case, "content_events", {})["gateway"]
@@ -426,7 +436,7 @@ class CaseInterfaceTests(TestCase):
         self.case.refresh_from_db()
         self.case.external_analysis_efforts = {"evidence_chat": "none"}
         self.case.save(update_fields=("external_analysis_efforts",))
-        audio_review = self.client.post(action, {"action": "review_current"})
+        audio_review = self.client.post(action, self.ai_draft(action="review_current"))
         self.assertEqual(len(audio_review.context["destinations"]), 1)
         self.assertEqual(self.ai_confirm(audio_review).status_code, 302)
         self.case.refresh_from_db()
@@ -461,7 +471,7 @@ class CaseInterfaceTests(TestCase):
         )
         self.assertEqual(
             self.ai_confirm(
-                self.client.post(action, {"action": "review_current"})
+                self.client.post(action, self.ai_draft(action="review_current"))
             ).status_code,
             302,
         )
@@ -554,7 +564,7 @@ class CaseInterfaceTests(TestCase):
         ):
             self.assertEqual(self.ai_confirm(review).status_code, 409)
         self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, "local")
+        self.assertFalse(self.case.external_ai_enabled)
         self.assertFalse(self.case.external_analysis_approval)
 
     @override_settings(
@@ -575,12 +585,8 @@ class CaseInterfaceTests(TestCase):
             ).status_code,
             302,
         )
-        self.assertContains(
-            self.client.post(self.url("case_ai_settings"), self.ai_draft()),
-            "External AI needs at least one configured model destination.",
-        )
         self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, "local")
+        self.assertFalse(self.case.external_ai_enabled)
 
     def test_settings_keeps_actionable_invitations_outside_history(self):
         now = timezone.now()

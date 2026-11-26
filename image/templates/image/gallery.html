@@ -1,5 +1,6 @@
 {% extends "ui/base.html" %}
 {% load static %}
+{% block page_search_notice %}{% endblock %}
 {% block title %}Images · {{ case.name }}{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="{% static 'image/gallery.css' %}">{% endblock %}
 {% block extra_js %}{% include 'ui/components/collection_script.html' %}{% endblock %}
@@ -22,7 +23,9 @@
 </details>
 {% partialdef collection inline %}
 <div data-collection-kind="images" data-collection-count="{{ page_obj.paginator.count }}">
-{% if rows %}
+{% if search_notice %}
+  {% include "ui/components/search_notice.html" %}
+{% elif rows %}
 <p class="muted">{{ page_obj.paginator.count }} image{{ page_obj.paginator.count|pluralize }}</p>
 <ul class="image-gallery" aria-label="Case images">
   {% for row in rows %}

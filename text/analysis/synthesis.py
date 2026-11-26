@@ -164,7 +164,7 @@ def records_for_selection(sources, parameters):
 def synthesize(sources, parameters, *, infer=None):
     records = records_for_selection(sources, parameters)
     if infer is None:
-        raise AnalysisError("local_ai_not_configured")
+        raise AnalysisError("gateway_not_configured")
     schema = {
         "type": "object",
         "properties": {

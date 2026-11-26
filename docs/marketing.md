@@ -120,11 +120,9 @@ against the owning guides when capabilities change.
 
 Visible requirements distinguish **Included**, **AI optional**, **Requires AI
 setup**, and **Geographic setup**. Details retain the complete setup descriptions,
-including private services and explicitly approved external processing. Included OCR
-and plate reading use the standard Docker image's local tools. Private models and
-geographic services need operator setup. External AI and geographic requests
-require case-owner approval for the configured destination. Runtime failure never
-switches processing to a cloud service.
+including the approved Cloudflare services for search, Case Chat, OCR, plate
+reading and transcription. Native text extraction and deterministic checks run
+in Pandect. Geographic services retain their own destination and approval settings.
 
 ## Content boundaries
 
@@ -137,11 +135,9 @@ configuration or legal policies.
 Use **Available**, **Requires configuration**, **Planned**, and **Exploring**
 consistently. Verify claims against [cases](cases.md), [evidence](evidence.md),
 [analysis](analysis.md), and [maps](maps.md). Search is within a case.
-**Search by meaning** uses the [configured embedding provider](local-analysis.md#case-search-embeddings).
-Use the documented [extraction inputs](analysis-extraction.md#supported-input-profiles),
-[recording profile](original-previews.md#recordings), and
-[message import profiles](analysis-communications.md#message-csv-imports) for
-format and coverage claims.
+**Case Search** uses the private Cloudflare AI Search instance enabled by the
+case owner. Explain searchable material, processing coverage and how to open
+the original. See [hosted search](cloudflare-search.md).
 
 The public roadmap summarizes [proposed priorities](evidence-analysis-roadmap.md);
 [analysis](analysis.md) owns implemented methods. Review public pages and the

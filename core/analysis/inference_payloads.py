@@ -1,4 +1,4 @@
-"""The shared evidence prompt and strict JSON contract for both AI backends."""
+"""The evidence prompt and strict JSON contract for Cloudflare model routes."""
 
 import json
 import math

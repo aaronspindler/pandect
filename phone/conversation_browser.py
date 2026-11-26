@@ -18,7 +18,9 @@ from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.source_selection import snapshot_sources
-from core.analysis.tests.test_execution import LOCAL
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_gateway import CONFIG
+from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from people.models import Person
@@ -758,6 +760,12 @@ class ConversationBrowserTests(BrowserTestCase):
             )
             for index, time in ((3, "noon"), (50, "dusk"))
         ]
+        self.enterContext(
+            indexed(
+                self.case,
+                [("original", "text-message", row.pk) for row in (first, second)],
+            )
+        )
         url = self.live_server_url + self.reader_path + "?list_page=2"
         for engine in self.engines:
             for javascript in (True, False):
@@ -1120,8 +1128,9 @@ class ConversationBrowserTests(BrowserTestCase):
                     panel.get_by_role("link", name="Open evidence")
                 ).to_have_attribute("href", self.evidence_path(copy))
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_owner_opens_summary_review_for_the_expanded_instance(self):
+        external_grant_kwargs(self.case, "session_summaries")
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, self.owner)
@@ -1149,7 +1158,9 @@ class ConversationBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Request session summary")
                 ).to_be_visible()
                 expect(
-                    page.get_by_text("Private inference", exact=False)
+                    page.get_by_text(
+                        f"External AI · {CONFIG['models']['text']}", exact=True
+                    )
                 ).to_be_visible()
                 page.get_by_text(
                     "Messages included in this summary", exact=False
@@ -1168,8 +1179,9 @@ class ConversationBrowserTests(BrowserTestCase):
                     )
                 )
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_owner_requests_all_instance_summaries_without_javascript(self):
+        external_grant_kwargs(self.case, "session_summaries")
         self.save_sessions(self.messages[:2])
         self.save_sessions(self.messages[30:32])
         for engine in self.engines:
@@ -1205,7 +1217,9 @@ class ConversationBrowserTests(BrowserTestCase):
                     page.get_by_text("Sessions included · 2", exact=True)
                 ).to_be_visible()
                 expect(
-                    page.get_by_text("Private inference", exact=False)
+                    page.get_by_text(
+                        f"External AI · {CONFIG['models']['text']}", exact=True
+                    )
                 ).to_be_visible()
                 self.assert_reflow(page, 320)
                 self.capture(page, engine, "instances-bulk-review-mobile")

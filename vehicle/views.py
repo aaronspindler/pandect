@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -29,18 +29,11 @@ def vehicle_list(request, case_id):
     case = get_case(request.user, case_id)
     query = request.GET.get("q", "").strip()[:200]
     vehicles = Vehicle.objects.filter(case=case)
+    from core.case_search.discovery import discover
+
+    results = discover(case, request.user, query, kind="vehicle", records=True)
     if query:
-        search = (
-            Q(make__icontains=query)
-            | Q(model__icontains=query)
-            | Q(license_plate__icontains=query)
-            | Q(vin__icontains=query)
-            | Q(color__icontains=query)
-            | Q(notes__icontains=query)
-        )
-        if query.isascii() and query.isdigit() and 1 <= int(query) <= 9999:
-            search |= Q(year=int(query))
-        vehicles = vehicles.filter(search)
+        vehicles = vehicles.filter(pk__in=results.records["vehicle"])
     page = Paginator(vehicles, 25).get_page(request.GET.get("page"))
     return render_live(
         request,
@@ -49,6 +42,7 @@ def vehicle_list(request, case_id):
             **case_context(case, request.user),
             "page_obj": page,
             "query": query,
+            "search_notice": results.notice,
             "search_query": urlencode({"q": query}) if query else "",
             "list_query": list_query(request),
         },

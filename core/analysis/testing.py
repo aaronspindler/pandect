@@ -2,7 +2,6 @@
 
 import hashlib
 import io
-import re
 import struct
 import wave
 from types import SimpleNamespace
@@ -17,13 +16,22 @@ def approve_case_execution(case, owner, executions):
     """Seed an exact-route approval from before destination-scoped grants."""
     from django.utils import timezone
 
+    executions = {
+        op: (
+            route | {"case_ai_revision": str(case.external_ai_revision)}
+            if route.get("backend") == "gateway"
+            else route
+        )
+        for op, route in executions.items()
+    }
+    case.external_ai_enabled = True
     case.external_analysis_approval = {
         "revision": str(uuid4()),
         "approved_by": str(owner.pk),
         "approved_at": timezone.now().isoformat(),
         "executions": executions,
     }
-    case.save(update_fields=("external_analysis_approval",))
+    case.save(update_fields=("external_ai_enabled", "external_analysis_approval"))
 
 
 def external_grant_kwargs(case, operation):
@@ -103,35 +111,3 @@ def preview_image_bytes():
     metadata.add_text("Comment", "Synthetic original metadata")
     image.save(stream, format="PNG", pnginfo=metadata)
     return stream.getvalue()
-
-
-def local_ocr_response(
-    *, text="Synthetic extraction phrase", status="complete", content=None
-):
-    from core.parsers import run_parser
-
-    words = []
-    for match in re.finditer(r"\S+", text):
-        left, right = [(10 + 70 * index / len(text)) / 100 for index in match.span()]
-        words.append(
-            {
-                "start": match.start(),
-                "end": match.end(),
-                "region": [left, 0.2, right, 0.6],
-                "confidence": 95,
-            }
-        )
-    return run_parser("image_preview", content or preview_image_bytes()) | {
-        "engine": "tesseract synthetic-test",
-        "status": status,
-        "regions": [
-            {
-                "text": text,
-                "bbox": [0.1, 0.2, 0.8, 0.6],
-                "order": 0,
-                "confidence": 95,
-                "paragraph": [1, 1, 1],
-                "words": words,
-            }
-        ],
-    }

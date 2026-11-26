@@ -117,9 +117,8 @@
   {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count and not search_pending and not running_monitors and not active_chat and not active_call_imports %}<p class="muted" role="status">{% if batch and batch.scope.type != 'failed_retries' %}Checks for the selected batch appear below.{% elif history_filters.status == 'queued' or history_filters.status == 'running' %}Checks matching your status filter appear below.{% else %}Nothing is being processed right now.{% endif %}</p>{% endif %}
 </section>
 <details data-workspace-region class="disclosure processing-disclosure" id="case-search-index"{% if search_pending or search_needs_attention %} open{% endif %}>
-  <summary>Meaning-based search</summary>
+  <summary>Cloudflare search indexing</summary>
   <p>{{ search_index.label }}{% if search_index.reason %} {{ search_index.reason }}{% endif %}</p>
-  {% if search_index.status == 'awaiting_approval' and is_owner %}<p><a href="{% url 'cases:case_settings' case.pk %}#meaning-search">Review meaning search in Case settings</a></p>{% endif %}
   {% if search_pending or search_index.status == 'failed' or search_index.status == 'ready' %}<p>{{ search_index.documents }} completed source{{ search_index.documents|pluralize }} · {{ search_index.passages }} indexed passage{{ search_index.passages|pluralize }}</p>{% endif %}
   {% if can_edit and search_index.can_retry %}<form method="post" action="{% url 'core:search:retry' case.pk %}">{% csrf_token %}<button class="button button-secondary" type="submit">{% if search_index.status == 'unprepared' %}Prepare search index{% elif search_index.status == 'changed' %}Rebuild search index{% else %}Resume indexing{% endif %}</button></form>{% endif %}
 </details>

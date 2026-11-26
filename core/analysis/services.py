@@ -162,8 +162,6 @@ def start_run(
         and requires_inference(operation, parameters)
         and not inference_configured(execution)
     ):
-        if not external:
-            raise AnalysisError("local_ai_not_configured")
         if operation == "transcription":
             raise AnalysisError("gateway_transcription_not_configured")
         raise AnalysisError("gateway_not_configured")

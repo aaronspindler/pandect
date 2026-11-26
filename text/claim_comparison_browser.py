@@ -7,13 +7,14 @@ from playwright.sync_api import expect
 
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
-from core.analysis.tests.test_execution import LOCAL
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_gateway import CONFIG
 from people.models import Person
 from phone.models import TextMessageEvidence
 from text.models import TextEvidence
 
 
-@override_settings(PANDECT_LOCAL_AI=LOCAL)
+@override_settings(PANDECT_AI_GATEWAY=CONFIG)
 class ClaimComparisonBrowserTests(BrowserTestCase):
     artifact_subdirectory = "claim-comparison-browser"
 
@@ -21,6 +22,7 @@ class ClaimComparisonBrowserTests(BrowserTestCase):
         super().setUp()
         self.owner = self.make_user("claim-investigator")
         self.case = Case.objects.create(owner=self.owner, name="Synthetic claim review")
+        external_grant_kwargs(self.case, "claim_comparison")
         person = Person.objects.create(
             case=self.case, first_name="Synthetic participant"
         )

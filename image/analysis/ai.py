@@ -1,235 +1,141 @@
-"""Bounded local printed-English OCR; images never leave the parser."""
+"""Source-linked recognition of bounded page images using the approved vision model."""
 
-import json
+import base64
+import hashlib
 
 from core.analysis.errors import AnalysisError
-from core.analysis.sources import output
-from core.analysis.sources import source_item as _item
-from core.analysis.sources import unsupported_source as _unsupported
+from core.analysis.sources import output, source_item, unsupported_source
 from core.parser_contract import MAX_TEXT
 from core.parsers import read_source, run_parser
-from image.analysis.layout import build_structure
 
+MAX_IMAGES_PER_RUN = 16
 MAX_PREVIEW_BYTES = 2 * 1024 * 1024
-MAX_STRUCTURE_BYTES = 2 * 1024 * 1024
 
 
-def omit_structure_at_result_limit(data):
-    """Retain the OCR lines if geometry and publication metadata exceed the budget."""
-    del data["visible_structure"]
-    data["outcome"] = "partial"
-    data["warnings"].append("Visible structure omitted at the result size limit.")
-    metrics = data["metrics"]
-    metrics["Partial/unreadable inputs"] = (
-        metrics["Selected sources"] - metrics["Unsupported inputs"]
-    )
-
-
-def ocr(sources, parameters, *, authorize):
-    items, warnings = [], []
-    artifacts = []
-    visible_structure = {}
-    structure_bytes = 0
-    preview_bytes = omitted_previews = 0
-    preview_limit_reached = False
-    unsupported = partial = 0
-    recognized_regions = no_text = 0
-    total_text = 0
-    if parameters.get("mode", "printed") != "printed":
+def ocr(sources, parameters, *, authorize, client):
+    if (
+        parameters.get("mode", "printed") != "printed"
+        or parameters.get("language", "en") != "en"
+    ):
         return output(
-            "Local OCR supports printed English only. Handwriting and mixed "
-            "profiles are unsupported; no external processing was attempted.",
-            outcome="unsupported",
+            "Choose the printed English recognition profile.", outcome="unsupported"
         )
-    if parameters.get("language", "en") != "en":
-        return output("Local OCR supports English only.", outcome="unsupported")
+    items, warnings, artifacts = [], [], []
+    preview_bytes = 0
+    requests = omitted = uncertain = size = supported = additional_pictures = 0
     for source in sources:
-        if source.kind not in {"image", "document"}:
-            items.append(
-                _unsupported(
-                    source, "A JPEG or PNG image/scanned-page file is required."
-                )
-            )
-            unsupported += 1
-            continue
+        authorize()
         content, checksum = read_source(source)
-        if not (
-            content.startswith(b"\xff\xd8\xff")
-            or content.startswith(b"\x89PNG\r\n\x1a\n")
-        ):
-            items.append(
-                _unsupported(
-                    source,
-                    "Upload a JPEG/PNG page image. Direct PDF rendering is "
-                    "unsupported.",
-                )
-            )
-            unsupported += 1
-            continue
-        authorize()
-        prepared = run_parser("ocr", content)
-        authorize()
-        if prepared["status"] == "unsupported":
-            items.append(_unsupported(source, prepared["reason"]))
-            unsupported += 1
-            continue
-        result = prepared
-        encoded = prepared["image"]
-        decoded_size = len(encoded) * 3 // 4 - (len(encoded) - len(encoded.rstrip("=")))
-        if (
-            not preview_limit_reached
-            and preview_bytes + decoded_size <= MAX_PREVIEW_BYTES
-        ):
-            artifacts.append(
-                {
-                    "source_id": str(source.id),
-                    "content_type": "image/jpeg",
-                    "data_base64": encoded,
-                    "width": prepared["prepared_width"],
-                    "height": prepared["prepared_height"],
-                    "coordinate_space": "original_unoriented_pixels",
-                }
-            )
-            preview_bytes += decoded_size
+        pdf = source.kind == "document" and content.startswith(b"%PDF-")
+        if pdf:
+            parsed = run_parser("document", content)
+            pages = [p["page"] for p in parsed.get("pages", []) if not p["native_text"]]
         else:
-            preview_limit_reached = True
-            omitted_previews += 1
-        status = result["status"]
-        image_count = prepared.get("image_count", 1)
-        if image_count > 1:
-            warnings.append(
-                f"Only the primary image of {source.item.title} was read; "
-                f"{image_count - 1} additional embedded images were not analyzed. "
-                "OCR regions and the preview refer to the primary image."
-            )
-        regions = sorted(result["regions"], key=lambda x: x["order"])
-        recognized_regions += len(regions)
-        source_partial = (
-            status in {"partial", "unreadable"} or image_count > 1 or not regions
-        )
-        structure = build_structure(regions, len(items))
-        if structure:
-            source_id = str(source.id)
-            size = len(json.dumps({source_id: structure}, allow_nan=False).encode())
-            if structure_bytes + size > MAX_STRUCTURE_BYTES:
-                structure = {
-                    "words": [],
-                    "candidates": [],
-                    "orders": [],
-                    "notes": ["Visible structure omitted at the run size limit."],
-                }
-            else:
-                structure_bytes += size
-            visible_structure[source_id] = structure
-            if (
-                structure["notes"]
-                or len(structure["orders"]) > 1
-                or any(candidate["notes"] for candidate in structure["candidates"])
-            ):
-                source_partial = True
-        if not regions:
-            no_text += 1
+            parsed = run_parser("ocr", content)
+            pages = [None]
+        if parsed["status"] == "unsupported":
+            items.append(unsupported_source(source, parsed["reason"]))
+            continue
+        supported += 1
+        if pdf and not pages:
             items.append(
-                _item(
+                source_item(
                     source,
-                    "OCR coverage",
-                    values={
-                        "OCR profile": "Printed English (local)",
-                        "Recognition status": (
-                            "No text recognized; inspect the original"
-                        ),
-                        "OCR engine": prepared["engine"],
-                        "Input SHA-256": checksum,
-                    },
+                    "All pages have native text",
+                    values={"Input SHA-256": checksum},
                 )
             )
-        for region in regions:
-            text = region["text"]
-            total_text += len(text.encode())
-            if total_text > MAX_TEXT:
+        if not pdf and parsed.get("image_count", 1) > 1:
+            warnings.append("Only the primary embedded picture was examined.")
+            additional_pictures += parsed["image_count"] - 1
+        for page in pages:
+            anchors = [source.anchor(page=page)] if page else [source.anchor()]
+            if requests >= MAX_IMAGES_PER_RUN:
+                omitted += 1
+                items.append(
+                    source_item(source, "Recognition limit reached", anchors=anchors)
+                )
+                continue
+            prepared = (
+                run_parser(
+                    "document_preview", content, options={"render": True, "page": page}
+                )
+                if pdf
+                else parsed
+            )
+            encoded = prepared["image"]
+            raw = base64.b64decode(encoded, validate=True)
+            if not pdf and preview_bytes + len(raw) <= MAX_PREVIEW_BYTES:
+                artifacts.append(
+                    {
+                        "source_id": str(source.id),
+                        "content_type": "image/jpeg",
+                        "data_base64": encoded,
+                        "width": prepared["prepared_width"],
+                        "height": prepared["prepared_height"],
+                        "coordinate_space": "original_unoriented_pixels",
+                    }
+                )
+                preview_bytes += len(raw)
+            elif not pdf and "Preview byte limit reached." not in warnings:
+                warnings.append("Preview byte limit reached.")
+            if not pdf:
+                anchors = [
+                    source.anchor(
+                        region=[0, 0, 1, 1],
+                        coordinate_space="original_unoriented_pixels",
+                    )
+                ]
+
+            text, incomplete = client.read_image(encoded)
+            requests += 1
+            uncertain += incomplete or not text
+            size += len(text.encode())
+            if size > MAX_TEXT:
                 raise AnalysisError("extracted_text_limit")
             items.append(
-                _item(
+                source_item(
                     source,
-                    f"Text candidate · region {region['order'] + 1}",
+                    f"Page {page} · candidate text"
+                    if page
+                    else "Image · candidate text",
                     text=text,
-                    anchors=[
-                        source.anchor(
-                            region=region["bbox"],
-                            coordinate_space="original_unoriented_pixels",
-                        )
-                    ],
+                    anchors=anchors,
                     values={
-                        "OCR profile": "Printed English (local)",
-                        "OCR engine": prepared["engine"],
-                        "Language setting": "English; not language detection",
-                        "Reading order": region["order"],
-                        "Minimum word confidence (0–100)": region["confidence"],
-                        "Original pixel width": prepared["width"],
-                        "Original pixel height": prepared["height"],
-                        "Prepared pixel width": prepared["prepared_width"],
-                        "Prepared pixel height": prepared["prepared_height"],
-                        "Preparation parser": prepared["version"],
                         "Input SHA-256": checksum,
+                        "Recognition JPEG SHA-256": hashlib.sha256(raw).hexdigest(),
+                        "Preparation parser": prepared["version"],
+                        "OCR model": parameters["_execution"]["model"],
+                        "Coverage": "Uncertain or unreadable"
+                        if incomplete or not text
+                        else "Candidate transcription",
                     },
                 )
             )
-        partial += source_partial
-        if len(items) > 5000:
-            raise AnalysisError("result_limit")
     warnings.append(
-        "Printed English OCR runs locally; no image is sent to an external service. "
-        "Candidate text requires comparison with the original. Confidence scores "
-        "are engine scores, not probabilities of correctness. Missing text, "
-        "handwriting, other languages, rotation and complex layouts may go "
-        "unrecognized. No recognized text does not prove a blank image. "
-        "Regions use the original unrotated pixel coordinate space. The private "
-        "preview is the resized, metadata-free JPEG used for recognition."
+        "Compare candidate text with the original for omissions and misread characters."
     )
-    if no_text:
-        noun = "image" if no_text == 1 else "images"
+    if omitted:
         warnings.append(
-            f"No text was recognized in {no_text} supported {noun}. Small or "
-            "angled text in photographs may be missed; inspect the originals."
+            f"{omitted} images or pages exceeded the limit of {MAX_IMAGES_PER_RUN}."
         )
-    if omitted_previews:
-        warnings.append(
-            f"{omitted_previews} prepared image previews were omitted because "
-            "the cumulative 2 MiB preview limit was reached. OCR text and "
-            "region coordinates remain available; download the retained "
-            "originals to inspect those regions."
-        )
-    supported = len(sources) - unsupported
-    outcome = (
-        "partial"
-        if partial or (unsupported and supported)
-        else "unsupported"
-        if unsupported
-        else "complete"
-    )
-    if recognized_regions:
-        noun = "region" if recognized_regions == 1 else "regions"
-        summary = f"Recognized {recognized_regions} source-linked text {noun}."
-    elif supported:
-        summary = "No text recognized. Inspect the original images."
-    else:
-        summary = "No supported images could be read."
     result = output(
-        summary,
+        f"Read {requests} images or scanned pages.",
         items=items,
+        warnings=warnings,
         metrics={
             "Selected sources": len(sources),
-            "Unsupported inputs": unsupported,
-            "Recognized text regions": recognized_regions,
-            "Images with no recognized text": no_text,
-            "Partial/unreadable inputs": partial,
-            "UTF-8 text bytes": total_text,
-            "OCR profile": "Printed English (local)",
+            "Images read": requests,
+            "Images omitted": omitted,
+            "Additional embedded pictures omitted": additional_pictures,
+            "Uncertain or unreadable": uncertain,
+            "UTF-8 text bytes": size,
         },
-        warnings=warnings,
-        outcome=outcome,
+        outcome="unsupported"
+        if not supported
+        else "partial"
+        if omitted or uncertain or additional_pictures or supported != len(sources)
+        else "complete",
     )
-    if visible_structure:
-        result["visible_structure"] = visible_structure
     result["artifacts"] = artifacts
     return result

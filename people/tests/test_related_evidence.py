@@ -7,6 +7,7 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.testing import EvidenceViewTestMixin
 from geo.models import PersonLocationEvidence
 from people.models import Person
@@ -138,7 +139,15 @@ class RelatedEvidenceTests(EvidenceViewTestMixin, TestCase):
 
     def test_reader_and_search_preserve_person_filter(self):
         selected = self.communication(title="Needle")
-        self.communication(sender=self.peer, recipient=self.peer, title="Needle other")
+        other = self.communication(
+            sender=self.peer, recipient=self.peer, title="Needle other"
+        )
+        self.enterContext(
+            indexed(
+                self.case,
+                [("original", "text-message", item.pk) for item in (selected, other)],
+            )
+        )
         self.login("viewer")
         params = {
             "person": str(self.person.pk),

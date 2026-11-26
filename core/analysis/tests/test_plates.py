@@ -7,7 +7,7 @@ from uuid import uuid4
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.http import Http404
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from cases.models import CaseMembership
@@ -18,8 +18,10 @@ from core.analysis.forms import analysis_form
 from core.analysis.services import start_run
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.sources import output
-from core.analysis.testing import local_ocr_response
+from core.analysis.testing import external_grant_kwargs, preview_image_bytes
+from core.analysis.tests.test_openai_gateway import OPENAI
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.models import (
     AnalysisArtifact,
     AnalysisResult,
@@ -33,6 +35,7 @@ from image.models import ImageEvidence
 from image.testing import plate_scene
 
 
+@override_settings(PANDECT_AI_GATEWAY=OPENAI)
 class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -50,6 +53,7 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "plate_ocr",
             [{"kind": "image", "id": str((image or self.image).pk)}],
+            **external_grant_kwargs(self.case, "plate_ocr"),
         )[0]
 
     def mixed_run(self, *, only_weak=False):
@@ -70,7 +74,17 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
             parsed["candidates"] = parsed["candidates"][:1]
             parsed["candidates"][0]["plate_score"] = 0
         run = self.start(image=image)
-        with patch("image.analysis.plates.run_parser", return_value=parsed):
+        readings = [
+            ("<b>NOISE987</b>" if region["plate_score"] < 50 else "TEST 482", False)
+            for region in parsed["candidates"]
+            for attempt in region["attempts"]
+        ]
+        with (
+            patch("image.analysis.plates.run_parser", return_value=parsed),
+            patch(
+                "core.analysis.gateway.GatewayClient.read_image", side_effect=readings
+            ),
+        ):
             process_run(run.pk)
         run.refresh_from_db()
         self.assertEqual(run.status, "partial", run.error_code)
@@ -106,20 +120,18 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
 
     def test_weak_regions_are_hidden_without_renumbering_findings_or_leaking_text(self):
         image, run = self.mixed_run()
-        self.assertEqual(ExtractedPassage.objects.filter(result=run.result).count(), 3)
+        self.assertEqual(ExtractedPassage.objects.filter(result=run.result).count(), 1)
         self.login("viewer")
         url = reverse("core:analysis:detail", args=[self.case.pk, run.pk])
         response = self.client.get(url)
-        self.assertEqual(
-            [item["index"] for item in response.context["items"]], [12, 13, 14]
-        )
-        self.assertEqual(response.context["items"][0]["index"], 12)
+        self.assertEqual([item["index"] for item in response.context["items"]], [4])
+        self.assertEqual(response.context["items"][0]["index"], 4)
         self.assertEqual(response.context["weak_region_count"], 4)
         self.assertContains(response, "Show weak regions")
         self.assertNotContains(response, "NOISE987")
         self.assertContains(response, "Heuristic score, not a probability")
         shown = self.client.get(url, {"weak": "1"})
-        self.assertEqual(len(shown.context["items"]), 15)
+        self.assertEqual(len(shown.context["items"]), 5)
         self.assertTrue(all("weak=1" in item["url"] for item in shown.context["items"]))
         reader = self.client.get(self.url("detail", image, kind="image"))
         weak = next(
@@ -134,8 +146,8 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
         explicit = self.client.get(url, {"finding": "2"})
         self.assertEqual(explicit.context["items"][0]["index"], 1)
         self.assertTrue(explicit.context["show_weak_regions"])
-        strong = self.client.get(url, {"finding": "14"})
-        self.assertEqual(strong.context["items"][0]["index"], 13)
+        strong = self.client.get(url, {"finding": "5"})
+        self.assertEqual(strong.context["items"][0]["index"], 4)
         self.assertFalse(strong.context["show_weak_regions"])
         self.login("editor")
         derived, _ = start_run(
@@ -223,13 +235,16 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
             ):
                 self.start(role)
         run = self.start("editor")
-        self.assertFalse(run.external_processing)
+        self.assertTrue(run.external_processing)
 
     def test_real_processing_keeps_exact_crops_search_and_current_private_access(self):
         run = self.start()
-        with patch("core.analysis.gateway.GatewayClient.request") as gateway:
+        with patch(
+            "core.analysis.gateway.GatewayClient.read_image",
+            return_value=("TEST 482", False),
+        ) as gateway:
             process_run(run.pk)
-        gateway.assert_not_called()
+        gateway.assert_called_once()
         run.refresh_from_db()
         self.assertEqual(run.status, "partial", run.error_code)
         self.assertFalse(GatewayRequest.objects.filter(run=run).exists())
@@ -246,7 +261,7 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
             any("test 482" in text.casefold() for text in passages), passages
         )
         crops = list(run.result.artifacts.exclude(metadata={}))
-        self.assertEqual(len(crops), 3)
+        self.assertEqual(len(crops), 1)
         for crop in crops:
             finding = run.result.data["items"][crop.metadata["finding_index"]]
             self.assertEqual(crop.sha256, finding["values"]["Recognition JPEG SHA-256"])
@@ -272,6 +287,12 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
                     self.client.get(detail_url), "Processed plate-region crop"
                 )
         self.login("viewer")
+        self.enterContext(
+            indexed(
+                self.case,
+                [("passage", "", passage.pk) for passage in run.result.passages.all()],
+            )
+        )
         self.assertContains(
             self.client.get(self.url("list"), {"q": "TEST 482"}),
             "Synthetic plate scene",
@@ -296,7 +317,7 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
     def test_crop_cannot_point_at_a_missing_finding_and_publication_rolls_back(self):
         run = self.start()
         source_id = run.inputs[0]["id"]
-        prepared = local_ocr_response()
+        prepared = run_parser("image_preview", preview_image_bytes())
         artifact = {
             "source_id": source_id,
             "content_type": "image/jpeg",

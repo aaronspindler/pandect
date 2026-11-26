@@ -25,6 +25,10 @@ updates:
       docker-dependencies:
         patterns:
           - "*"
+  - package-ecosystem: npm
+    directory: /cloudflare/investigator
+    schedule:
+      interval: daily
   - package-ecosystem: github-actions
     directory: /
     schedule:

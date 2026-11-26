@@ -2,6 +2,7 @@
 
 from uuid import uuid4
 
+from django.conf import settings
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
@@ -21,16 +22,56 @@ TRANSFER_CONTENT = {
         "Evidence chat. This includes relevant case history, chat questions, "
         "necessary conversation context and evidence excerpts."
     ),
+    "vision": "Metadata-free images, image crops and scanned PDF pages for OCR.",
     "transcription": "Audio chunks from retained recordings for transcription.",
     "geocode": "Addresses or coordinates",
     "map_context": "Coordinates and search areas",
 }
 
 
+def hosted_destinations():
+    search = getattr(settings, "PANDECT_CLOUDFLARE_SEARCH", {})
+    agent = getattr(settings, "PANDECT_CLOUDFLARE_AGENT", {})
+    return {
+        "hosted_search": {
+            "account": search.get("account", ""),
+            "namespace": search.get("namespace", "production"),
+        },
+        "agent_url": agent.get("url", ""),
+    }
+
+
+def clear_ai_grants(case):
+    """Keep separately approved geographic services when external AI is disabled."""
+    approval = case.external_analysis_approval
+    case.external_analysis_approval = {
+        key: value
+        for key, value in approval.items()
+        if key not in {"hosted_search", "agent_url"}
+    } | {
+        "grants": [
+            grant
+            for grant in approval.get("grants", [])
+            if grant["scope"].get("operation") in GEOGRAPHIC
+        ],
+        "executions": {
+            op: route
+            for op, route in approval.get("executions", {}).items()
+            if op in GEOGRAPHIC
+        },
+    }
+
+
 def case_approval_confirmation(case, actor, action, proposal):
     return execution_confirmation(
         "analysis.case.execution",
-        [str(case.pk), str(actor.pk), action, case.external_analysis_approval],
+        [
+            str(case.pk),
+            str(actor.pk),
+            action,
+            str(case.external_ai_revision),
+            case.external_analysis_approval,
+        ],
         proposal,
     )
 
@@ -96,7 +137,11 @@ def case_approval_context(case, actor):
     approval = case.external_analysis_approval
     destinations = []
     approved_names = set()
-    saved = _saved_scopes(case)
+    saved = [
+        scope
+        for scope in _saved_scopes(case)
+        if case.external_ai_enabled or scope.get("operation") in GEOGRAPHIC
+    ]
     for scope in saved:
         row = scope_description(scope)
         if scope not in [grant["scope"] for grant in approval.get("grants", [])]:
@@ -128,7 +173,14 @@ def case_approval_context(case, actor):
         "approved_names": sorted(approved_names),
         "gateway_summary": bool(approved_names)
         and all(scope.get("gateway") for scope in saved if "purpose" in scope),
-        "pending_ai": any(
+        "pending_ai": (
+            case.external_ai_enabled
+            and any(
+                approval.get(key) != value
+                for key, value in hosted_destinations().items()
+            )
+        )
+        or any(
             not case_execution_grant(case, op, route)
             for op, route in executions.items()
             if op not in GEOGRAPHIC
@@ -190,8 +242,8 @@ def revoke_destination(case, actor, confirmation):
                 },
             }
             case.save(update_fields=("external_analysis_approval",))
-            return True
-    return False
+            return scope
+    return None
 
 
 def revoke_case_execution(case):

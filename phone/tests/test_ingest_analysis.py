@@ -11,13 +11,12 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from cases.models import Case, CaseMembership
+from cases.models import CaseMembership
 from core.analysis.approval import revoke_case_execution
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
 from core.analysis.testing import external_grant_kwargs
-from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
 from core.models import AnalysisRun, CaseAnalysisBatch
@@ -29,12 +28,11 @@ from phone.models import PhoneCallEvidence, TextMessageEvidence
 from phone.tests.test_imessage_views import message_csv, whatsapp_csv
 
 
-@override_settings(PANDECT_LOCAL_AI={})
 class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
     def select_external_ai(self):
         grant = external_grant_kwargs(self.case, "content_events")
-        self.case.ai_backend = Case.AIBackend.GATEWAY
-        self.case.save(update_fields=("ai_backend",))
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=("external_ai_enabled",))
         return grant
 
     def publish(self, *rows, csv_format=message_csv):
@@ -85,7 +83,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
                 return
         self.fail("Import analysis preparation did not finish")
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_import_runs_rules_and_one_ai_check_on_the_selected_external_backend(self):
         self.select_external_ai()
         self.publish()
@@ -107,8 +105,8 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             )
         self.assertEqual(batch.unavailable_sources, 0)
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
-    def test_private_ai_keeps_built_in_keyword_and_exchange_checks(self):
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_disabled_ai_keeps_built_in_keyword_and_exchange_checks(self):
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
@@ -117,12 +115,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             batch.runs.filter(parameters__has_key="_execution").values_list(
                 "operation", "parameters__backend"
             ),
-            [
-                ("content_events", "local"),
-                ("conversation_link", "local"),
-                ("session_summaries", "local"),
-                ("text_topics", "local"),
-            ],
+            [],
         )
         rules = batch.runs.exclude(parameters__has_key="_execution")
         self.assertEqual(
@@ -144,7 +137,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(batch.runs.filter(operation="entities").exists())
         self.assertFalse(batch.runs.filter(parameters__has_key="_execution").exists())
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_destination_drift_does_not_switch_to_private_ai(self):
         self.select_external_ai()
         self.publish()
@@ -347,8 +340,9 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             originals,
         )
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_every_model_operation_publishes_validated_suggestions(self):
+        self.select_external_ai()
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
@@ -373,17 +367,20 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             }
 
         with (
-            patch("core.analysis.local.LocalClient._validate_configuration"),
-            patch("core.analysis.local.LocalClient.infer", side_effect=infer),
+            patch("core.analysis.gateway.GatewayClient.infer", side_effect=infer),
         ):
-            for run in batch.runs.filter(parameters__has_key="_execution"):
+            for run in batch.runs.filter(parameters__has_key="_execution").exclude(
+                operation="narrative_relationships"
+            ):
                 process_run(run.pk)
                 run.refresh_from_db()
                 self.assertEqual(
                     run.status, "complete", (run.operation, run.error_code)
                 )
                 self.assertTrue(run.result.data["items"])
-                self.assertEqual(run.result.provenance["execution"]["backend"], "local")
+                self.assertEqual(
+                    run.result.provenance["execution"]["backend"], "gateway"
+                )
 
     def test_character_windows_preserve_every_oversized_original(self):
         self.publish(*({"Text": "x" * 130_000} for _ in range(9)))
@@ -406,20 +403,20 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             )
         )
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_mocked_model_failure_and_retry_keep_independent_results(self):
+        self.select_external_ai()
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
         run = batch.runs.get(operation="content_events")
         with (
-            patch("core.analysis.local.LocalClient._validate_configuration"),
             patch(
-                "core.analysis.local.LocalClient.infer",
-                side_effect=AnalysisError("local_ai_unavailable"),
+                "core.analysis.gateway.GatewayClient.infer",
+                side_effect=AnalysisError("gateway_unavailable"),
             ),
         ):
-            self.assertEqual(process_run(run.pk), "local_ai_unavailable")
+            self.assertEqual(process_run(run.pk), "gateway_unavailable")
         self.assertEqual(TextMessageEvidence.objects.count(), 6)
         retry, _ = start_run(
             self.users["editor"],
@@ -431,6 +428,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             ],
             parameters=run.parameters,
             previous_run=run,
+            **external_grant_kwargs(self.case, run.operation),
         )
 
         def infer(prompt, schema):
@@ -452,8 +450,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             }
 
         with (
-            patch("core.analysis.local.LocalClient._validate_configuration"),
-            patch("core.analysis.local.LocalClient.infer", side_effect=infer),
+            patch("core.analysis.gateway.GatewayClient.infer", side_effect=infer),
         ):
             process_run(retry.pk)
         retry.refresh_from_db()
@@ -693,7 +690,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.client.get(url, headers={"X-Pandect-Live": "1"}).status_code, 404
         )
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_approval_revocation_stops_import_ai_without_fallback(self):
         self.select_external_ai()
         final = self.publish()

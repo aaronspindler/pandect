@@ -1,4 +1,4 @@
-"""Deliberate analysis uses the case's selected AI backend."""
+"""Deliberate analysis requires the current case approval for model work."""
 
 from unittest.mock import Mock, patch
 
@@ -7,14 +7,13 @@ from django.urls import reverse
 
 from core.analysis.errors import AnalysisError
 from core.analysis.testing import external_grant_kwargs
-from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.analysis.worker import process_run
 from core.models import AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 
 
-class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
+class AnalysisRoutingFormTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.note = self.text()
@@ -32,24 +31,8 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
             "sources": [f"text:{self.note.pk}"],
         }
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
-    def test_forged_provider_and_transfer_fields_keep_unapproved_work_private(self):
-        payload = self.analysis("content_events") | {
-            "backend": "gateway",
-            "external_processing": "on",
-        }
-        response = self.client.post(self.url, payload)
-        self.assertEqual(response.status_code, 302)
-        run = AnalysisRun.objects.get()
-        self.assertEqual(run.parameters["backend"], "local")
-        self.assertFalse(run.external_processing)
-
-        external_grant_kwargs(self.case, "content_events")
-        self.assertEqual(self.client.post(self.url, payload).url, response.url)
-        self.assertEqual(AnalysisRun.objects.count(), 1)
-
-    @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
-    def test_topics_queues_keywords_once_and_uses_local_ai_by_default(self):
+    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
+    def test_topics_queues_keywords_once_and_uses_only_gateway_for_suggestions(self):
         external_grant_kwargs(self.case, "text_topics")
         payload = self.analysis("text_topics") | {"include_summary": ""}
         response = self.client.post(self.url, payload)
@@ -64,30 +47,28 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(
             set(suggestions.values_list("parameters__backend", flat=True)),
-            {"local"},
+            {"gateway"},
         )
         self.assertEqual(self.client.post(self.url, payload).url, response.url)
         self.assertEqual(AnalysisRun.objects.count(), 2)
         process_run(keywords.pk)
         client = Mock()
-        client.infer.side_effect = AnalysisError("local_ai_unavailable")
-        private = suggestions.get(parameters__backend="local")
+        client.infer.side_effect = AnalysisError("gateway_unavailable")
+        suggested_run = suggestions.get(parameters__backend="gateway")
         with (
-            patch("core.analysis.local.LocalClient", return_value=client),
+            patch("core.analysis.gateway.GatewayClient", return_value=client),
             patch("text.analysis.ai.keywords") as repeated_keywords,
         ):
-            self.assertEqual(process_run(private.pk), "local_ai_unavailable")
+            self.assertEqual(process_run(suggested_run.pk), "gateway_unavailable")
             repeated_keywords.assert_not_called()
         self.assertTrue(hasattr(keywords, "result"))
-        self.assertFalse(hasattr(private, "result"))
+        self.assertFalse(hasattr(suggested_run, "result"))
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
+    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_selected_external_ai_runs_once_and_requires_approval(self):
-        self.case.ai_backend = "gateway"
-        self.case.save(update_fields=["ai_backend"])
         payload = self.analysis("content_events") | {"backend": "local"}
         response = self.client.post(self.url, payload)
-        self.assertContains(response, "needs a destination approved in Case settings")
+        self.assertContains(response, "Enable external AI")
         self.assertFalse(AnalysisRun.objects.exists())
 
         external_grant_kwargs(self.case, "content_events")
@@ -96,7 +77,6 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.parameters["backend"], "gateway")
         self.assertTrue(run.external_processing)
 
-    @override_settings(PANDECT_LOCAL_AI={})
     def test_optional_model_without_service_leaves_keywords_available(self):
         payload = self.analysis("text_topics") | {"include_summary": "on"}
         self.assertEqual(self.client.post(self.url, payload).status_code, 302)

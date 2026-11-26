@@ -185,186 +185,23 @@ The [roadmap](evidence-analysis-roadmap.md) separates future work from current g
 
 ## Evidence chat
 
-Open **Case Tools → Evidence chat**. Owners and editors ask questions and
-follow-ups. Current case members can read saved conversations. On wide screens,
-recent chats appear beside the conversation. **All saved chats** opens the full
-list. New questions and follow-ups search active evidence, including evidence
-added since the previous reply. Earlier replies retain their dates, sources,
-quotations and evidence scope. A reply that depends on archived evidence is
-withheld until the sources are restored. Ask a fresh question to replace a stopped
-question submitted with archived evidence enabled or an older reply whose
-history sources could not be verified.
+A verified owner or editor can ask a question when the owner has enabled external
+AI and approved the configured Cloudflare destinations. Case Chat records the
+question, original cutoff and case processing coverage at submission. The
+Cloudflare investigation Agent searches the private case index, follows material
+leads, opens the original passages and uses the case's configured model through
+AI Gateway. Each substantive claim links to a quotation in an eligible source.
+A complete review enumerates the source population and tracks reviewed entries
+and gaps. Queued and failed checks leave Chat available.
 
-While a reply runs, its status names the current step. Expand that status to see
-steps taken and a linked sample of the evidence checked so far. Completed
-replies keep **Review activity** alongside any citations. The linked sample can
-differ from the reply's citations, which identify the sources for specific claims.
+Case members can read published replies and open their sources while external AI
+is disabled. Changed or archived sources can withhold a reply. Updating a dated
+answer creates a linked turn with a fresh cutoff. An investigator can approve a
+proposed native PDF extraction and resume the original question against the same
+cutoff. The approved result carries its own publication time.
 
-Ordinary questions use a case-scoped PostgreSQL index. Chat combines keyword
-matches, identifiers, eligible meaning-search passages and matches in document
-sections, saved conversations and their summaries. A summary can lead chat to
-the messages behind a statement. A document brief can lead it to the original
-page or transcript passage. Qualifying spelling variations in recorded names
-and places can also locate an original. A spelling match alone establishes no
-identity. Use filters such as `type:text-message`, `on:2026-01-15`,
-`from:2026-01-01` and `through:2026-01-31` to constrain a search or a full
-review. Dates use the investigator's selected time zone. Ask the question again
-if an older full review did not apply its filters or might have counted field
-labels as literal matches.
-
-For a harder question, chat can shortlist up to 32 distinct sources locally.
-The first answer-model call receives up to four excerpts. For questions about
-dates or uncertainty, chat favors passages that put the date or qualifier near
-the action it describes. For example, the date a photo was taken can differ
-from the date it was sent.
-
-Opening a record by its UUID returns a verified citation directly. Ordinary
-searches can inspect up to 64 candidate records per ranked lookup. If a limit
-affects the result, the reply reports the coverage gap. A uniquely matching
-exact quotation can supply its own citation offset. Repeated quotations require
-the model to identify the occurrence it used.
-
-With [OpenAI source selection](cases.md#evidence-chat-source-selection) approved,
-an ordinary comparison, disagreement or chronology question can use one additional
-lookup. Chat shortlists up to eight candidates from its case search, including
-eligible meaning-search matches. Questions about communication timing can also
-use saved timing reports. When search finds original messages, chat looks
-for reports that include any of those messages. If all candidates fit in the first
-answer, chat can read them directly. Otherwise Decisions can choose
-one source to open alongside the leading local matches. A refusal, uncertain
-choice or unavailable service returns chat to its usual passage ranking. The answer
-model checks the actual excerpts and Pandect verifies their citations.
-
-Chat can make up to two follow-up lookups with up to ten excerpts per answer
-call. It can search originals and extractions, search findings, follow a source
-to its supporting or neighboring records, or refine the broader search. Each
-lookup identifies the missing fact and whether it requires an independent source.
-If a search adds nothing relevant, chat can return the already cited answer
-with its remaining uncertainty. It can report both accounts of a disputed
-event while leaving independent verification open.
-
-When a question depends on the contents of a particular retained PDF, chat can
-read a matching saved extraction. If text is missing, the reply can offer **Review
-proposed check**. An owner or editor reviews the document, method, purpose and
-answer destination before choosing **Approve and run** or **Keep current answer**.
-Extraction and any OCR run locally. If the case uses external AI for the answer,
-the review identifies where the question and selected passages will go.
-
-Approval attaches to a matching run or starts one extraction of that PDF. Chat
-adds a linked reply to the original question when the result is ready, including
-after the browser is closed or another investigator has asked a question. Open
-the linked reply to inspect its page citations. Partial and empty extractions
-show the coverage available.
-
-Chat searches published analysis by method and named measurement, including
-successful runs with zero catalogue findings. A saved result can identify its
-method, version, selected population, outcome and published measurements. The
-citation opens the owning result. Some methods publish only a status or findings.
-A message-timing report can provide a saved median for thousands of messages.
-Chat checks that the selection is still eligible and can open individual supporting
-messages without rerunning the method. Whole-report metrics retain their original
-population when the investigator requests a narrower scope.
-
-For a question about recorded message fields, chat can query exact wording,
-sender, recipient and event-date bounds in PostgreSQL. It can count matching
-messages, group by sender or destination before selecting examples, and compare
-the first or last recorded occurrence, including ties. It shows up to twelve
-results and distinguishes missing times from imports that give only a calendar
-date. Only precisely timed messages enter chronological comparisons. Each example links to its retained
-message. A group export establishes a group destination. It does not establish
-delivery to a particular member.
-
-A follow-up such as “Which of those happened first?” compares the earlier
-selection at its original cutoff. For an ordinary answer with citations, chat
-can compare occurrence and observation times on the cited sources, including
-the first or last observation of a saved possible trip. Asking what has turned
-up since a recorded-field query checks matching additions. If archival or
-restoration changed the earlier membership, chat refreshes the active selection.
-For an ordinary answer, “Has anything else turned up since answer 3?” searches
-new and restored evidence, newly published passages and findings, and retained
-analysis whose cited originals were restored. If the earlier reply cited a
-timing report or possible trip, chat checks later publications for overlapping
-message selections or the same vehicles. Chat applies the earlier topic
-and date or evidence-type filters before selecting excerpts. Older originals
-can still supply the provenance for a new result. An empty update reports the
-limits of that search and leaves the earlier reply intact.
-
-Open **Inspect matching records** on a structured reply to inspect the full selection.
-PostgreSQL stores its record identities, versions and recorded times at the
-question's cutoff. Chat can count, group by week or evidence type, and compare
-first or last times using that selection. For messages, the inspection page can
-show every recorded sender or destination with its message count, including
-groups beyond the twelve examples in the answer. Later additions can be
-examined in a follow-up. Archiving or permanently
-deleting a selected source also affects replies that depended on its membership.
-
-For an interpretive question with many matches, chat can select uncommon
-wording, different senders, or the edges of a requested timeline before opening
-excerpts. A search for independent support can exclude previously inspected
-originals and explicitly marked forwards. An original and a finding derived from
-it can share a source. Identical wording and a forwarding marker are reported
-separately because neither establishes the identity of the author. The reply
-shows how many excerpts the answer model inspected. Structured coverage also
-shows the size of the defined selection and records with missing or date-only
-times. Ranked excerpts alone do not establish how often an event occurred.
-
-When additional interpretation would help, **Review more matching material**
-lets an owner or editor inspect the exact selection or the proposed search words,
-cutoff, destination and estimated generation requests. They can set a maximum
-before approving. One approval covers up to 100,000 candidate entries and
-10,000 generation requests. The worker checkpoints the review in the background and adds
-a linked reply with citations and any unfinished work. The earlier reply remains
-available.
-
-A follow-up can refer to an older topic or a numbered reply such as “answer
-3.” Chat searches completed turns in the same conversation, carries at most
-three prior turns and checks the original sources again. A saved follow-up
-retains references to sources used through earlier replies. Earlier questions
-and open leads help locate evidence. An answer based on selected
-excerpts describes what those sources establish. Answers cite quotations or
-field values from originals, supplied transcripts, saved extractions and
-source-linked findings. Numbered references open the evidence reader, message,
-attachment or retained result. Expand **Sources** in the conversation or open a
-reply to read its quotations. Read the original in context to assess the AI's
-interpretation. A material ambiguity can prompt a clarifying question. Gaps and
-conflicting accounts can prompt a suggested next check. Investigator notes and
-chat replies are excluded from evidence retrieval. **Mark important** saves the
-whole reply and its references in the case's Important list.
-
-Ordinary questions and follow-ups use selected search excerpts. A full review
-that uses AI to interpret evidence requires an explicit request for exhaustive
-coverage, such as “After checking every record, explain the pickup change.”
-Asking for all recipients, dates or possible explanations still uses targeted
-lookups. Chat qualifies answers based on the material it could verify.
-Chat can also start that review after the investigator answers a clarifying
-question about the request. Explicit type and date filters constrain the review.
-“Inspect every message” limits both the initial search and the review to text
-messages. This scope carries through a clarification. If an older review
-could have included other record types, ask the question again. Earlier reviews
-whose recorded type filter already restricted them to text messages remain available.
-A filtered count of messages can run directly from recorded fields. A count
-between two people includes both directions. Dated totals report unplaced times separately. Supported typed counts can use
-the exact selection without an interpretive review. Requests for an explicit record list
-and recognized requests for every record containing
-literal wording start a full review directly.
-Processing and the reply show progress against a frozen set of source entries.
-One record may contribute several entries, such as a document and its OCR passages.
-Structured counts use recorded fields for supported questions. A request such
-as “List every record that mentions Mica by name” or “Find all records that
-contain ‘north gate’” checks retained text and recorded field values and saves
-representative matching quotations for each distinct record. Additional
-conditions can require interpretation. Interpretive
-reviews count distinct records with cited matches and list the matching passages
-on the reply. Check the reported gaps for missing extractions, partial analyses
-and uncertain matches. Opening chat does not start OCR or transcription.
-
-Chat uses the case's selected text AI. For external processing, the owner must
-approve the chat destination in Case Settings. Questions, relevant conversation
-context, excerpts and source references can be sent. A full review can make many
-provider requests. Chat can use a private meaning index or the case owner's
-[separate approval for hosted chat searches](cases.md#hosted-meaning-search).
-Without an eligible index, chat can still search keywords and recorded fields.
-See [worker recovery](background-tasks.md#evidence-chat-recovery).
+See the [Cloudflare investigation Worker guide](cloudflare-agent.md) for the
+private callback, worker configuration, budgets and interrupted-delivery recovery.
 
 ## Reports and search
 
@@ -428,7 +265,7 @@ Failed and cancelled work retains its status and recovery details.
 **Processing** prioritizes reviews and recovery under **Needs attention** and
 queued or running checks under **In progress**. Owners and editors can select
 **Retry all failed checks** to request new attempts for eligible failures
-across the case. **Needs attention** also includes
+across the case. On an individual failed check, **Acknowledge missing coverage** records the investigator and time. Acknowledged failures stay in history and can be retried individually. Bulk retries skip them. **Needs attention** also includes
 stopped preparation even if it queued zero checks, stopped vehicle imports, and
 current trip or address preparation failures. Each row leads to its recovery
 options. Pending message reviews require the current CSV review format, and
@@ -449,16 +286,17 @@ execution settings and approvals can have one active reprocessing request.
 Originals and earlier results remain available. See
 [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
 
-Deterministic methods run once. Each model check uses the
-[case's selected AI backend](cases.md#ai-backend) when configured and approved
+Deterministic methods run once. Each model check uses an
+[owner-approved Cloudflare AI Gateway route](cases.md#external-ai-and-hosted-search) when configured and approved
 for that method. Geographic lookups use the configured service for each method.
-Local extraction and the selected transcriber prepare exact retained results
+Native extraction, approved image recognition and transcription prepare retained results
 for text follow-ups. Preparation, execution and follow-ups recheck service
 configuration and external approval. Unsupported inputs and provider failures
 leave independent results available.
 
 Methods cover inspection and extraction, OCR, plates, transcription, identifiers,
-writing and repeated wording, topics and claims, sessions and exchanges, location
+writing and repeated wording, topics, claims and candidate narrative relationships,
+sessions and exchanges, location
 quality and movement, and geographic lookup. Automatic comparisons can include
 bounded relevant active same-case history. Results disclose the actual inputs.
 Use **Choose analysis** for an explicitly defined writing comparison, an area
@@ -495,15 +333,14 @@ keywords and topics** or **Suggest claims and commitments**. **Compare exchanges
 across channels** also accepts calls/FaceTime. Earlier runs keep their selections.
 
 **Compare a claim** checks one quoted message or call transcript passage against
-selected case evidence through the configured private text service. It preserves
+selected case evidence through the approved Cloudflare AI Gateway text model. It preserves
 exact citations, unresolved material and matching source checksums. See
 [claim comparison](analysis-communications.md#compare-a-claim) for supported
 inputs, bounds and interpretation.
 
-On-demand AI analysis uses the case's selected backend. Dedicated flows such
-as claim comparison use their specified private service.
+On-demand AI analysis and claim comparison use the case’s approved model for the selected task.
 External AI and externally configured geographic services require the case
-owner's approval in [Case Settings](cases.md#external-analysis-approval).
+owner's approval in [Case Settings](cases.md#external-ai-and-hosted-search).
 Explicitly private geocoding and geographic context use normal case edit access.
 Private service failures stay on their selected route. [Map address lookup](maps.md#local-address-lookup)
 uses its dedicated private service flow.
@@ -552,7 +389,7 @@ the cited source identifies that participant. Saved wording, quotations and
 citations are retained.
 
 - Image metadata distinguishes embedded/supplied claims. Image and document-page
-  OCR results link [visible structure](analysis-extraction.md#visible-structure-in-images)
+  Historical OCR results link [visible structure](analysis-extraction.md#visible-structure-in-images)
   to the words supporting each field. Plate results retain regions/crops,
   separate plate/OCR scores and low-score notices. Identifier normalization
   appears in **Finding details** on individual findings.
@@ -609,46 +446,11 @@ a location.
 - [Geographic context](analysis-geographic-context.md): feature candidates,
   historical snapshots, private downloads and configuration.
 
-Tesseract English OCR is local, credential-free and never falls back remotely.
-Handwriting/mixed profiles are unsupported; old results stay readable. Context
-uses a separate reference service without AI credentials. Address-only miTrail
-spatial analysis needs selected geocodes. Local grouping needs no external service.
-
-## Local inference configuration
-
-[Local analysis](local-analysis.md) owns methods, pinned identities, settings,
-capacity, qualification and recovery. Private inference defaults; runs retain
-routing/provenance. Queued drift fails recoverably without endpoint switching or
-external fallback.
+Native document decoding, image and recording metadata, and geographic grouping run in Pandect. OCR sends bounded, metadata-free JPEGs to the approved vision model through Cloudflare AI Gateway. PDF scanning skips pages with usable native text. Each extracted text records the original checksum, the submitted image checksum, and its original image or page. OCR and plate readings remain unverified model suggestions.
 
 ## External AI configuration
 
-Connect OpenAI or Anthropic directly with an API key for text analysis, or use
-Cloudflare AI Gateway to select providers for text analysis and transcription.
-
-### Connect OpenAI or Anthropic directly
-
-Set one of these keys in the ignored local `.env` or in the hosted web and
-worker environments. Use the raw API key without an authentication prefix.
-
-| Environment variable | Optional model override | Default model |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | `PANDECT_OPENAI_MODEL` | [`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna) |
-| `ANTHROPIC_API_KEY` | `PANDECT_ANTHROPIC_MODEL` | [`claude-haiku-5-5`](https://platform.claude.com/docs/en/models/haiku-5-5/overview) |
-
-With one direct key and no explicit `PANDECT_AI_TEXT_PROVIDER`, Pandect uses that
-provider for external text analysis. If both keys are present, set
-`PANDECT_AI_TEXT_PROVIDER=openai-direct` or
-`PANDECT_AI_TEXT_PROVIDER=anthropic-direct` to enable a direct connection. An
-explicit provider selection takes precedence over the keys. Keep credentials
-server-side and match provider/model settings in web and worker.
-
-Use a GPT model that supports Responses API JSON-object output, or a Claude
-model that supports the Messages API. Direct OpenAI requests use
-`store=false`, a 32,768-token completion allowance and a 300-second timeout.
-Anthropic requests ask for a JSON object, with an 8,192-token allowance and a
-300-second timeout. See the [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
-and [Claude Messages API](https://platform.claude.com/docs/en/api/messages/create).
+Pandect runs model-based checks only through Cloudflare AI Gateway. Configure the serving provider and gateway credentials on the web and worker services. Each case owner controls external AI and the material each destination may receive.
 
 ### Use external AI
 
@@ -658,17 +460,17 @@ restart both processes with `uv run --locked --env-file .env`. For a hosted
 installation, apply the same settings to both services.
 
 The case owner reviews and approves configured destinations under
-[Case Settings](cases.md#external-analysis-approval) and selects
-[External AI](cases.md#ai-backend) for new eligible AI checks.
+[Case Settings](cases.md#external-ai-and-hosted-search) and selects
+[External AI](cases.md#external-ai-and-hosted-search) for new eligible AI checks.
 
 ### Model choices for case owners
 
-In [Case Settings](cases.md#external-analysis-approval), case owners can choose
+In [Case Settings](cases.md#external-ai-and-hosted-search), case owners can choose
 OpenAI or Anthropic Claude models for each text task. Recording transcription
 has its own model choices and defaults to Whisper Large v3 Turbo.
 
 Supported OpenAI Responses and Anthropic Messages models offer a per-task
-**Effort** setting on direct and Cloudflare AI Gateway routes. The available
+**Effort** setting through Cloudflare AI Gateway. The available
 levels depend on the model. **Default** uses the task's configured effort or the
 provider default. Higher effort can increase latency and token usage. New
 requests use the saved effort and retain it with the execution settings.
@@ -695,7 +497,7 @@ model IDs and request formats. The bundled catalog records its source revision.
 
 | Environment variable | Additional model choices |
 | --- | --- |
-| `PANDECT_AI_TEXT_MODEL_CHOICES` | Comma-separated IDs for the configured OpenAI or Anthropic text provider, including direct connections. |
+| `PANDECT_AI_TEXT_MODEL_CHOICES` | Comma-separated IDs for the configured OpenAI or Anthropic text provider, through AI Gateway. |
 | `PANDECT_AI_TRANSCRIPTION_MODEL_CHOICES` | Comma-separated IDs for external recording transcription through Workers AI. |
 
 Set the same configuration in web and worker. For custom model IDs, use models
@@ -791,15 +593,16 @@ quality require live qualification. See [OpenAI JSON output](https://developers.
 | `PANDECT_AI_ACCOUNT_ID` | Cloudflare account ID. |
 | `PANDECT_AI_GATEWAY_ID` | Operator gateway ID. |
 | `PANDECT_AI_GATEWAY_TOKEN` | Gateway authentication, sent as `cf-aig-authorization`. |
-| `PANDECT_AI_TEXT_PROVIDER` | `workers-ai` selects Cloudflare Workers AI. `openai` selects OpenAI through Cloudflare. Workers AI is the default when no direct keys or explicit provider are set. |
+| `PANDECT_AI_TEXT_PROVIDER` | `workers-ai` selects Cloudflare Workers AI. `openai` selects OpenAI through Cloudflare. Workers AI is the default. |
 | `PANDECT_AI_TEXT_MODEL` | Defaults to `auto`. OpenAI uses the task table above. Workers AI uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. An explicit model ID sets a single default for the selected text provider. |
 | `PANDECT_AI_OPENAI_KEY_ALIAS` | Stored OpenAI provider key alias; `default`. |
 | `PANDECT_AI_WORKERS_TOKEN` | Account token for Workers AI and catalog routes using Cloudflare's account-level AI REST API. |
+| `PANDECT_AI_VISION_MODEL` | OpenAI Responses-compatible vision model for OCR and plate recognition. Defaults to `gpt-4.1-mini`. Configure the gateway OpenAI key and select OpenAI as the text provider or include `openai` in stored key providers. |
 | `PANDECT_AI_TRANSCRIPTION_MODEL` | Installation default for external transcription on Workers AI, initially `@cf/openai/whisper-large-v3-turbo`. |
 
 Workers AI uses `gateway.ai.cloudflare.com/v1/ACCOUNT/GATEWAY/workers-ai/MODEL`
 and sends its separate upstream token in `Authorization`. Text inference uses a
-4,096-token output allowance and temperature zero. OCR remains local Tesseract.
+4,096-token output allowance and temperature zero. Vision uses a gateway-stored OpenAI key and a Responses-compatible vision model.
 For Workers AI recording transcription, set the Cloudflare account, gateway and
 gateway token plus `PANDECT_AI_WORKERS_TOKEN` in web and worker. Use a Cloudflare
 API token with the account's Workers AI Read permission. Pandect checks the

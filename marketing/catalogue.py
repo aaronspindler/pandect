@@ -6,7 +6,7 @@ from core.analysis.operations import OPERATIONS
 
 INCLUDED = "Included"
 OPTIONAL_AI = "Included; AI optional"
-MODEL = "Private setup or approved external AI"
+MODEL = "Approved external AI"
 GEOGRAPHIC = "Configured geographic service"
 
 LOCATION_KINDS = ("location", "person-location", "vehicle-location")
@@ -15,8 +15,8 @@ COMMUNICATION_KINDS = ("text-message", *CALL_KINDS)
 FILE_KINDS = ("image", "audio", "document")
 
 TEXT_MODEL = (
-    "Configure a private Ollama text model, or select and approve external AI "
-    "via OpenAI, Anthropic, or Cloudflare AI Gateway. Usable selected text is required."
+    "Enable external AI in Case Settings to use the configured model "
+    "through Cloudflare. Usable selected text is required."
 )
 TEXT_PREREQUISITE = (
     "Text analysis uses original text or an exact retained extraction or "
@@ -198,8 +198,8 @@ ANALYSES = {
         "label": "Extract document text",
         "description": "Read document and email text with page or line references.",
         "detail": (
-            "UTF-8 files, .eml email or unencrypted PDF. Local OCR reads printed "
-            "English on PDF pages without a text layer. Review the original "
+            "UTF-8 files, .eml email or unencrypted PDF. Pages without native text "
+            "can be submitted for case-approved Cloudflare OCR. Review the original "
             "where recognition is missing or uncertain."
         ),
     },
@@ -230,8 +230,8 @@ ANALYSES = {
             "Read candidate printed-English text with links to its image regions."
         ),
         "detail": (
-            "JPEG/PNG images. Tesseract and English data are bundled in the "
-            "standard Docker image; no external service or credentials. Review "
+            "JPEG/PNG pages use the case-approved vision model via Cloudflare. "
+            "Review "
             "readings against the original."
         ),
     },
@@ -241,8 +241,8 @@ ANALYSES = {
             "Find possible plate regions and candidate text readings for review."
         ),
         "detail": (
-            "One JPEG/PNG image; uses bundled local detection and Tesseract. Misses "
-            "and false candidates are possible. Readings establish no owner or "
+            "One JPEG/PNG image uses geometric detection and case-approved OCR. "
+            "Misses and false candidates are possible. Readings establish no owner or "
             "driver."
         ),
     },
@@ -253,9 +253,17 @@ ANALYSES = {
             "coverage gaps."
         ),
         "detail": (
-            "Supported PCM WAV or AAC M4A audio. Configure a private Whisper runtime "
-            "and model, or explicitly select and approve transcription through "
+            "Supported PCM WAV or AAC M4A audio. Enable external AI in Case Settings "
+            "to transcribe audio through "
             "Cloudflare AI Gateway. No speaker identification."
+        ),
+    },
+    "narrative_relationships": {
+        "label": "Suggest narrative relationships",
+        "description": "Trace reported relationships to their source passages.",
+        "detail": (
+            "Review the quotation and speaker context, including any denial "
+            "or qualification in the source."
         ),
     },
     "entities": {
@@ -308,7 +316,7 @@ ANALYSES = {
         ),
         "detail": (
             "Keywords need usable text only. Optional topic summaries need a "
-            "private Ollama text model or explicitly approved external AI."
+            "case-approved Cloudflare model."
         ),
     },
     "content_events": {
@@ -327,7 +335,7 @@ ANALYSES = {
         ),
         "detail": (
             "Select a quoted message or call transcript and up to five other "
-            "retained text sources. Requires a configured private text model. "
+            "retained text sources. Uses the text model approved for the case. "
             "Exact copies are flagged and comparisons are labelled as AI suggestions."
         ),
     },
@@ -358,7 +366,7 @@ ANALYSES = {
         ),
         "detail": (
             "Timing comparisons are included. Optional semantic links need usable "
-            "text plus a private Ollama model or approved external AI. Adjacency "
+            "text plus the case-approved Cloudflare model. Adjacency "
             "proves no shared event or causation."
         ),
     },

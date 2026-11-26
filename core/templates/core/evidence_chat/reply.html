@@ -15,7 +15,7 @@
       <dl class="metadata-list">
         {% for stage in interaction_usage %}
         <dt>{{ stage.label }}</dt>
-        <dd>{{ stage.requests }} request{{ stage.requests|pluralize }} · {{ stage.bytes }} bytes sent · {{ stage.reported }} reported tokens{% if stage.reserved %} · {{ stage.reserved }} reserved tokens{% endif %}</dd>
+        <dd>{{ stage.requests }} request{{ stage.requests|pluralize }} · {{ stage.bytes }} bytes sent · {{ stage.reported }} reported tokens{% if stage.estimated_usd %} · estimated USD {{ stage.estimated_usd }}{% endif %}{% if stage.unpriced %} · cost unavailable for {{ stage.unpriced }} request{{ stage.unpriced|pluralize }}{% endif %}{% if stage.reserved %} · {{ stage.reserved }} reserved tokens{% endif %}</dd>
         {% endfor %}
       </dl>
     </details>

@@ -1,0 +1,12 @@
+{% extends 'ui/base.html' %}
+{% load static %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'core/case-search-results.css' %}">{% endblock %}
+{% block title %}Search evidence across cases{% endblock %}
+{% block content %}
+<header class="page-header"><h1>Search evidence across cases</h1></header>
+<form method="get" role="search" class="filter-bar"><div class="field"><label for="all-case-query">Search cases with external AI enabled</label><input id="all-case-query" type="search" name="q" maxlength="200" value="{{ query }}"></div><button class="button">Search</button></form>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% if query %}{% if page.has_other_pages %}<p>Searching cases {{ page.start_index }}–{{ page.end_index }} of {{ page.paginator.count }} accessible cases with external AI enabled.</p>{% endif %}
+{% for group in groups %}<section><h2>{{ group.case.name }}</h2>{% if group.notice %}<p>{{ group.notice }}</p>{% elif group.rows %}{% include 'core/case_search/rows.html' with rows=group.rows query=query only %}{% else %}<p>No matching passages.</p>{% endif %}</section>{% empty %}<p>No accessible cases have external AI enabled.</p>{% endfor %}
+{% if page.has_other_pages %}<nav aria-label="Groups of cases">{% if page.has_previous %}<a href="{% querystring page=page.previous_page_number %}">Previous cases</a>{% endif %} {% if page.has_next %}<a href="{% querystring page=page.next_page_number %}">Search the next cases</a>{% endif %}</nav>{% endif %}{% endif %}
+{% endblock %}

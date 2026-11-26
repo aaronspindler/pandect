@@ -10,10 +10,6 @@ from django.utils import timezone
 class Case(models.Model):
     """The root investigation record and boundary for future case material."""
 
-    class AIBackend(models.TextChoices):
-        LOCAL = "local", "Local AI"
-        GATEWAY = "gateway", "External AI"
-
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -33,22 +29,10 @@ class Case(models.Model):
     external_analysis_efforts = models.JSONField(
         default=dict, db_default={}, blank=True, editable=False
     )
-    search_generation_policy = models.JSONField(
-        default=dict, db_default={}, blank=True, editable=False
+    external_ai_enabled = models.BooleanField(
+        default=False, db_default=False, editable=False
     )
-    search_embedding_approval = models.JSONField(
-        default=dict, db_default={}, blank=True, editable=False
-    )
-    search_rerank_approval = models.JSONField(
-        default=dict, db_default={}, blank=True, editable=False
-    )
-    ai_backend = models.CharField(
-        max_length=7,
-        choices=AIBackend,
-        default=AIBackend.LOCAL,
-        db_default=AIBackend.LOCAL,
-        editable=False,
-    )
+    external_ai_revision = models.UUIDField(default=uuid4, editable=False)
     additional_users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="CaseMembership",
@@ -61,10 +45,6 @@ class Case(models.Model):
             models.CheckConstraint(
                 condition=models.Q(name__regex=r"\S"),
                 name="cases_case_name_present",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(ai_backend__in=("local", "gateway")),
-                name="cases_valid_ai_backend",
             ),
         ]
 

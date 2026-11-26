@@ -22,9 +22,7 @@ from core.analysis.automatic import (
 from core.analysis.bulk import prepare_case_analysis_batch, resume_case_analysis
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
-from core.analysis.source_resolution import resolve_inputs
 from core.analysis.testing import external_grant_kwargs, image_bytes, wav_bytes
-from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, GatewayRequest
@@ -38,7 +36,6 @@ from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageE
 from text.models import TextEvidence
 
 
-@override_settings(PANDECT_LOCAL_AI={})
 class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
     def start(self, item, kind="text", role="owner", submission_id=None):
         return start_evidence_analysis(
@@ -108,8 +105,8 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(run.status, "queued")
             self.assertFalse(run.external_processing)
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
-    def test_intake_defaults_to_one_private_ai_run_with_external_approval(self):
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_intake_queues_only_approved_gateway_routes(self):
         external_grant_kwargs(self.case, "content_events")
         self.login("editor")
         response = self.client.post(
@@ -117,14 +114,14 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(response.status_code, 201)
         batch = CaseAnalysisBatch.objects.get()
-        self.assertEqual(batch.scope["external_grants"], {})
+        self.assertIn("content_events", batch.scope["external_grants"])
         with patch("core.analysis.gateway.GatewayClient.request") as gateway:
             self.prepare_added()
         gateway.assert_not_called()
         self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
         run = batch.runs.get(operation="content_events")
-        self.assertEqual(run.parameters["_execution"]["backend"], "local")
-        self.assertFalse(batch.runs.filter(external_processing=True).exists())
+        self.assertEqual(run.parameters["_execution"]["backend"], "gateway")
+        self.assertTrue(run.external_processing)
 
     @override_settings(**LOCAL_GEOCODER)
     def test_existing_private_forward_lookup_is_reused_by_intake(self):
@@ -222,7 +219,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(earlier.file.storage.exists(earlier.file.name))
         self.assertEqual(upload().status_code, 201)
         self.prepare_added()
-        self.assertEqual(AnalysisRun.objects.count(), 3)
+        self.assertEqual(AnalysisRun.objects.count(), 1)
 
     def test_lost_commit_confirmation_keeps_originals_and_resolves_on_retry(self):
         self.login("owner")
@@ -509,8 +506,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(AnalysisRun.objects.count(), 3)
         self.assertCountEqual(
             DBTaskResult.objects.values_list("task_path", flat=True),
-            ["core.analysis.tasks.process_analysis"] * 3
-            + ["core.case_search.parent_index.index_children"],
+            ["core.analysis.tasks.process_analysis"] * 3,
         )
 
     def test_unsupported_document_keeps_visible_outcome_without_followup(self):
@@ -616,7 +612,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
     def test_empty_call_has_no_local_text_or_audio_analysis(self):
         self.assertEqual(self.start(self.call(), "phone-call"), ([], False))
 
-    def test_media_queues_local_ocr_and_metadata_without_external_approval(self):
+    def test_media_queues_only_metadata_without_external_approval(self):
         for kind, model, content, name, operation in (
             ("image", ImageEvidence, image_bytes(), "source.png", "image_metadata"),
             ("audio", AudioEvidence, wav_bytes(), "source.wav", "audio_metadata"),
@@ -631,40 +627,9 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
                 runs, _ = self.start(item, kind)
                 self.assertEqual(
                     {x.operation for x in runs},
-                    {operation, "ocr", "plate_ocr"} if kind == "image" else {operation},
+                    {operation},
                 )
                 self.complete(runs)
-
-    def test_image_batch_analyzes_the_fresh_local_extraction_version(self):
-        image = ImageEvidence.objects.create(
-            case=self.case,
-            uploaded_by=self.users["owner"],
-            title="Synthetic image",
-            file=ContentFile(image_bytes(), name="source.png"),
-        )
-        runs, _ = self.start(image, "image")
-        self.assertEqual(
-            {x.operation for x in runs}, {"image_metadata", "ocr", "plate_ocr"}
-        )
-        from core.analysis.testing import local_ocr_response
-
-        with patch("image.analysis.ai.run_parser", return_value=local_ocr_response()):
-            extraction = next(r for r in runs if r.operation == "ocr")
-            self.complete([extraction])
-        children = list(AnalysisRun.objects.filter(previous_run=extraction))
-        self.assertEqual({r.operation for r in children}, {"entities", "text_topics"})
-        self.assertEqual(len(children), 2)
-        self.assertIn(
-            extraction.inputs[0]["id"], extraction.result.data["visible_structure"]
-        )
-        for run in children:
-            self.assertEqual(run.inputs[0]["result_id"], str(extraction.result.pk))
-            (source,) = resolve_inputs(run, self.case)
-            self.assertEqual(source.text, "Synthetic extraction phrase")
-            self.assertEqual(len(source.segments), 1)
-        with patch("core.analysis.gateway.GatewayClient.request") as gateway:
-            self.complete(children)
-            gateway.assert_not_called()
 
     def test_location_batch_excludes_external_and_investigator_defined_queries(self):
         location = LocationEvidence.objects.create(

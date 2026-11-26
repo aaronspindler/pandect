@@ -8,6 +8,7 @@ from django.utils.html import escape
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from geo.models import PersonLocationEvidence
@@ -282,6 +283,16 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
             title="Calendar replacement",
             body="Another plan.",
         )
+        self.enterContext(
+            indexed(
+                self.case,
+                [
+                    ("original", "text", self.source.pk),
+                    ("original", "text", replacement.pk),
+                    ("original", "person-location", self.observation.pk),
+                ],
+            )
+        )
         prepared = self.post(
             action="prepare",
             claim_cursor=self.picked["claim"],
@@ -542,6 +553,7 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
         self.assertIn(
             tokens["plate_ocr"], dict(source_choices(self.case, "content_events"))
         )
+        self.enterContext(indexed(self.case, [("original", "image", source.pk)]))
         with patch("core.analysis.form_base.SOURCE_PAGE_SIZE", 1):
             first = self.post(browse="claim-search", claim_query=source.title)
             page = first.context["pickers"][0]["page"]

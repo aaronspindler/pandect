@@ -4,6 +4,7 @@ from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisRun, CaseAnalysisBatch
 from people.models import Person
 from text.models import TextEvidence
@@ -212,6 +213,13 @@ class WorkspaceBrowserTests(BrowserTestCase):
             self.db(membership.delete)
 
     def test_filter_page_edit_and_return_on_desktop_and_mobile(self):
+        sources = [
+            ("original", "text", key)
+            for key in TextEvidence.objects.filter(case=self.case).values_list(
+                "pk", flat=True
+            )
+        ]
+        publish = self.enterContext(indexed(self.case, sources))
         for engine in self.engines:
             for width, height in [(1440, 900), (390, 844)]:
                 with (
@@ -244,6 +252,7 @@ class WorkspaceBrowserTests(BrowserTestCase):
                     expect(dialog).not_to_be_visible()
                     expect(page.locator(".evidence-reader h1")).to_have_text(title)
                     expect(edit).to_be_focused()
+                    self.db(publish, sources)
                     page.go_back()
                     expect(page).to_have_url(origin)
                     expect(rows).to_have_count(2)
@@ -299,6 +308,9 @@ class WorkspaceBrowserTests(BrowserTestCase):
                 self.assertTrue(history.evaluate("el => el === window.originalHistory"))
 
     def test_latest_shell_or_collection_navigation_wins(self):
+        match = TextEvidence.objects.get(case=self.case, title="Record 04")
+        self.enterContext(indexed(self.case, [("original", "text", match.pk)]))
+
         def hold_requests(page, url):
             held = []
             page.route(url, lambda route: held.append(route))
@@ -350,6 +362,7 @@ class WorkspaceBrowserTests(BrowserTestCase):
                 expect(rows).to_contain_text("Record 04")
 
     def test_empty_people_refresh_keeps_shell_and_adds_search(self):
+        publish = self.enterContext(indexed(self.case, []))
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
@@ -360,7 +373,10 @@ class WorkspaceBrowserTests(BrowserTestCase):
                 page.locator(".app-navigation").evaluate(
                     "el => window.originalRail = el"
                 )
-                self.db(Person.objects.create, case=self.case, first_name="Avery")
+                person = self.db(
+                    Person.objects.create, case=self.case, first_name="Avery"
+                )
+                self.db(publish, [("record", "person", person.pk)])
                 page.evaluate("document.dispatchEvent(new Event('pandect:refresh'))")
                 page.get_by_role("link", name="Refresh results").click()
                 search = page.get_by_role("searchbox", name="Search people")

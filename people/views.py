@@ -3,7 +3,6 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
 from django.db.models.deletion import RestrictedError
 from django.http import QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
@@ -18,7 +17,6 @@ from core.analysis.catalogue import catalogue_page
 from core.evidence.collection import collection_context
 from people.forms import PersonDeleteForm, PersonForm
 from people.models import Person
-from socialmedia.models import SocialAccount
 from ui.dialogs import form_saved, render_quick_form, render_record, wants_record
 from ui.live import render_live
 from ui.navigation import list_query
@@ -30,19 +28,11 @@ def person_list(request, case_id):
     case = get_case(request.user, case_id)
     query = request.GET.get("q", "").strip()[:200]
     people = Person.objects.filter(case=case)
+    from core.case_search.discovery import discover
+
+    results = discover(case, request.user, query, kind="person", records=True)
     if query:
-        matching_accounts = SocialAccount.objects.filter(
-            person_id=OuterRef("pk")
-        ).filter(Q(platform__icontains=query) | Q(username__icontains=query))
-        people = people.filter(
-            Q(first_name__icontains=query)
-            | Q(last_name__icontains=query)
-            | Q(phone_number__icontains=query)
-            | Q(email__icontains=query)
-            | Q(address__icontains=query)
-            | Q(notes__icontains=query)
-            | Exists(matching_accounts)
-        )
+        people = people.filter(pk__in=results.records["person"])
     page = Paginator(people, 25).get_page(request.GET.get("page"))
     return render_live(
         request,
@@ -51,6 +41,7 @@ def person_list(request, case_id):
             **case_context(case, request.user),
             "page_obj": page,
             "query": query,
+            "search_notice": results.notice,
             "search_query": urlencode({"q": query}) if query else "",
             "list_query": list_query(request),
         },

@@ -78,12 +78,15 @@ def _source_choice(case, token, kinds):
     return {"kind": kind, "id": source.pk, "title": source.title}
 
 
-def _evidence_page(case, kinds, query, page):
+def _evidence_page(case, kinds, query, page, actor):
+    from core.case_search.discovery import discover
+
+    results = discover(case, actor, query)
     sources = []
     for kind in kinds:
         queryset = scoped_evidence(case, kind).filter(is_archived=False).order_by()
         if query:
-            queryset = queryset.filter(title__icontains=query)
+            queryset = queryset.filter(pk__in=results.evidence[kind])
         sources.append(
             queryset.annotate(kind=Value(kind, output_field=CharField())).values(
                 "kind", "id", "title", "created_at"
@@ -92,7 +95,7 @@ def _evidence_page(case, kinds, query, page):
     merged = (
         sources[0].union(*sources[1:], all=True).order_by("-created_at", "kind", "id")
     )
-    return Paginator(merged, 25).get_page(page)
+    return Paginator(merged, 25).get_page(page), results.notice
 
 
 def _picker_row(source):
@@ -184,7 +187,9 @@ def create(request, case_id):
         if request.method == "POST":
             raise Http404("Observation not found.")
         query = data.get("q", "").strip()[:200]
-        page = _evidence_page(case, ANCHOR_KINDS, query, data.get("page"))
+        page, context["search_notice"] = _evidence_page(
+            case, ANCHOR_KINDS, query, data.get("page"), request.user
+        )
         return render(
             request,
             "core/analysis/sighting_choose.html",
@@ -223,7 +228,9 @@ def create(request, case_id):
     except ValidationError, AnalysisError, Http404:
         candidates = []
     query = data.get("context_query", "").strip()[:200] if is_post else ""
-    page = _evidence_page(case, tuple(KIND_LABELS), query, browse_context)
+    page, context["search_notice"] = _evidence_page(
+        case, tuple(KIND_LABELS), query, browse_context, request.user
+    )
     return render(
         request,
         "core/analysis/sighting_create.html",

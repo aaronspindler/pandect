@@ -3,14 +3,13 @@
 from dataclasses import dataclass
 
 from django.db.models import Case, CharField, F, Q, Value, When
-from django.db.models.functions import Coalesce, Concat, Greatest, Least, NullIf, Trim
+from django.db.models.functions import Coalesce, Concat, NullIf, Trim
 
 from core.analysis.catalogue import finding_queryset
 from core.evidence.queries import scoped_evidence
 from core.evidence.source_clocks import timestamp_fields
-from core.evidence.types import FILE_KINDS, KIND_LABELS, KINDS
+from core.evidence.types import KIND_LABELS, KINDS
 from geo.models import PointOfInterest
-from geo.trip_processing import saved_trips
 from people.models import Person
 from vehicle.models import Vehicle
 
@@ -19,8 +18,8 @@ LABELS = {
     "person": "Person",
     "vehicle": "Vehicle",
     "poi": "Point of interest",
-    "conversation": "Conversation",
-    "trip": "Possible trip",
+    "possible-trip": "Possible trip",
+    "report": "Saved analysis",
     "finding": "Finding",
 }
 TYPE_CHOICES = tuple(LABELS.items())
@@ -56,7 +55,6 @@ class Source:
     queryset: object
     title: object
     date_fields: tuple
-    identifiers: tuple = ()
 
 
 def original_date_fields(kind):
@@ -66,31 +64,7 @@ def original_date_fields(kind):
 def sources(case, kind):
     if kind in KINDS:
         qs = scoped_evidence(case, kind).filter(is_archived=False)
-        ids = (
-            "title",
-            "sha256",
-            *(("original_filename",) if kind in FILE_KINDS else ()),
-        )
-        return Source(qs, F("title"), original_date_fields(kind), ids)
-    if kind == "conversation":
-        qs = scoped_evidence(case, "text-message").filter(
-            is_archived=False, recipient_id__isnull=False
-        )
-        qs = qs.alias(
-            pair_a=Least("sender_id", "recipient_id"),
-            pair_b=Greatest("sender_id", "recipient_id"),
-        )
-        return Source(
-            qs,
-            Concat(name("sender__"), Value(" · "), name("recipient__")),
-            (("occurred_at", "Message occurred"), ("created_at", "Message added")),
-        )
-    if kind == "trip":
-        return Source(
-            saved_trips(case),
-            Concat(Value("Possible trip · "), vehicle_name("vehicle__")),
-            (("start_at", "Trip started"),),
-        )
+        return Source(qs, F("title"), original_date_fields(kind))
     if kind == "finding":
         return Source(
             finding_queryset(case, {}),
@@ -103,14 +77,12 @@ def sources(case, kind):
             Person.objects.filter(case=case),
             name(),
             dates,
-            ("email", "phone_number", "first_name", "last_name"),
         )
     if kind == "vehicle":
         return Source(
             Vehicle.objects.filter(case=case),
             vehicle_name(),
             dates,
-            ("license_plate", "vin"),
         )
     qs = PointOfInterest.objects.filter(person__case=case)
     label = Case(
@@ -122,29 +94,13 @@ def sources(case, kind):
     return Source(qs, Concat(label, Value(" · "), name("person__")), dates)
 
 
-def dated(source, start, end, kind):
+def dated(source, start=None, end=None):
     dates = source.date_fields
     date = (
         F(dates[0][0]) if len(dates) == 1 else Coalesce(*(field for field, _ in dates))
     )
-    date_label = Value(dates[-1][1])
-    if len(dates) > 1:
-        date_label = Case(
-            *(
-                When(**{field + "__isnull": False}, then=Value(label))
-                for field, label in dates[:-1]
-            ),
-            default=date_label,
-        )
-    qs = source.queryset.annotate(
-        hit_date=date, hit_date_label=date_label, hit_title=source.title
-    )
-    if kind == "trip":
-        if start:
-            qs = qs.filter(end_at__gte=start)
-        if end:
-            qs = qs.filter(hit_date__lt=end)
-    elif start or end:
+    qs = source.queryset.annotate(hit_date=date, hit_title=source.title)
+    if start or end:
         # Compare the first available date using its own column so timestamp
         # indexes remain usable. Later dates only apply when earlier ones lack data.
         preferred = Q()

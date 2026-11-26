@@ -116,6 +116,27 @@ class ConnectionTests(EvidenceViewTestMixin, TestCase):
         )
 
     def test_identifier_filter_searches_actual_values_and_preserves_group_scope(self):
+        from unittest.mock import patch
+
+        from core.case_search.discovery import Discovery
+        from core.models import AnalysisFinding
+
+        def search_results(case, actor, query, **kwargs):
+            found = Discovery()
+            if query == "shared":
+                found.findings.update(
+                    {
+                        str(pk): query
+                        for pk in AnalysisFinding.objects.filter(case=case).values_list(
+                            "id", flat=True
+                        )
+                    }
+                )
+            return found
+
+        self.enterContext(
+            patch("core.analysis.connections.discover", side_effect=search_results)
+        )
         self.match(self.note)
         self.match(self.text())
         response = self.client.get(

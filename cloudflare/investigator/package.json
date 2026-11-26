@@ -1,0 +1,12 @@
+{
+  "name": "pandect-investigator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test investigator.test.js",
+    "check": "wrangler deploy --dry-run --outdir dist"
+  },
+  "dependencies": { "agents": "0.34.1" },
+  "devDependencies": { "wrangler": "4.168.0" }
+}

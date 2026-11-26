@@ -8,7 +8,9 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 # Routine tests never inherit live analysis destinations or credentials.
 # Provider tests opt in with synthetic configuration and mocked HTTP transport.
-PANDECT_DIRECT_AI = {}
+PANDECT_CLOUDFLARE_SEARCH = {"account": "", "namespace": "test", "token": ""}
+PANDECT_CLOUDFLARE_AGENT = {"url": "", "secret": ""}
+PANDECT_AI_PRICES_USD_PER_MILLION = {}
 PANDECT_AI_GATEWAY = PANDECT_AI_GATEWAY | {
     "account": "",
     "gateway": "",
@@ -30,11 +32,6 @@ STORAGES = {
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
-PANDECT_LOCAL_AI = {}
-PANDECT_SEARCH_EMBEDDING_PROVIDER = "local"
-PANDECT_LOCAL_EMBEDDING = {}
-PANDECT_SEARCH_RERANK_PROVIDER = "disabled"
-PANDECT_LOCAL_RERANK = {}
 PANDECT_GEOCODER_URL = ""
 PANDECT_GEOCODER_LOCAL = False
 PANDECT_MAP_CONTEXT_URL = ""

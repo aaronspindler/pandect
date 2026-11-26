@@ -60,21 +60,12 @@ While reading a collection, choose **Refresh results** to bring changes into the
 current page. A newly completed result can populate an empty section. Existing
 findings and processing history stay in place until their refresh action is used.
 
-Case search results link to the matching source, highlight literal terms, and
-label dates and source information. **Filters and sorting** provides a
-record type, local date range, evidence state and keyword ordering; the URL
-retains the query, filters and page. Keyword results load independently.
-On eligible first-page searches, **Search by meaning** requests up to six
-additional source passages. Hosted query embedding requires the case owner's
-current approval and an explicit submission. The form names its destination
-and works without JavaScript. Opening, filtering or paging through keyword
-results sends no hosted embedding request. Local matches in prepared
-conversation summaries and document sections can appear on the first page.
-**Related passages** identifies how each original excerpt was found and
-reports incomplete or unavailable indexing. If the case owner has approved
-hosted passage ranking, the submission identifies its separate destination
-and the excerpts it can receive.
-**Search tips** describes phrases, alternatives and exclusions.
+Case Search submits the investigator’s query to the case’s private Cloudflare AI
+Search instance. Results show source information, dates and verified excerpts,
+with links to the original evidence. Record-type and date filters apply before
+ranking. The search page identifies incomplete indexing and service failures.
+Investigators can still browse records and open saved citations when search is
+unavailable. See [Cloudflare search](cloudflare-search.md) for coverage.
 
 Cases, People, Vehicles, and Evidence use shared whole-row links with readable
 titles and secondary metadata. Detail pages and forms share the reader's heading,
@@ -181,14 +172,15 @@ Filtered empty states keep the search and one **Clear filters** action. Case
 settings leads with collaboration and discloses the rename form. Only owners
 edit the name or collaborators. Saved descriptions remain read-only.
 
-AI processing places the Local AI and External AI choices above the approved
-destinations summary. Each text task and recording transcription has an aligned
+Case Settings places **Enable external AI** or **Disable external AI** above the
+approved destinations summary. Each text task and recording transcription has an aligned
 model row. Group selectable text models under OpenAI and Anthropic. Show the
 resolved installation default for each task and an Effort control beside models
 with supported levels. Stack the labels and fields on narrow screens. The owner
 saves assignments together. A first-use review identifies the recipient, data
 scope and transfer terms before applying changes. **Manage** opens the saved
-approvals. Meaning search has its own approval and indexing progress link.
+approvals. The same External AI control governs search. Present indexing
+progress separately from the owner’s decision.
 
 Person details show reported social accounts and POIs. Owners/editors manage
 accounts with confirmed removal; viewers inspect. Search includes platforms and
@@ -522,8 +514,8 @@ the interpreted subject, place and time before queuing. From a saved comparison,
 open each cited passage, original observation or pinned trip membership. Keep
 the claim status, contrary material and limitations beside the association.
 See [plan and location comparisons](analysis-locations.md#compare-plans-with-locations).
-Sources use 25-record pages; native POST navigation/title search preserve choices
-and options. Show preparation links for blocked sources and Remove for any
+Sources use 25-record pages. Page navigation and hosted evidence search preserve
+choices and options. Show preparation links for blocked sources and Remove for any
 retained selections that need it. Start analysis when at least one available
 source can be selected and no selected source is blocked. Browsing never queues
 work; execution/inference limits still apply.

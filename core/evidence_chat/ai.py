@@ -1,4 +1,4 @@
-"""Use the selected case AI route for each request in a chat review."""
+"""Resolve and recheck the case owner's Cloudflare investigation grant."""
 
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
@@ -8,47 +8,31 @@ from core.analysis.execution import (
     validate_case_execution_grant,
 )
 from core.analysis.gateway import GatewayClient
-from core.analysis.local import LocalClient
 
 OPERATION = "evidence_chat"
 
 
 def turn_execution(case):
-    execution = snapshot_execution(OPERATION, {"backend": case.ai_backend}, case=case)
-    validate_route = execution["location"] == "external"
+    from .hosted_agent import agent_config
+
+    if not case.external_ai_enabled:
+        raise AnalysisError("external_processing_not_approved")
+    if case.external_analysis_approval.get("agent_url") != agent_config()["url"]:
+        raise AnalysisError("execution_changed")
+    execution = snapshot_execution(OPERATION, {"backend": "gateway"}, case=case)
+    if execution.get("location") != "external" or execution.get("url"):
+        raise AnalysisError("gateway_not_configured")
     revision = case_grant_revision(case, OPERATION, execution)
+    validate_case_execution_grant(case, OPERATION, execution, revision)
     if not inference_configured(execution):
-        raise AnalysisError(
-            "gateway_not_configured" if validate_route else "local_ai_not_configured"
-        )
-    if validate_route:
-        validate_case_execution_grant(case, OPERATION, execution, revision)
+        raise AnalysisError("gateway_not_configured")
     return execution, revision
 
 
 def check_execution(turn, case):
-    # A new case backend choice applies to subsequent questions. The approved
-    # destination, installation settings and grant for this turn remain pinned.
-    current = snapshot_execution(
-        OPERATION, {"backend": turn.execution["backend"]}, case=case
-    )
-    if current != turn.execution:
+    if turn_execution(case) != (turn.execution, turn.approval_revision):
         raise AnalysisError("execution_changed")
-    if current["location"] == "external":
-        validate_case_execution_grant(case, OPERATION, current, turn.approval_revision)
 
 
 def infer(turn, authorize, prompt, schema):
-    if turn.execution["location"] == "external":
-        client = GatewayClient(None, authorize, chat_turn=turn)
-    else:
-        # Check the frozen evidence before contacting the runtime, then use
-        # lightweight case and route checks for model metadata requests.
-        authorize()
-        client = LocalClient(
-            authorize,
-            turn.execution,
-            authorize_metadata=lambda: authorize(metadata=True),
-            chat_turn=turn,
-        )
-    return client.infer(prompt, schema)
+    return GatewayClient(None, authorize, chat_turn=turn).infer(prompt, schema)

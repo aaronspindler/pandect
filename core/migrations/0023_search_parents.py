@@ -4,7 +4,6 @@ import django.contrib.postgres.fields
 import django.contrib.postgres.indexes
 import django.contrib.postgres.search
 import django.db.models.deletion
-import pgvector.django.vector
 import uuid
 from django.db import migrations, models
 
@@ -45,7 +44,7 @@ class Migration(migrations.Migration):
                 ('anchors', models.JSONField(default=list)),
                 ('coverage', models.JSONField(default=dict)),
                 ('vector_sources', django.contrib.postgres.fields.ArrayField(base_field=models.CharField(max_length=80), default=list)),
-                ('embedding', pgvector.django.vector.VectorField(null=True)),
+                ('embedding', models.TextField(null=True)),
                 ('profile', models.CharField(blank=True, max_length=64)),
                 ('attachment', models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to='phone.callevidenceattachment')),
                 ('case', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='cases.case')),

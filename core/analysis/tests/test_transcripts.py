@@ -8,19 +8,16 @@ from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.services import cancel_run
 from core.analysis.testing import external_grant_kwargs, wav_bytes
-from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.analysis.transcripts import (
     follow_up_transcription,
     select_transcript,
-    transcription_profile,
 )
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 
 
-@override_settings(PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE="")
 class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -60,56 +57,15 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
             inputs=[{"result_id": str(result.pk)}],
         )
 
-    def test_prefers_private_when_external_finishes_first_and_only_follows_up_once(
-        self,
-    ):
-        self.attempt("gateway", "complete", text="An external candidate.")
-        private = self.attempt("local", "running")
+    def test_approved_transcript_only_follows_up_once(self):
+        candidate = self.attempt("gateway", "complete", text="An external candidate.")
         with patch(
             "core.analysis.reprocessing.follow_up_reprocessing",
             side_effect=self.retain_follow_up,
         ) as follow_up:
             select_transcript(self.case.pk, self.batch.pk, "recording")
-            follow_up.assert_not_called()
-            AnalysisRun.objects.filter(pk=private.pk).update(status="partial")
-            result = AnalysisResult.objects.create(
-                case=self.case,
-                run=private,
-                data={"items": [{"text": "Private reading."}]},
-            )
             select_transcript(self.case.pk, self.batch.pk, "recording")
-            select_transcript(self.case.pk, self.batch.pk, "recording")
-            follow_up.assert_called_once_with(private, result)
-
-    def test_waits_for_external_and_honors_only_exact_qualified_profile(self):
-        private = self.attempt("local", "complete", text="Private reading.")
-        external = self.attempt("gateway", "running")
-        profile = transcription_profile(
-            private.parameters["_execution"], external.parameters["_execution"]
-        )
-        with (
-            self.settings(PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE=profile),
-            patch("core.analysis.reprocessing.follow_up_reprocessing") as follow_up,
-        ):
-            select_transcript(self.case.pk, self.batch.pk, "recording")
-            follow_up.assert_not_called()
-            AnalysisRun.objects.filter(pk=external.pk).update(status="complete")
-            result = AnalysisResult.objects.create(
-                case=self.case,
-                run=external,
-                data={"items": [{"text": "External reading."}]},
-            )
-            select_transcript(self.case.pk, self.batch.pk, "recording")
-            follow_up.assert_called_once_with(external, result)
-            follow_up.reset_mock()
-            other = self.attempt(
-                "local", "complete", group="other", text="Second reading."
-            )
-            self.attempt(
-                "gateway", "complete", group="other", model="changed", text="External."
-            )
-            select_transcript(self.case.pk, self.batch.pk, "other")
-            follow_up.assert_called_once_with(other, other.result)
+            follow_up.assert_called_once_with(candidate, candidate.result)
 
     def test_cancellation_selects_usable_sibling_without_a_gap_in_processing(self):
         external = self.attempt("gateway", "partial", text="Usable words.")
@@ -118,12 +74,12 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
             cancel_run(self.users["owner"], self.case.pk, private.pk)
             follow_up.assert_called_once_with(external, external.result)
 
-    def test_private_text_does_not_wait_for_an_unqualified_external_route(self):
-        private = self.attempt("local", "complete", text="Private reading.")
+    def test_historical_local_result_cannot_start_gateway_followup(self):
+        self.attempt("local", "complete", text="Private reading.")
         self.attempt("gateway", "running")
         with patch("core.analysis.reprocessing.follow_up_reprocessing") as follow_up:
             select_transcript(self.case.pk, self.batch.pk, "recording")
-            follow_up.assert_called_once_with(private, private.result)
+            follow_up.assert_not_called()
 
     def test_blank_or_failed_attempts_do_not_queue_text_analysis(self):
         self.attempt("local", "partial", text="   ")
@@ -140,7 +96,7 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
             self.assertTrue(follow_up_transcription(stopped))
             follow_up.assert_not_called()
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
+    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_retained_paired_transcription_batch_uses_one_exact_result(
         self,
     ):
@@ -165,33 +121,23 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
         else:
             self.fail("Recording analysis did not finish preparation.")
         runs = batch.runs.filter(operation="transcription")
-        private = runs.get(external_processing=False)
+        self.assertFalse(runs.filter(external_processing=False).exists())
         external = runs.get(external_processing=True)
         self.assertEqual(
             external.parameters["_external_approval"]["revision"],
             grant["external_grant_revision"],
         )
-        self.assertEqual(
-            private.parameters["_transcript_group"],
-            external.parameters["_transcript_group"],
-        )
-
-        for run, source, text in (
-            (external, "gateway.GatewayClient", "External candidate words."),
-            (private, "local.LocalClient", "Private candidate words."),
+        with patch(
+            "core.analysis.gateway.GatewayClient.request",
+            return_value={
+                "text": "Candidate words.",
+                "segments": [{"text": "Candidate words.", "start": 0, "end": 1}],
+            },
         ):
-            with patch(
-                f"core.analysis.{source}.request",
-                return_value={
-                    "text": text,
-                    "segments": [{"text": text, "start": 0, "end": 1}],
-                },
-            ):
-                self.assertEqual(process_run(run.pk), str(run.result.pk))
-        follow_ups = list(batch.runs.filter(previous_run=private))
+            self.assertEqual(process_run(external.pk), str(external.result.pk))
+        follow_ups = list(batch.runs.filter(previous_run=external))
         self.assertTrue(follow_ups)
-        self.assertFalse(batch.runs.filter(previous_run=external).exists())
-        self.assertEqual(sum(x.operation == "entities" for x in follow_ups), 1)
         self.assertEqual(
-            {x.inputs[0].get("result_id") for x in follow_ups}, {str(private.result.pk)}
+            {x.inputs[0].get("result_id") for x in follow_ups},
+            {str(external.result.pk)},
         )

@@ -45,9 +45,11 @@ def _eligible(role):
     raise ValidationError("Choose a claim or a movement record.")
 
 
-def derived_page(case, role, *, query="", page=1):
+def derived_page(case, role, *, query="", page=1, results=None):
     """Page just the IDs, then validate sources before displaying any excerpts."""
-    findings = finding_queryset(case, {"q": query}).filter(_eligible(role))
+    findings = finding_queryset(
+        case, {"q": query, "finding_ids": results.findings if results else ()}
+    ).filter(_eligible(role))
     choices = (
         findings.order_by()
         .annotate(choice_type=Value("finding"), recorded=F("result__run__created_at"))
@@ -56,11 +58,7 @@ def derived_page(case, role, *, query="", page=1):
     trips = saved_trips(case)
     if role == "movement":
         if query:
-            trips = trips.filter(
-                Q(vehicle__make__icontains=query)
-                | Q(vehicle__model__icontains=query)
-                | Q(vehicle__license_plate__icontains=query)
-            )
+            trips = trips.filter(pk__in=results.records["trip"] if results else ())
         trip_choices = (
             trips.order_by()
             .annotate(choice_type=Value("trip"), recorded=F("start_at"))

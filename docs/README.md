@@ -27,7 +27,7 @@ The guides below describe current behavior and procedures; the
 - [Chronology](chronology.md)
 - [Evidence chat and cited answers](analysis.md#evidence-chat)
 - [Retained question-driven synthesis results](synthesis.md)
-- [Local inference, model qualification, and private geographic services](local-analysis.md)
+- [Cloudflare AI Search](cloudflare-search.md) · [Cloudflare investigation Agent](cloudflare-agent.md) · [Model routes](local-analysis.md)
 - [Geographic context and retained map references](analysis-geographic-context.md)
 - [Investigation maps and location coverage](maps.md)
 

@@ -102,61 +102,6 @@
 </div>
 </details>
 {% include 'cases/ai_settings.html' %}
-{% include 'cases/chat_routing_settings.html' %}
-{% include 'cases/rerank_settings.html' %}
-{% if search_approval.visible %}
-<section class="content-section meaning-settings" id="meaning-search" aria-labelledby="meaning-search-heading">
-  <h2 id="meaning-search-heading">Meaning search</h2>
-  {% if search_approval.destination %}
-    {% if search_approval.approved %}
-      <p class="meaning-search-status"><strong>{% include 'ui/components/icon.html' with name='circle-check' only %} Approved for this case.</strong> <a href="{% url 'core:analysis:processing' case.pk %}#case-search-index">View indexing progress</a></p>
-    {% endif %}
-    <details class="disclosure"{% if not search_approval.approved %} open{% endif %}>
-      <summary>Meaning search data and destination</summary>
-      <div class="disclosure-body">
-        <p class="prose">Pandect sends eligible passages from active text evidence, messages, call transcripts, extracted text, and finding previews to OpenAI through Cloudflare AI Gateway. This includes future additions and restored evidence. Search terms are sent when a case member uses <strong>Search by meaning</strong>.</p>
-        <dl class="metadata-grid">
-          <div><dt>Cloudflare account</dt><dd>{{ search_approval.destination.account }}</dd></div>
-          <div><dt>Gateway</dt><dd>{{ search_approval.destination.gateway }}</dd></div>
-          <div><dt>OpenAI key alias</dt><dd>{{ search_approval.destination.key_alias }}</dd></div>
-          <div><dt>Embedding model</dt><dd>{{ search_approval.destination.model }} · {{ search_approval.destination.dimensions }} dimensions</dd></div>
-        </dl>
-        <p class="prose">The search index stays in Pandect. Pandect asks Cloudflare to skip logging and caching. Provider retention policies apply.</p>
-        {% if not search_approval.approved %}
-          <form method="post" action="{% url 'cases:case_search_approval' case.pk %}">
-            {% csrf_token %}<input type="hidden" name="confirmation" value="{{ search_approval.approve_confirmation }}">
-            <button class="button button-primary" type="submit" name="action" value="approve">Approve and start indexing</button>
-          </form>
-        {% endif %}
-      </div>
-    </details>
-    {% if search_approval.approved %}
-      <h3>Meaning search in Evidence chat</h3>
-      <p class="prose">Chat can automatically send short search queries to {{ search_approval.destination.model }} through the approved Cloudflare gateway. Queries can include names, dates, or other details drawn from the question, conversation, and evidence as chat refines a search.</p>
-      <form method="post" action="{% url 'cases:case_search_approval' case.pk %}">
-        {% csrf_token %}
-        {% if search_approval.chat_queries_enabled %}
-          <input type="hidden" name="confirmation" value="{{ search_approval.disable_chat_confirmation }}">
-          <button class="button button-secondary" type="submit" name="action" value="disable_chat">Disable hosted search in chat</button>
-        {% else %}
-          <input type="hidden" name="confirmation" value="{{ search_approval.enable_chat_confirmation }}">
-          <button class="button button-secondary" type="submit" name="action" value="enable_chat">Allow hosted search in chat</button>
-        {% endif %}
-      </form>
-    {% endif %}
-  {% else %}
-    <p>Hosted meaning search needs a configured gateway and embedding model before indexing can start.</p>
-  {% endif %}
-  {% if search_approval.saved_destination %}
-    {% if not search_approval.approved %}<p>The previous approval for {{ search_approval.saved_destination.account }} / {{ search_approval.saved_destination.gateway }} ({{ search_approval.saved_destination.model }}, key alias {{ search_approval.saved_destination.key_alias }}) is inactive.</p>{% endif %}
-    <form method="post" action="{% url 'cases:case_search_approval' case.pk %}">
-      {% csrf_token %}<input type="hidden" name="confirmation" value="{{ search_approval.revoke_confirmation }}">
-      <button class="button button-secondary" type="submit" name="action" value="revoke">Revoke meaning search approval</button>
-    </form>
-  {% endif %}
-</section>
-{% endif %}
-{% include "cases/search_preparation.html" %}
 {% if instagram_scheduling_available or instagram_target_approved %}
 <details class="disclosure" id="instagram-monitoring" open>
   <summary>Instagram monitoring</summary>

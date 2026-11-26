@@ -43,7 +43,7 @@ in an automatic batch can finish, and earlier publications remain available.
 **Processing** separates active work/history and preparation/execution.
 The overview counts work items, including one per preparation batch, as well as
 individual analysis checks, evidence chats, call and vehicle imports, trip generations,
-Instagram checks, and meaning-based search indexing when configured. Trip
+Instagram checks, and hosted search indexing when configured. Trip
 generations count once across trip preparation and address lookup phases. Counts
 include earlier attempts. **Processed** includes checks that finished with partial
 results, no findings, insufficient evidence, or unsupported input. Vehicle imports
@@ -105,114 +105,20 @@ work or disable external services. Older workers cannot enforce case approval.
 
 ## Evidence chat recovery
 
-Evidence chat uses the default queue. Each delivery rechecks the investigator's
-access and selected execution settings. When an ordinary answer needs a
-targeted follow-up, the worker checkpoints the operation, missing fact, search
-terms, selected source when applicable, cited provisional answer and its
-original references. A retry resumes
-from that checkpoint and rechecks sources used from earlier turns. If the
-search finds no relevant new material, the worker verifies the provisional
-citations again and publishes the qualified answer.
+A queue delivery advances a checkpoint in the case's Cloudflare investigation.
+The Worker asks Django to authorize each tool or model call. Current case access,
+the owner's permission revision, turn cutoff and remaining budget are checked
+again when work resumes. A completed answer stays available in Pandect.
+Inspect processing errors and retry the affected operation in the case.
+See [the investigation Agent](cloudflare-agent.md).
 
-Each ordinary turn shares a cumulative allowance across deliveries, including
-evidence-bearing model requests, transport retries, local prompt rendering,
-query embedding, passage reranking and optional OpenAI source selection.
-The worker reserves each transfer before
-dispatch. A turn allows up to 12 attempts, 256 KiB transferred, 98,304 input
-tokens and 32,768 output tokens. When exact token counts are unavailable, the
-worker charges a conservative bound. An interrupted attempt keeps its
-reservation. If the answer model reaches a limit, chat publishes any previously
-verified claims with a coverage notice. Explicit full reviews retain their own
-batch processing and authorization. A turn can send at most one Decisions
-request across all deliveries. Decisions has no output-token limit parameter.
-Pandect reserves an estimate for that request, limits the response it reads
-to 4 KiB and reconciles reported token usage. After an interrupted send, the
-next delivery can continue with ordinary source selection using the remaining
-allowance.
+## Hosted search indexing
 
-A PDF extraction approved in chat uses the existing analysis queue. Manual,
-automatic and chat requests can share the same in-flight single-PDF extraction.
-Pandect records the requesting and approving investigators separately. Automatic
-requests retain their scheduled follow-ups. Result publication and allocation of
-a linked reply share a database transaction. If the conversation has an active
-turn, its terminal transition picks up the waiting reply. Subsequent deliveries
-recheck the original investigator, active sources and approved answer route.
-Use the extraction link in the original reply to inspect a stopped check.
-
-Worker milestones and a bounded sample of currently available source references
-drive the live activity disclosure. The worker saves these milestones separately
-from recovery checkpoints. Completed replies draw their sample from the saved
-source ledger.
-Ordinary chat reserves a local lookup before executing it. An initial search,
-two refinements and one interrupted attempt share a four-attempt limit across
-deliveries. Indexed discovery and recorded-field queries run with bounded SQL
-timeouts. The reply for an approved PDF check also shows model usage for the
-original question, local extraction and linked answer. It separates reported
-tokens from estimates retained for missing usage.
-A full review saves its source versions, window positions, matches and progress
-before queuing its continuation. The worker reads adjacent windows together
-and reuses a verified body digest while the case evidence revision matches.
-It verifies each complete source again before publishing the review. A
-duplicate delivery cannot publish a second reply. Open the question from
-**Processing** or **Evidence chat** to inspect progress or retry a stopped turn.
-Ask a new question if its AI destination or grant changed, or if the stopped
-turn was submitted with archived evidence enabled. An older full review also
-requires a new question when its checkpoint may contain out-of-scope records or
-literal matches on field labels.
-
-To inspect a suspected interruption, run
-`python manage.py recover_evidence_chat TURN_UUID` in the configured environment.
-After verifying the worker has stopped, add `--confirm-interrupted TOKEN`
-with the displayed token to resume that delivery from its last checkpoint.
-A late worker cannot publish under the replaced token. An interrupted external
-call can incur provider usage again when its unfinished checkpoint is retried.
-
-An approved deeper review has a frozen scope and a maximum number of generation
-requests. The estimate uses the matched entries, their text lengths, excerpt
-overlap and a final answer call. It is an estimate of model work. Provider
-billing depends on actual token usage. The worker checks the case and
-destination again and reserves each generation, including retries, before
-dispatch. At the approved limit it verifies the cited matches already found
-and records remaining entries as incomplete. The linked reply can offer a
-further review from unfinished positions under a new approval. Each completed
-reply keeps its own scope and coverage.
-
-## Meaning search indexing
-
-Processing shows case approval, queue state, completed sources and indexed
-passages. The passage count advances as batches commit, including during a long
-transcript. A source becomes searchable once its final passage commits. When an
-index stops, Processing shows the cause and a recovery action.
-Correct the reported configuration or access issue, then choose **Resume
-indexing**. Already queued or running work keeps its delivery and checkpoint.
-Temporary service and rate-limit failures get two delayed retries. An active
-source whose original is temporarily unreadable stays incomplete while indexing
-continues through available sources. Restore the original and resume indexing
-if automatic retries have finished. A failed batch leaves previously published
-documents available under the active profile.
-
-Preparation also builds local conversation and document outlines in bounded
-background jobs. Saved conversation summaries, section headings and
-source-linked document briefs can direct a search to current original
-passages. Title searches use the current title. Brief generation tracks retained
-source text, so metadata edits reuse completed briefs. The worker builds outlines
-locally and pools compatible child passage embeddings when available. New and
-restored sources trigger preparation. The `prepare_case_search --retry` command
-also revisits the local outline scan. To rebuild version 1 outlines from a
-development build, run `python manage.py prepare_case_search --case CASE_UUID`.
-Case owners manage optional generation of missing summaries and briefs in
-[Case Settings](cases.md).
-
-The worker and the host command `python manage.py prepare_case_search` prepare
-eligible case indexes. Hosted search requires the owner's current grant to the
-[configured destination](local-analysis.md#case-search-embeddings). A revoked
-worker or superseded delivery cannot publish. The index uses eligible active
-material, including restored evidence. To inspect or resume a case, use
-`python manage.py prepare_case_search --case CASE_UUID --status` or
-`--case CASE_UUID --retry`. After **confirming the delivery was interrupted**
-in the worker, use `--case CASE_UUID --confirm-interrupted TOKEN` with the
-token printed by the status command. This replaces only that active delivery.
-Use Processing to verify progress after recovery.
+Enabling external AI queues work after the owner decision commits. Pandect
+provisions the private case instance, syncs bounded passages and records coverage.
+Archiving and deletion invalidate local retrieval immediately. Disabling AI fences
+the active revision and queues remote cleanup. Recovery uses the durable instance
+record even after case deletion. See [hosted search](cloudflare-search.md).
 
 ## Instagram monitor queue
 
@@ -308,11 +214,9 @@ worker a different queue task; analysis claims and publication retain their own
 authorization, run locks and atomic transactions. No queue or execution-route
 changes are needed, and previously approved external jobs retain their destinations.
 
-Ordinary workers consume the same queue, including local checks, indexing and imports.
-Review pending operations and private inference capacity first: the private
-transcription service accepts only one request at a time, and overlapping requests
-fail recoverably as `local_ai_busy`. More workers also increase simultaneous
-external AI requests and can encounter provider rate limits. Observe completed
+Workers share one queue for deterministic checks, search indexing, imports and
+Cloudflare processing. Scaling increases concurrent requests against the account’s
+search and model limits. Check those limits before scaling and monitor completed
 domain runs and request failures after scaling. Keep the requested replica
 count explicit in later scaling commands.
 
@@ -378,7 +282,7 @@ Older failures without these diagnostics may have no recoverable
 cause. Keep quotation validation strict. External retries require current case-owner approval for the destination.
 
 The queue framework leaves retries and stale-task recovery to each operation.
-See [meaning search indexing](#meaning-search-indexing) for its retry schedule.
+See [hosted search indexing](#hosted-search-indexing) for its retry schedule.
 `READY` tasks wait for workers. Crashes can leave `RUNNING` tasks with some effects completed. Elapsed
 time alone does not establish that a worker stopped. Confirm the original worker stopped, review effects
 and follow operation-specific idempotent recovery before replacement. Never
@@ -429,7 +333,7 @@ Workers must recheck current case/role access, same-case references and revocati
 before further processing/publication. Bound time, inputs, requests and concurrency;
 make effects idempotent and publication atomic. Preserve originals/provenance,
 sanitize errors and provide progress/bounded recovery. The queue supplies none of
-these safeguards. See [local inference](local-analysis.md) for routing/runtime
+these safeguards. See [Cloudflare model processing](local-analysis.md) for routing and
 limits, [extraction](analysis-extraction.md) for OCR,
 [operations](operations.md) for backup/upgrades and [validation](validation.md)
 for PostgreSQL/separate-process checks.

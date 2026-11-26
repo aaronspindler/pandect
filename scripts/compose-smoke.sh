@@ -193,33 +193,65 @@ analysis = CaseAnalysisBatch.objects.get(case=case, scope__contains={
     "type": "added", "kind": "document", "id": response.json()["id"],
 })
 assert analysis.status == "queued" and not analysis.runs.exists()
-# Real local OCR must run after restart without AI credentials.
-import io
-from PIL import Image, ImageDraw, ImageFont
-image = Image.new("RGB", (1000, 240), "white")
-ImageDraw.Draw(image).text(
-    (40, 60), "PANDECT LOCAL TEXT 12345",
-    font=ImageFont.load_default(size=48), fill="black",
-)
-image_bytes = io.BytesIO()
-image.save(image_bytes, format="PNG")
-local_image = ImageEvidence.objects.create(
-    case=case, uploaded_by=owner, title="Synthetic local OCR source",
-    file=ContentFile(image_bytes.getvalue(), name="local-ocr.png"),
-)
-ocr_run, created = start_run(owner, case.pk, "ocr", [
-    {"kind": "image", "id": str(local_image.pk)},
-])
-assert created and not ocr_run.external_processing
+# Verify native image preparation survives production packaging. Model work needs a grant.
+from cases.analysis_settings import change_ai_settings
+from cases.forms import CaseAISettingsForm
+from core.analysis.errors import AnalysisError
+from core.models import GatewayRequest, HostedSearchIndex
+from core.parsers import run_parser
+from django.db import transaction
+from django.http import QueryDict
+from django.test import override_settings
 from image.testing import plate_scene
-plate_image = ImageEvidence.objects.create(
-    case=case, uploaded_by=owner, title="Synthetic plate search source",
-    file=ContentFile(plate_scene(), name="plate-scene.jpeg"),
+
+image_bytes = plate_scene()
+prepared = run_parser("plate_ocr", image_bytes)
+assert prepared["status"] == "complete" and prepared["candidates"]
+photo = ImageEvidence.objects.create(
+    case=case, uploaded_by=owner, title="Synthetic image preparation source",
+    file=ContentFile(image_bytes, name="plate-scene.jpeg"),
 )
-plate_run, created = start_run(owner, case.pk, "plate_ocr", [
-    {"kind": "image", "id": str(plate_image.pk)},
-])
-assert created and not plate_run.external_processing
+assert not case.external_ai_enabled
+selected = [{"kind": "image", "id": str(photo.pk)}]
+for operation in ("ocr", "plate_ocr"):
+    try:
+        start_run(owner, case.pk, operation, selected)
+    except AnalysisError as error:
+        assert error.code == "external_processing_not_approved", error.code
+    else:
+        raise AssertionError(f"{operation} queued on a disabled case")
+metadata, created = start_run(owner, case.pk, "image_metadata", selected)
+assert created and not metadata.external_processing
+
+# Exercise the owner review and receipt with the worker stopped. Roll back this
+# temporary grant and its outbox deliveries before workers resume.
+with override_settings(
+    PANDECT_CLOUDFLARE_SEARCH={"account": "a" * 32, "namespace": "synthetic", "token": ""},
+    PANDECT_CLOUDFLARE_AGENT={"url": "https://agent.example.test"},
+), transaction.atomic():
+    form = CaseAISettingsForm(case=case)
+    draft = QueryDict(mutable=True)
+    draft.update({"action": "enable", "confirmation": form.expected_confirmation})
+    review = change_ai_settings(owner, case.pk, draft)
+    assert review.outcome == "review"
+    draft["action"] = "approve"
+    draft["review_action"] = "enable"
+    draft["review_confirmation"] = review.confirmation
+    enabled = change_ai_settings(owner, case.pk, draft)
+    assert enabled.outcome == "saved" and enabled.case.external_ai_enabled
+    receipt = HostedSearchIndex.objects.get(case_key=case.pk, retired=False)
+    assert receipt.revision == enabled.case.external_ai_revision
+    assert (receipt.account, receipt.namespace) == ("a" * 32, "synthetic")
+    assert not receipt.provisioned
+    draft["action"] = "disable"
+    draft["confirmation"] = CaseAISettingsForm(case=enabled.case).expected_confirmation
+    disabled = change_ai_settings(owner, case.pk, draft)
+    receipt.refresh_from_db()
+    assert disabled.outcome == "saved" and not disabled.case.external_ai_enabled
+    assert disabled.case.external_ai_revision != receipt.revision and receipt.retired
+    transaction.set_rollback(True)
+assert not HostedSearchIndex.objects.filter(case_key=case.pk).exists()
+assert not GatewayRequest.objects.exists()
 TextEvidence.objects.create(
     case=case, uploaded_by=owner, title="Synthetic text", body="Original café\r\n",
     source="Synthetic smoke source",
@@ -363,25 +395,16 @@ assert result.return_value == "compose-worker-restart"
 assert len(result.worker_ids) == 1
 
 from core.models import AnalysisRun, ExtractedPassage
-ocr_run = AnalysisRun.objects.get(operation="ocr")
-assert ocr_run.status in {"complete", "partial"}, ocr_run.error_code
-assert not ocr_run.external_processing
-assert "PANDECT LOCAL TEXT 12345" in " ".join(
-    ExtractedPassage.objects.filter(result=ocr_run.result).values_list("text", flat=True)
-)
-assert ocr_run.result.artifacts.exists()
-from core.models import GatewayRequest
-assert not GatewayRequest.objects.filter(run=ocr_run).exists()
-plate_run = AnalysisRun.objects.get(operation="plate_ocr")
-assert plate_run.status == "partial", plate_run.error_code
-assert not plate_run.external_processing
-assert not GatewayRequest.objects.filter(run=plate_run).exists()
-assert "TEST 482" in " ".join(
-    ExtractedPassage.objects.filter(result=plate_run.result).values_list("text", flat=True)
-)
-for crop in plate_run.result.artifacts.exclude(metadata={}):
-    finding = plate_run.result.data["items"][crop.metadata["finding_index"]]
-    assert crop.sha256 == finding["values"]["Recognition JPEG SHA-256"]
+from core.models import GatewayRequest, HostedSearchIndex
+deadline = time.monotonic() + 30
+metadata = AnalysisRun.objects.get(operation="image_metadata")
+while metadata.status in {"queued", "running"} and time.monotonic() < deadline:
+    time.sleep(0.1)
+    metadata.refresh_from_db()
+assert metadata.status == "complete", metadata.error_code
+assert metadata.result.provenance["source_inputs"] == metadata.inputs
+assert not AnalysisRun.objects.filter(operation__in=["ocr", "plate_ocr"]).exists()
+assert not GatewayRequest.objects.exists() and not HostedSearchIndex.objects.exists()
 deadline = time.monotonic() + 30
 run = None
 while time.monotonic() < deadline:

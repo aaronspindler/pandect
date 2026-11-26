@@ -246,12 +246,12 @@ def _response_items(infer, claim, comparisons, start, end):
     response = infer(prompt, schema)
     rows = response.get("items") if isinstance(response, dict) else None
     if not isinstance(rows, list) or len(rows) != len(ids):
-        raise AnalysisError("local_ai_invalid_response")
+        raise AnalysisError("gateway_invalid_response")
     by_id = {}
     for row in rows:
         source_id = row.get("source_id") if isinstance(row, dict) else None
         if not isinstance(source_id, str) or source_id not in ids or source_id in by_id:
-            raise AnalysisError("local_ai_invalid_response")
+            raise AnalysisError("gateway_invalid_response")
         by_id[source_id] = row
     return by_id
 
@@ -268,24 +268,24 @@ def _comparison_item(source, row, copies_comparison):
         or not reason.strip()
         or len(reason) > MAX_REASON
     ):
-        raise AnalysisError("local_ai_invalid_response")
+        raise AnalysisError("gateway_invalid_response")
     anchors = None
     start = row.get("start")
     if quote:
         if start is None:
             start = source.text.find(quote)
             if start >= 0 and source.text.find(quote, start + 1) >= 0:
-                raise AnalysisError("local_ai_invalid_response")
+                raise AnalysisError("gateway_invalid_response")
         if (
             type(start) is not int
             or start < 0
             or source.text[start : start + len(quote)] != quote
             or not _in_segment(source, start, start + len(quote))
         ):
-            raise AnalysisError("local_ai_invalid_response")
+            raise AnalysisError("gateway_invalid_response")
         anchors = [source.anchor(start=start, end=start + len(quote))]
     elif start is not None:
-        raise AnalysisError("local_ai_invalid_response")
+        raise AnalysisError("gateway_invalid_response")
     values = _source_details(source) | {
         "Interpretation": "AI suggestion",
         "Reason": reason
@@ -306,7 +306,7 @@ def compare_claim(sources, parameters, *, infer=None):
     comparisons = [source for source in sources if source.id != claim.id]
     distinct = [source for source in comparisons if not _same_original(source, claim)]
     if distinct and infer is None:
-        raise AnalysisError("local_ai_not_configured")
+        raise AnalysisError("gateway_not_configured")
     rows = _response_items(infer, claim, distinct, start, end) if distinct else {}
     items = [
         source_item(

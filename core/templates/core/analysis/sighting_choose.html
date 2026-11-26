@@ -9,7 +9,7 @@
   </div>
 </header>
 <form class="analysis-picker" method="get" action="{% url 'core:analysis:sighting_create' case.pk %}">
-  <div class="field"><label for="sighting-query">Find evidence by title</label><input type="search" id="sighting-query" name="q" value="{{ q }}" maxlength="200"></div>
+  <div class="field"><label for="sighting-query">Search case evidence</label><input type="search" id="sighting-query" name="q" value="{{ q }}" maxlength="200"></div>
   <button class="button button-secondary" type="submit">Find evidence</button>
 </form>
 <div class="analysis-options">
@@ -19,7 +19,7 @@
     {% include 'ui/components/icon.html' with name='chevron-right' %}
   </a>
   {% empty %}
-    {% if q %}<p>No observations match this title.</p>{% else %}<p>Add a location observation or an image to start a proposal.</p>{% endif %}
+    {% if q %}<p>No matching observations were returned.</p>{% else %}<p>Add a location observation or an image to start a proposal.</p>{% endif %}
   {% endfor %}
 </div>
 {% include 'ui/components/pagination.html' with page=page label='Anchor observation pages' query=request.GET only %}
