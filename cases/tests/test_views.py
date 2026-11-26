@@ -513,6 +513,36 @@ class CaseInterfaceTests(TestCase):
             self.case.refresh_from_db()
             self.assertNotIn("question_synthesis", self.case.external_analysis_models)
 
+    @override_settings(PANDECT_AI_GATEWAY=CATALOG_OPENAI)
+    def test_only_existing_assignment_can_keep_a_model_outside_the_text_picker(self):
+        self.login()
+        action = self.url("case_ai_settings")
+        saved_model = "@cf/zai-org/glm-5.3"
+        self.case.external_analysis_models = {"content_events": saved_model}
+        self.case.save(update_fields=["external_analysis_models"])
+        page = self.client.get(self.url("case_settings"))
+        self.assertContains(page, f"Saved · {saved_model}")
+
+        draft = self.ai_draft(evidence_chat=saved_model)
+        rejected = self.client.post(action, draft)
+        self.assertTrue(rejected.context["ai_settings_form"].has_error("evidence_chat"))
+
+        gemini = "google/gemini-4-carbon"
+        review = self.client.post(
+            action, draft | {"evidence_chat": gemini, "content_events": saved_model}
+        )
+        self.assertEqual(self.ai_confirm(review).status_code, 302)
+        self.case.refresh_from_db()
+        self.assertEqual(
+            self.case.external_analysis_models,
+            {"content_events": saved_model, "evidence_chat": gemini},
+        )
+        routes = configured_external_executions(self.case)
+        self.assertEqual(routes["evidence_chat"]["provider"], "google-vertex-ai")
+        self.assertEqual(
+            routes["transcription"]["model"], "@cf/openai/whisper-large-v3-turbo"
+        )
+
     @override_settings(PANDECT_AI_GATEWAY=OPENAI)
     def test_changed_account_or_alias_invalidates_review_without_saving(self):
         self.login()

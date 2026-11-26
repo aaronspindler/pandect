@@ -131,7 +131,13 @@ class CaseAISettingsForm(forms.Form):
                 default_label += " (setup required)"
             choices = [("", f"Default · {default_label}"), *groups.items()]
             if selected and selected not in names:
-                choices.append((selected, f"{selected} (unavailable)"))
+                saved_route = gateway_execution(purpose, operation, case=case)
+                saved_label = (
+                    f"Saved · {selected}"
+                    if gateway_route_configured(purpose, saved_route)
+                    else f"{selected} (unavailable)"
+                )
+                choices.append((selected, saved_label))
             unavailable = names.keys() - available - {selected}
             self.fields[operation] = forms.ChoiceField(
                 label=label,

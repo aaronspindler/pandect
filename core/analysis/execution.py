@@ -23,6 +23,8 @@ GEOGRAPHIC = {
     name: spec.geographic for name, spec in OPERATIONS.items() if spec.geographic
 }
 
+TEXT_MODEL_CHOICE_PREFIXES = ("openai/", "anthropic/", "google/gemini-")
+
 OPENAI_TEXT_MODELS = {
     "text_topics": "gpt-6-luna",
     "content_events": "gpt-6-luna",
@@ -208,7 +210,7 @@ def model_form_value(operation, saved, *, case):
 
 
 def external_model_options(operation):
-    """Display all compatible models, including those awaiting operator setup."""
+    """List case-selectable models, including those awaiting operator setup."""
     from core.analysis.gateway import gateway_route_configured
 
     if operation not in INFERENCE_OPERATIONS:
@@ -223,6 +225,8 @@ def external_model_options(operation):
             continue
         provider = route["provider"]
         canonical = model if model.startswith("@cf/") else f"{provider}/{model}"
+        if purpose == "text" and not canonical.startswith(TEXT_MODEL_CHOICE_PREFIXES):
+            continue
         record = MODELS.get(canonical)
         group = model_group(canonical, provider)
         if default.get("url"):
@@ -243,6 +247,8 @@ def external_model_options(operation):
         )
     for model, record in MODELS.items():
         if model in covered or model_purpose(record) != purpose:
+            continue
+        if purpose == "text" and not model.startswith(TEXT_MODEL_CHOICE_PREFIXES):
             continue
         route = catalog_execution(model)
         rows.append(

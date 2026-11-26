@@ -664,15 +664,23 @@ The case owner reviews and approves configured destinations under
 ### Model choices for case owners
 
 In [Case Settings](cases.md#external-analysis-approval), case owners can choose
-a different provider and model for each task. Supported OpenAI Responses and
-Anthropic Messages models offer a per-task **Effort** setting, both directly and
-through Cloudflare AI Gateway. The available levels depend on the model.
-**Default** uses the task's configured effort or the provider default. Higher
-effort can increase latency and token usage. New requests use the saved effort
-and retain it with the execution settings. The installation model default is
-shown beside its resolved model. See the provider's [Claude effort guide](
-https://platform.claude.com/docs/en/build-with-claude/effort) for how Claude
-applies effort.
+OpenAI, Anthropic Claude, or Google Gemini models for each text task. Gemini
+uses Google Vertex AI through Cloudflare AI Gateway. Recording transcription
+has its own model choices and defaults to Whisper Large v3 Turbo.
+
+Supported OpenAI Responses and Anthropic Messages models offer a per-task
+**Effort** setting on direct and Cloudflare AI Gateway routes. The available
+levels depend on the model. **Default** uses the task's configured effort or the
+provider default. Higher effort can increase latency and token usage. New
+requests use the saved effort and retain it with the execution settings.
+See the [Claude effort guide][claude-effort] for how Claude applies effort.
+
+The picker shows the resolved installation default. Previously saved models
+outside the picker’s current list remain assigned while their routes are
+configured.
+
+[claude-effort]: https://platform.claude.com/docs/en/build-with-claude/effort
+
 Pandect ships a release snapshot of the
 [Cloudflare model catalog](https://developers.cloudflare.com/ai/models/).
 Opening settings and searching its model list work offline. Available choices
@@ -688,7 +696,7 @@ model IDs and request formats. The bundled catalog records its source revision.
 
 | Environment variable | Additional model choices |
 | --- | --- |
-| `PANDECT_AI_TEXT_MODEL_CHOICES` | Comma-separated IDs for the configured external text provider, including direct providers. |
+| `PANDECT_AI_TEXT_MODEL_CHOICES` | Comma-separated IDs for the configured OpenAI or Anthropic text provider, including direct connections. |
 | `PANDECT_AI_TRANSCRIPTION_MODEL_CHOICES` | Comma-separated IDs for external recording transcription through Workers AI. |
 
 Set the same configuration in web and worker. For custom model IDs, use models

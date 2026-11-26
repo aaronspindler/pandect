@@ -263,7 +263,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 search = picker.get_by_label("Search models or providers")
                 models = picker.get_by_label("Matching models")
                 expect(search).to_be_focused()
-                search.fill("no such model")
+                search.fill("Llama")
                 expect(picker.get_by_text("No matching models.")).to_be_visible()
                 expect(models.locator("optgroup")).to_have_count(0)
                 expect(picker.get_by_role("button", name="Use model")).to_be_disabled()
@@ -279,7 +279,10 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(chat_effort).to_have_value("")
                 expect(chat_effort.locator('option[value=""]')).to_have_text("Default")
                 chat.press("Enter")
-                search.fill("Vertex")
+                search.fill("Gemini")
+                expect(
+                    models.locator('optgroup[label="Gemini via Google Vertex AI"]')
+                ).to_have_count(1)
                 expect(
                     models.locator('option[value="google/gemini-4-argon"]')
                 ).to_have_count(1)

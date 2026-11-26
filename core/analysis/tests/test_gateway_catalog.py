@@ -136,7 +136,10 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
         with override_settings(PANDECT_AI_GATEWAY=CONFIG):
             choices = {o["value"]: o for o in external_model_options("content_events")}
             self.assertFalse(choices["google/gemini-4-carbon"]["available"])
-            self.assertTrue(choices["@cf/zai-org/glm-5.3"]["available"])
+            self.assertNotIn("@cf/zai-org/glm-5.3", choices)
+            self.assertTrue(
+                gateway_route_configured("text", self.route("@cf/zai-org/glm-5.3"))
+            )
         with override_settings(
             PANDECT_AI_GATEWAY=CONFIG | {"stored_key_providers": ("google-vertex-ai",)}
         ):
@@ -148,16 +151,22 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
             )
         self.assertFalse(gateway_route_configured("text", route))
 
-    def test_picker_groups_name_the_model_author_and_serving_provider(self):
+    def test_picker_limits_text_choices_to_openai_anthropic_and_gemini(self):
         choices = {
             row["value"]: row["group"]
             for row in external_model_options("content_events")
         }
-        self.assertEqual(choices["google/gemini-4-carbon"], "Google Vertex AI")
         self.assertEqual(
-            choices["@cf/zai-org/glm-5.3"], "Z.ai via Cloudflare Workers AI"
+            set(choices.values()),
+            {"OpenAI", "Anthropic", "Gemini via Google Vertex AI"},
         )
+        self.assertEqual(
+            choices["google/gemini-4-carbon"], "Gemini via Google Vertex AI"
+        )
+        self.assertEqual(choices["anthropic/claude-sonnet-5.5"], "Anthropic")
         self.assertEqual(choices["openai/gpt-6.2-sol"], "OpenAI")
+        self.assertNotIn(CONFIG["models"]["text"], choices)
+        self.assertNotIn("openai/gpt-transcribe", choices)
 
     def test_refusals_and_incomplete_chat_choices_never_become_answers(self):
         for choice, code in [
