@@ -1,10 +1,13 @@
 """Transactional delivery of private search instances and versioned passage windows."""
 
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from math import ceil
 from uuid import uuid4
 
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import connections, transaction
 from django.db.models import F, Q
 from django.http import Http404
 from django.tasks import task
@@ -16,6 +19,13 @@ from core.models import HostedSearchIndex, HostedSearchItem, HostedSearchSource
 
 from . import cloudflare, material
 from .cloudflare import HostedSearchError
+
+PREPARE_LIMIT = 16
+UPLOAD_LIMIT = 4
+STATUS_LIMIT = 50
+STATUS_FALLBACK_LIMIT = 2
+POLL_INTERVAL = timedelta(seconds=30)
+DELIVERY_ERRORS = (HostedSearchError, PermissionDenied, Http404)
 
 
 def activity_changed(index):
@@ -141,7 +151,7 @@ def reconcile(case_id):
             index.save(update_fields=["phase", "cursor"])
 
 
-def prepare_window(index, case, source):
+def prepare_window(case, source):
     items = HostedSearchItem.objects.filter(source=source)
     found = material.read(case, source, source.offset)
     dates = material.event_dates(case, source, found.locator) if found else None
@@ -157,7 +167,7 @@ def prepare_window(index, case, source):
         if source.offset == 0:
             items.exclude(**identity).update(status="delete")
         if found.text.strip():
-            item, created = items.get_or_create(
+            item, _ = items.get_or_create(
                 source=source,
                 **identity,
                 start=source.offset,
@@ -167,14 +177,26 @@ def prepare_window(index, case, source):
                     "available_at": timezone.now(),
                 },
             )
-            if created:
-                activity_changed(index)
             if item.status == "delete":
                 item.status = "queued"
                 item.save(update_fields=["status"])
         source.offset += material.WINDOW
         source.dirty = source.offset < found.locator["length"]
     source.save(update_fields=["dirty", "offset"])
+
+
+def prepare_passages(case, sources):
+    pending = deque(sources.filter(dirty=True).order_by("id")[:PREPARE_LIMIT])
+    if not pending:
+        return False
+    for _ in range(PREPARE_LIMIT):
+        if not pending:
+            break
+        source = pending.popleft()
+        prepare_window(case, source)
+        if source.dirty:
+            pending.append(source)
+    return True
 
 
 def receipt(item, value):
@@ -217,39 +239,30 @@ def remote_item(index, item):
     return None
 
 
-def transfer(index, item):
+def delete_passage(index, item):
+    active(index)
+    remote_id = item.remote_id
+    if not remote_id:
+        # A timed-out upload may have succeeded with a lost receipt.
+        if row := remote_item(index, item):
+            remote_id = row.get("id")
+            if not isinstance(remote_id, str):
+                raise HostedSearchError("search_response_invalid")
+    if remote_id:
+        active(index)
+        cloudflare.request(
+            index, "DELETE", cloudflare.item_path(remote_id), missing_ok=True
+        )
+    item.delete()
+
+
+def upload_file(index, item):
     case = active(index)
-    if item.status == "delete":
-        remote_id = item.remote_id
-        if not remote_id:
-            # A timed-out upload may have succeeded with a lost receipt.
-            if row := remote_item(index, item):
-                remote_id = row.get("id")
-                if not isinstance(remote_id, str):
-                    raise HostedSearchError("search_response_invalid")
-        if remote_id:
-            active(index)
-            cloudflare.request(
-                index, "DELETE", cloudflare.item_path(remote_id), missing_ok=True
-            )
-        item.delete()
-        activity_changed(index)
-        return
     if item.status == "recover" or (index.failures and item.status == "queued"):
         row = remote_item(index, item)
         if row:
             receipt(item, row)
-            return
-    if item.status in ("poll", "check"):
-        value = cloudflare.request(
-            index, "GET", cloudflare.item_path(item.remote_id), missing_ok=True
-        )
-        if value is None:
-            item.status, item.remote_id = "queued", ""
-            item.save(update_fields=["status", "remote_id"])
-        else:
-            receipt(item, value)
-        return
+            return None
     found = material.read(case, item.source, item.start)
     if (
         not found
@@ -262,7 +275,7 @@ def transfer(index, item):
         item.save(update_fields=["status"])
         item.source.dirty, item.source.offset = True, 0
         item.source.save(update_fields=["dirty", "offset"])
-        return
+        return None
     metadata = {
         "pub": str(item.available_at.timestamp()),
         "from_at": str(item.event_start.timestamp()),
@@ -270,17 +283,165 @@ def transfer(index, item):
         "kind": found.locator["kind"],
         "surface": item.source.surface,
     }
-    active(index)
-    receipt(
-        item,
-        cloudflare.request(
-            index,
-            "POST",
-            "/items",
-            file=(item.filename, found.text, metadata),
-            authorize_transfer=lambda: active(index),
-        ),
+    return item.filename, found.text, metadata
+
+
+def send_file(index, file, **kwargs):
+    return cloudflare.request(
+        index,
+        "POST",
+        "/items",
+        file=file,
+        authorize_transfer=lambda: active(index),
+        **kwargs,
     )
+
+
+def send_file_in_thread(index, file, usage):
+    # The caller holds the index lock. Threads recheck the grant and do network
+    # I/O, while the caller owns receipt writes and post-commit usage accounting.
+    try:
+        return send_file(index, file, usage_callback=usage.append)
+    finally:
+        connections.close_all()
+
+
+def finish_upload(item, response):
+    try:
+        receipt(item, response())
+    except DELIVERY_ERRORS as exc:
+        if not getattr(exc, "retry_at", None):
+            # Either peer may have reached Cloudflare before an error was observed.
+            item.status = "recover"
+            item.save(update_fields=["status"])
+        return exc
+    return None
+
+
+def send_passages(index, pending):
+    files = [(item, file) for item in pending if (file := upload_file(index, item))]
+    if not files:
+        return
+    if len(files) == 1:
+        item, file = files[0]
+        if error := finish_upload(item, lambda: send_file(index, file)):
+            raise error
+        return
+    errors = []
+    with ThreadPoolExecutor(max_workers=UPLOAD_LIMIT) as pool:
+        uploads = []
+        for item, file in files:
+            usage = []
+            future = pool.submit(send_file_in_thread, index, file, usage)
+            uploads.append((item, future, usage))
+        for item, future, usage in uploads:
+            if error := finish_upload(item, future.result):
+                errors.append(error)
+            for record in usage:
+                transaction.on_commit(record)
+    if errors:
+        # Give an actual provider cooldown priority over a local deferral.
+        error = next(
+            (err for err in errors if getattr(err, "provider_throttled", False)), None
+        )
+        if not error:
+            error = next(
+                (err for err in errors if not getattr(err, "retry_at", None)), errors[0]
+            )
+        raise error
+
+
+def check_passages(index, due, neighbors):
+    by_id = {}
+    if len(due) + len(neighbors) > 1:
+        active(index)
+        listing = cloudflare.request(
+            index,
+            "GET",
+            f"/items?source=builtin&per_page={STATUS_LIMIT}&sort_by=modified_at",
+        )
+        if not isinstance(listing, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get("id"), str)
+            for row in listing
+        ):
+            raise HostedSearchError("search_response_invalid")
+        by_id = {row["id"]: row for row in listing}
+    for item in (*due, *neighbors):
+        if item.remote_id in by_id:
+            receipt(item, by_id[item.remote_id])
+    # A limited page cannot establish absence. Confirm older or missing items
+    # that are due individually. Leave other absent receipts until their next poll.
+    missing = [item for item in due if item.remote_id not in by_id]
+    for item in missing[:STATUS_FALLBACK_LIMIT]:
+        active(index)
+        value = cloudflare.request(
+            index, "GET", cloudflare.item_path(item.remote_id), missing_ok=True
+        )
+        if value is None:
+            item.status, item.remote_id = "queued", ""
+            item.save(update_fields=["status", "remote_id"])
+        else:
+            if not isinstance(value, dict) or value.get("id") != item.remote_id:
+                raise HostedSearchError("search_response_invalid")
+            receipt(item, value)
+
+
+def discover_sources(index, case):
+    surface, kind = material.surfaces()[index.phase]
+    all_rows = material.rows(case, surface, kind)
+    if index.cursor:
+        all_rows = all_rows.filter(pk__gt=index.cursor)
+    ids = list(all_rows.order_by("pk").values_list("pk", flat=True)[:500])
+    insert_sources(index, surface, kind, ids, refresh=False)
+    if len(ids) == 500:
+        index.cursor = ids[-1]
+    else:
+        index.phase += 1
+        index.cursor = None
+
+
+def advance_passages(index, case):
+    sources = HostedSearchSource.objects.filter(index=index)
+    items = HostedSearchItem.objects.filter(source__index=index)
+    if item := items.filter(status="delete").order_by("pk").first():
+        delete_passage(index, item)
+        return 0
+    # When the oldest check is due, reconcile neighboring receipts in the same
+    # request so recently submitted items do not each trigger their own poll.
+    checks = items.filter(status__in=("poll", "check")).order_by("checked_at", "pk")
+    due = checks.filter(
+        Q(status="check") | Q(checked_at__lte=timezone.now() - POLL_INTERVAL)
+    )
+    if pending_checks := list(due[:STATUS_LIMIT]):
+        neighbors = list(
+            checks.exclude(pk__in=[item.pk for item in pending_checks])[
+                : STATUS_LIMIT - len(pending_checks)
+            ]
+        )
+        check_passages(index, pending_checks, neighbors)
+        return 0
+
+    uploads = (
+        items.filter(status__in=("queued", "recover"))
+        .select_related("source")
+        .order_by("checked_at", "pk")
+    )
+    pending = list(uploads[:UPLOAD_LIMIT])
+    if len(pending) < UPLOAD_LIMIT and prepare_passages(case, sources):
+        # Commit newly staged receipt keys before any upload can reach Cloudflare.
+        return 0
+    if pending:
+        send_passages(index, pending)
+        return 0
+    if index.phase < len(material.surfaces()):
+        discover_sources(index, case)
+        return 0
+    if oldest := checks.first():
+        return max(
+            0,
+            ceil((oldest.checked_at + POLL_INTERVAL - timezone.now()).total_seconds()),
+        )
+    return None
 
 
 def step(index):
@@ -289,51 +450,30 @@ def step(index):
         if cloudflare.request(index, "GET", missing_ok=True) is not None:
             raise HostedSearchError("search_cleanup_pending")
         index.delete()
-        return
+        return False
     case = active(index)
+    delay = 0
     if not index.provisioned:
         cloudflare.ensure_instance(index, lambda: active(index))
         index.provisioned = True
     else:
-        sources = HostedSearchSource.objects.filter(index=index)
-        items = HostedSearchItem.objects.filter(source__index=index)
-        now = timezone.now()
-        due = items.filter(
-            Q(status__in=("delete", "queued", "recover", "check"))
-            | Q(status="poll", checked_at__lt=now - timedelta(seconds=30))
-        )
-        pending = due.select_related("source").order_by("checked_at", "pk").first()
-        source = sources.filter(dirty=True).order_by("id").first()
-        if pending:
-            transfer(index, pending)
-        elif source:
-            prepare_window(index, case, source)
-        elif index.phase < len(material.surfaces()):
-            surface, kind = material.surfaces()[index.phase]
-            all_rows = material.rows(case, surface, kind)
-            if index.cursor:
-                all_rows = all_rows.filter(pk__gt=index.cursor)
-            ids = list(all_rows.order_by("pk").values_list("pk", flat=True)[:500])
-            insert_sources(index, surface, kind, ids, refresh=False)
-            if len(ids) == 500:
-                index.cursor = ids[-1]
-            else:
-                index.phase += 1
-                index.cursor = None
-        elif items.filter(status="poll").exists():
-            enqueue(index, delay=30)
-            return
-        else:
+        delay = advance_passages(index, case)
+        if delay is None:
             index.status = (
-                "failed" if items.filter(status="error").exists() else "ready"
+                "failed"
+                if HostedSearchItem.objects.filter(
+                    source__index=index, status="error"
+                ).exists()
+                else "ready"
             )
             index.error_code = "search_item_failed" if index.status == "failed" else ""
             index.save()
-            activity_changed(index)
-            return
+            return True
+    had_error = bool(index.error_code)
     index.failures = 0
     index.error_code = ""
-    enqueue(index)
+    enqueue(index, delay=delay)
+    return delay == 0 or had_error
 
 
 @task
@@ -349,14 +489,25 @@ def sync_index(index_id, token):
         if index is None:
             return "superseded"
         try:
-            step(index)
-        except (HostedSearchError, PermissionDenied, Http404) as exc:
-            index.failures += 1
+            progress_changed = step(index)
+        except DELIVERY_ERRORS as exc:
+            progress_changed = True
             index.error_code = getattr(exc, "code", "search_disabled")
-            if index.failures <= 3:
-                enqueue(index, delay=(15, 60, 240)[index.failures - 1])
+            retry_at = getattr(exc, "retry_at", None)
+            delay = (
+                max(1, ceil((retry_at - timezone.now()).total_seconds()))
+                if retry_at
+                else 0
+            )
+            if retry_at and not exc.provider_throttled:
+                enqueue(index, delay=delay)
             else:
-                index.status = "failed"
-                index.save()
-                activity_changed(index)
+                index.failures += 1
+                if index.failures <= 3:
+                    enqueue(index, delay=max(delay, (15, 60, 240)[index.failures - 1]))
+                else:
+                    index.status = "failed"
+                    index.save()
+        if progress_changed and not index.retired:
+            activity_changed(index)
         return index.status

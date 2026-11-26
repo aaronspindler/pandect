@@ -19,6 +19,7 @@ services:
     image: ${COMPOSE_PROJECT_NAME:-pandect}-app
     environment: &app_environment
       DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+      DJANGO_DEBUG_TOOLBAR_DOCKER: "true"
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}

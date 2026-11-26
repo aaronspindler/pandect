@@ -60,6 +60,12 @@ pending migrations before starting Gunicorn. With
 `DJANGO_DEBUG=true`, private verification and invitation links appear in
 `docker compose logs web`. Keep those logs private. Production uses SMTP.
 
+With `DJANGO_DEBUG=true`, Django Debug Toolbar shows timing, SQL, static files,
+and templates for the current page on localhost. SQL diagnostics are read-only.
+The local Compose service also recognizes the Docker host connection. Reload
+the page to inspect a fresh request after navigating within a case. Use debug
+mode only on a trusted local development instance.
+
 WhiteNoise serves assets in development and production. Debug mode revalidates
 source files immediately; non-debug builds use `collectstatic` content hashes.
 After template/static changes, rebuild containers with `make run`. Host debug

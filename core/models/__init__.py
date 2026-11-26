@@ -24,6 +24,7 @@ from .evidence import DeletionReview, Evidence, FileEvidence, PendingFileDeletio
 from .important import ImportantItem, ImportantNote
 from .relationships import NarrativeRelationship
 from .search import HostedSearchIndex, HostedSearchItem, HostedSearchSource
+from .search_budget import CloudflareSearchRateLimit
 from .selection import SavedSelection
 
 __all__ = [
@@ -47,6 +48,7 @@ __all__ = [
     "HostedSearchIndex",
     "HostedSearchItem",
     "HostedSearchSource",
+    "CloudflareSearchRateLimit",
     "CaseAnalysisBatch",
     "AnalysisReportIndex",
     "AnalysisResult",

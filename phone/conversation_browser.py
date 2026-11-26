@@ -20,7 +20,6 @@ from core.analysis.source_resolution import resolve_inputs
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
-from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from people.models import Person
@@ -760,12 +759,6 @@ class ConversationBrowserTests(BrowserTestCase):
             )
             for index, time in ((3, "noon"), (50, "dusk"))
         ]
-        self.enterContext(
-            indexed(
-                self.case,
-                [("original", "text-message", row.pk) for row in (first, second)],
-            )
-        )
         url = self.live_server_url + self.reader_path + "?list_page=2"
         for engine in self.engines:
             for javascript in (True, False):

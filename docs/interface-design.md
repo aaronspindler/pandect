@@ -432,6 +432,10 @@ require preparation or review. Queued and running jobs appear under **In progres
 Active message import batches show how many imported messages have been prepared,
 the retained import total when available, and the initial checks created so far.
 Check statuses show which checks have finished.
+**View search indexing progress** opens the Cloudflare AI Search disclosure.
+It shows the current stage and counts for each passage state, with the last recorded
+Cloudflare update when available. The disclosure keeps its open state and keyboard
+focus as the counts refresh.
 **Retry all failed checks** is a case-wide action for owners and editors.
 The retry request shows preparation status and any checks it could not queue.
 Show up to three current failures for each of batch preparation, vehicle imports,

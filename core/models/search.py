@@ -12,6 +12,10 @@ class HostedSearchIndex(models.Model):
     revision = models.UUIDField(unique=True)
     account = models.CharField(max_length=32)
     namespace = models.CharField(max_length=64)
+    # Existing rows and inserts from older processes keep their request override.
+    keyword_match_mode = models.CharField(
+        max_length=3, default="and", db_default="or", editable=False
+    )
     provisioned = models.BooleanField(default=False)
     retired = models.BooleanField(default=False)
     phase = models.PositiveSmallIntegerField(default=0)

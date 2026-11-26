@@ -3,6 +3,7 @@
 from itertools import batched
 
 from django.db import transaction
+from django.db.models import Count, Max, Q
 from django.utils import timezone
 
 from cases.permissions import get_case, require_verified_email
@@ -10,6 +11,7 @@ from core.models import HostedSearchIndex, HostedSearchItem, HostedSearchSource
 
 from .hosted import NOTICES, authorize
 from .lifecycle import changed, enqueue, reconcile
+from .material import surfaces
 
 
 def add_sources(case_id, source, ids):
@@ -47,18 +49,38 @@ def result_published(result):
 
 
 def search_index_status(case, *, count_passages=True):
-    index = HostedSearchIndex.objects.filter(
-        case_key=case.pk, retired=False, revision=case.external_ai_revision
-    ).first()
-    items = HostedSearchItem.objects.filter(
-        source__index=index, status__in=("completed", "check")
-    )
+    index = None
+    if case.external_ai_enabled:
+        index = HostedSearchIndex.objects.filter(
+            case_key=case.pk, retired=False, revision=case.external_ai_revision
+        ).first()
     status = (
         "disabled"
         if not case.external_ai_enabled
         else (index.status if index else "unprepared")
     )
     reason = (index.error_code if index else "") or ""
+    counts = {"documents": 0, "passages": 0}
+    if index:
+        items = HostedSearchItem.objects.filter(source__index=index)
+        indexed = Q(status__in=("completed", "check"))
+        if count_passages:
+            # These are local passage receipts. Discovery may still add to them.
+            counts = items.exclude(status="delete").aggregate(
+                documents=Count("source_id", filter=indexed, distinct=True),
+                passages=Count("pk", filter=indexed),
+                awaiting_upload=Count("pk", filter=Q(status__in=("queued", "recover"))),
+                indexing=Count("pk", filter=Q(status="poll")),
+                rechecking=Count("pk", filter=Q(status="check")),
+                failed=Count("pk", filter=Q(status="error")),
+                checked_at=Max("checked_at"),
+            )
+            counts["preparing"] = status == "queued" and (
+                index.phase < len(surfaces())
+                or HostedSearchSource.objects.filter(index=index, dirty=True).exists()
+            )
+        else:
+            counts["passages"] = int(items.filter(indexed).exists())
     return {
         "status": status,
         "label": {
@@ -68,13 +90,13 @@ def search_index_status(case, *, count_passages=True):
             "ready": "Cloudflare search is ready.",
             "failed": "Cloudflare search indexing needs attention.",
         }[status],
-        "reason": NOTICES.get(
-            reason, "Cloudflare could not index some passages." if reason else ""
+        "reason": "Cloudflare could not index some passages."
+        if reason == "search_item_failed"
+        else NOTICES.get(
+            reason, "Cloudflare search indexing was interrupted." if reason else ""
         ),
-        "documents": items.values("source_id").distinct().count()
-        if count_passages
-        else 0,
-        "passages": items.count() if count_passages else int(items.exists()),
+        "provisioned": bool(index and index.provisioned),
+        **counts,
         "can_retry": status == "failed",
         "token": index.token if index else None,
     }

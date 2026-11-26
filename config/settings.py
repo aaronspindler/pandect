@@ -91,6 +91,7 @@ MIDDLEWARE = [
     "config.streaming.AsyncStreamingMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    *(["debug_toolbar.middleware.DebugToolbarMiddleware"] if DEBUG else []),
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "config.access.ProductUploadAccessMiddleware",
@@ -102,6 +103,28 @@ MIDDLEWARE = [
     "config.privacy.PrivatePageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+if DEBUG:
+    INSTALLED_APPS.append("debug_toolbar")
+    INTERNAL_IPS = ["127.0.0.1", "::1"]
+    # Render diagnostics in the current response and omit shared request history.
+    DEBUG_TOOLBAR_PANELS = [
+        "debug_toolbar.panels.versions.VersionsPanel",
+        "debug_toolbar.panels.timer.TimerPanel",
+        "config.debug_toolbar.CurrentRequestSQLPanel",
+        "debug_toolbar.panels.staticfiles.StaticFilesPanel",
+        "debug_toolbar.panels.templates.TemplatesPanel",
+    ]
+    DEBUG_TOOLBAR_CONFIG = {
+        "RENDER_PANELS": True,
+        "SHOW_COLLAPSED": True,
+        "SHOW_TEMPLATE_CONTEXT": False,
+        "TOOLBAR_STORE_CLASS": "config.debug_toolbar.CurrentRequestStore",
+    }
+    if os.environ.get("DJANGO_DEBUG_TOOLBAR_DOCKER") == "true":
+        DEBUG_TOOLBAR_CONFIG["SHOW_TOOLBAR_CALLBACK"] = (
+            "debug_toolbar.middleware.show_toolbar_with_docker"
+        )
+
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {

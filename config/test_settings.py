@@ -1,7 +1,15 @@
 """Isolated tests: fast password fixtures and source assets without a manifest."""
 
 from .settings import *  # noqa: F403
-from .settings import PANDECT_AI_GATEWAY, STORAGES
+from .settings import INSTALLED_APPS, MIDDLEWARE, PANDECT_AI_GATEWAY, STORAGES
+
+DEBUG = False
+INSTALLED_APPS = [app for app in INSTALLED_APPS if app != "debug_toolbar"]
+MIDDLEWARE = [
+    path
+    for path in MIDDLEWARE
+    if path != "debug_toolbar.middleware.DebugToolbarMiddleware"
+]
 
 # Deliberately fast for synthetic test users; production settings are unchanged.
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

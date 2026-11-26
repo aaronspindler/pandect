@@ -1,6 +1,7 @@
 """Application entry points; case and investigation routes are added incrementally."""
 
 from allauth.account.decorators import secure_admin_login
+from django.apps import apps
 from django.contrib import admin
 from django.urls import include, path
 
@@ -41,6 +42,11 @@ urlpatterns = [
     ),
     path("admin/", admin.site.urls),
 ]
+
+if apps.is_installed("debug_toolbar"):
+    from debug_toolbar.toolbar import debug_toolbar_urls
+
+    urlpatterns += debug_toolbar_urls()
 
 handler403 = "config.views.permission_denied"
 handler404 = "config.views.not_found"

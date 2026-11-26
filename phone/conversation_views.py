@@ -13,7 +13,6 @@ from django.views.decorators.http import require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.case_search.discovery import discover
 from core.evidence.queries import local_date_range, scoped_evidence
 from people.models import Person
 from phone.conversation_analysis import (
@@ -124,9 +123,8 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
     groups = matching_copy_groups(contexts)
     timeline = timeline_messages(messages, contexts, groups)
     visible_timeline = timeline.select_related("sender", "recipient")
-    results = discover(case, request.user, query, kind="text-message")
     if query:
-        match_body = Q(pk__in=results.evidence["text-message"])
+        match_body = Q(body__icontains=query)
         hits = timeline.filter(match_body).only("occurred_at")
         visible_timeline = visible_timeline.annotate(matches_search=match_body)
     selected = None
@@ -290,7 +288,6 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         "day_message": day_message,
         "day_not_found": day is not None and day_message is None and selected is None,
         "search_form": search_form,
-        "search_notice": results.notice,
         "search_query": query,
         "search_params": search_params,
         "match_page": match_page,

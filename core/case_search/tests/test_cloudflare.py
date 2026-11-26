@@ -157,6 +157,35 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(request.call_count, 1)
 
     @patch("core.case_search.cloudflare.request")
+    def test_existing_instance_and_create_conflict_preserve_instance_settings(
+        self, request
+    ):
+        index = self.toggle()
+        HostedSearchIndex.objects.filter(pk=index.pk).update(keyword_match_mode="or")
+        index.refresh_from_db()
+        namespace = {"name": index.namespace}
+        existing = {
+            "id": index.instance,
+            "public_endpoint_params": {"enabled": False},
+            "chunk_size": 1024,
+            "reranking": True,
+        }
+        for replies, methods in (
+            ([namespace, existing], ["GET", "GET"]),
+            ([namespace, None, None, existing], ["GET", "GET", "POST", "GET"]),
+        ):
+            with self.subTest(methods=methods):
+                request.reset_mock()
+                request.side_effect = replies
+                cloudflare.ensure_instance(index, lambda: None)
+                self.assertEqual([c.args[1] for c in request.call_args_list], methods)
+                if "POST" in methods:
+                    payload = request.call_args_list[2].kwargs["payload"]
+                    self.assertEqual(
+                        payload["retrieval_options"]["keyword_match_mode"], "or"
+                    )
+
+    @patch("core.case_search.cloudflare.request")
     def test_retired_index_keeps_cleanup_receipt_until_absence_confirmed(self, request):
         index = self.toggle()
         self.toggle(False)
@@ -189,7 +218,7 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
         source = HostedSearchSource.objects.get(
             index=self.index, source_key=self.original.pk
         )
-        lifecycle.prepare_window(self.index, self.case, source)
+        lifecycle.prepare_window(self.case, source)
         self.item = HostedSearchItem.objects.get(source=source)
         self.item.status = "completed"
         self.item.save()
@@ -208,18 +237,31 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
                 material.corpus.cite(self.case, locator, pos, "café")["quote"], "café"
             )
         self.assertEqual(request.call_args.args[2], "/search")
-        self.assertEqual(
-            request.call_args.kwargs["payload"]["ai_search_options"]["retrieval"][
-                "retrieval_type"
-            ],
-            "hybrid",
-        )
+        options = request.call_args.kwargs["payload"]["ai_search_options"]
+        retrieval = options["retrieval"]
+        self.assertEqual(retrieval["retrieval_type"], "hybrid")
+        self.assertEqual(retrieval["match_threshold"], 0.4)
+        self.assertEqual(retrieval["keyword_match_mode"], "and")
+        self.assertEqual(retrieval["max_num_results"], 16)
+        for option in ("cache", "query_rewrite", "reranking"):
+            self.assertIs(options[option]["enabled"], False)
         CaseMembership.objects.filter(
             case=self.case, user=self.users["viewer"]
         ).delete()
         with self.assertRaises(Http404):
             hosted.search(self.case, self.users["viewer"], "harbour")
         self.assertEqual(request.call_count, 3)
+
+    @patch("core.case_search.cloudflare.request")
+    def test_legacy_index_keeps_its_query_mode(self, request):
+        self.setup_item()
+        HostedSearchIndex.objects.filter(pk=self.index.pk).update(
+            keyword_match_mode="or"
+        )
+        request.return_value = self.response
+        self.assertTrue(hosted.search(self.case, self.users["viewer"], "harbour notes"))
+        options = request.call_args.kwargs["payload"]["ai_search_options"]
+        self.assertEqual(options["retrieval"]["keyword_match_mode"], "or")
 
     @patch("core.case_search.cloudflare.request")
     def test_wrong_case_unverified_text_cutoff_and_archived_receipts(self, request):
@@ -329,9 +371,39 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
             if method == "GET" and not path:
                 return None
             if kwargs.get("collection"):
+                payload = kwargs["payload"]
+                self.assertEqual(payload["id"], index.instance)
+                self.assertNotIn("source", payload)
+                self.assertNotIn("type", payload)
+                self.assertEqual(payload["public_endpoint_params"], {"enabled": False})
                 self.assertEqual(
-                    kwargs["payload"]["public_endpoint_params"], {"enabled": False}
+                    payload["embedding_model"], "@cf/qwen/qwen3-embedding-0.6b"
                 )
+                self.assertEqual(
+                    payload["index_method"], {"vector": True, "keyword": True}
+                )
+                self.assertEqual(
+                    payload["indexing_options"],
+                    {
+                        "keyword_tokenizer": "porter",
+                        "file_summary": False,
+                        "use_ocr": False,
+                    },
+                )
+                self.assertIs(payload["chunk"], True)
+                self.assertEqual(
+                    (payload["chunk_size"], payload["chunk_overlap"]), (256, 10)
+                )
+                self.assertEqual(payload["fusion_method"], "rrf")
+                self.assertEqual(
+                    payload["retrieval_options"],
+                    {"keyword_match_mode": "and", "boost_by": []},
+                )
+                self.assertEqual(
+                    (payload["score_threshold"], payload["max_num_results"]), (0.4, 10)
+                )
+                for option in ("cache", "rewrite_query", "reranking"):
+                    self.assertIs(payload[option], False)
                 return {
                     "id": current.instance,
                     "public_endpoint_params": {"enabled": False},
@@ -364,7 +436,7 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(item.status, "completed")
         lifecycle.changed(self.case.pk, "original", "text", [original.pk])
         src = HostedSearchSource.objects.get(pk=item.source_id)
-        lifecycle.prepare_window(index, self.case, src)
+        lifecycle.prepare_window(self.case, src)
         self.assertEqual(HostedSearchItem.objects.filter(source=src).count(), 1)
 
     @patch("core.case_search.cloudflare.request")
@@ -398,7 +470,7 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
         self.original.delete()
         source = HostedSearchSource.objects.get(pk=self.item.source_id)
         self.assertTrue(source.dirty)
-        lifecycle.prepare_window(self.index, self.case, source)
+        lifecycle.prepare_window(self.case, source)
         self.item.refresh_from_db()
         self.assertEqual(self.item.status, "delete")
 

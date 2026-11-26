@@ -466,11 +466,14 @@ The case owner reviews and approves configured destinations under
 ### Model choices for case owners
 
 In [Case Settings](cases.md#external-ai-and-hosted-search), case owners can choose
-OpenAI or Anthropic Claude models for each text task. Recording transcription
-has its own model choices and defaults to Whisper Large v3 Turbo.
+OpenAI or Anthropic Claude models for each text task. With the gateway's OpenAI
+key configured, **Image and scanned page text** and **Vehicle plate text** can
+each use GPT-5.4 mini, GPT-6 Luna, GPT-6.1 Terra, or GPT-6.2 Sol. Both use the
+installation's vision default unless the owner chooses a model. Recording
+transcription has its own model choices and defaults to Whisper Large v3 Turbo.
 
-Supported OpenAI Responses and Anthropic Messages models offer a per-task
-**Effort** setting through Cloudflare AI Gateway. The available
+Supported OpenAI Responses and Anthropic Messages models offer an **Effort**
+setting for each text task through Cloudflare AI Gateway. The available
 levels depend on the model. **Default** uses the task's configured effort or the
 provider default. Higher effort can increase latency and token usage. New
 requests use the saved effort and retain it with the execution settings.

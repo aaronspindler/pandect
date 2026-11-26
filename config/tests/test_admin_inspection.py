@@ -100,6 +100,7 @@ class AdminInspectionTests(TestCase):
             "core.HostedSearchIndex",  # Case settings and private index cleanup
             "core.HostedSearchSource",  # Private index delivery cursor
             "core.HostedSearchItem",  # Private indexing receipt
+            "core.CloudflareSearchRateLimit",  # Automatic shared request budget
             "core.NarrativeRelationship",  # Case relationship review
             "core.ChatAnalysisProposal",  # Reviewed in Evidence chat
             "core.ChatSelectionMember",  # Source-bound matching records

@@ -17,7 +17,6 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
-from core.case_search.tests.fixtures import indexed
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
@@ -350,15 +349,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.login("viewer")
 
         reader = self.reader_url()
-        self.enterContext(
-            indexed(
-                self.case,
-                [
-                    ("original", "text-message", item.pk)
-                    for item in (first, copy, wildcard_only)
-                ],
-            )
-        )
         first_match = self.client.get(reader, {"q": f"  {query}  "})
         self.assertContains(first_match, "Match 1 of 1")
         self.assertContains(first_match, "<mark>CRATE%_&lt;b&gt;</mark>")
@@ -375,13 +365,33 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.login("outsider")
         self.assertEqual(self.client.get(reader, {"q": query}).status_code, 404)
 
+    def test_search_reaches_later_unindexed_matches_with_external_ai_enabled(self):
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
+        instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        messages = [
+            self.message(
+                body=f"Meet at the north gate, note {number}.",
+                occurred_at=instant + timedelta(minutes=number),
+            )
+            for number in range(51)
+        ]
+        self.login("viewer")
+
+        with patch("core.case_search.hosted.hits") as hosted_hits:
+            response = self.client.get(
+                self.reader_url(), {"q": "north gate", "match": 51}
+            )
+        hosted_hits.assert_not_called()
+        self.assertContains(response, "Match 51 of 51")
+        self.assertContains(response, "<mark>north gate</mark>")
+        self.assertEqual(response.context["match_message"].pk, messages[-1].pk)
+        self.assertEqual(response.context["page_obj"].number, 2)
+
     def test_search_reports_no_matches_and_overlong_queries(self):
-        original = self.message(body="Unrelated original")
+        original = self.message(body="This phrase is missing a word.")
         self.login("viewer")
         reader = self.reader_url()
-        self.enterContext(
-            indexed(self.case, [("original", "text-message", original.pk)])
-        )
         missing = self.client.get(reader, {"q": "missing phrase"})
         self.assertContains(missing, "No matching messages.")
         self.assertContains(missing, 'value="missing phrase"')

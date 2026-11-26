@@ -288,6 +288,9 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
 
     def test_vision_gateway_records_usage_and_only_sends_a_prepared_image(self):
         original = self.image()
+        model = "gpt-5.4-mini"
+        self.case.external_analysis_models = {"ocr": f"openai:{model}"}
+        self.case.save(update_fields=["external_analysis_models"])
         run, _ = start_run(
             self.users["owner"],
             self.case.pk,
@@ -310,6 +313,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         )
         body = json.loads(request.data)
         self.assertIs(body["store"], False)
+        self.assertEqual(body["model"], model)
         text, photo = body["input"][0]["content"]
         self.assertEqual(text["type"], "input_text")
         self.assertTrue(photo["image_url"].startswith("data:image/jpeg;base64,"))
@@ -318,6 +322,8 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             (usage.status, usage.input_tokens, usage.output_tokens), ("complete", 17, 8)
         )
+        self.assertEqual(usage.model, model)
+        self.assertEqual(run.result.provenance["execution"]["model"], model)
         self.assertEqual(run.result.passages.get().text, "Receipt 421")
 
     def test_no_text_ocr_publishes_coverage_without_searchable_candidate_text(self):

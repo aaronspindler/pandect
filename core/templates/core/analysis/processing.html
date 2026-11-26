@@ -62,7 +62,7 @@
     {% for item in failed_trips %}{% include 'geo/processing_trip.html' %}{% endfor %}
     {% if more_failed_trips %}<a class="record-link" href="?trips_page=1#trip-history">More in Trip processing history</a>{% endif %}
   {% endif %}
-  {% if search_needs_attention %}<p><a class="record-link" href="#case-search-index">Review meaning-based search indexing</a></p>{% endif %}
+  {% if search_needs_attention %}<p><a class="record-link" href="#case-search-index-progress">Review search indexing</a></p>{% endif %}
 </section>
 {% endif %}
 <section class="analysis-section" aria-labelledby="in-progress-heading">
@@ -113,17 +113,19 @@
     {% if more_active_call_imports %}<p><a class="record-link" href="{% querystring call_imports_page=1 %}#call-import-history">All call history imports</a></p>{% endif %}
   {% endif %}
   {% if running_monitors %}<p><a href="{% url 'instagram:list' case.pk %}">{{ running_monitors }} Instagram monitor check{{ running_monitors|pluralize }} running</a></p>{% endif %}
-  {% if search_pending %}<p><a class="record-link" href="#case-search-index">{{ search_index.label }}</a></p>{% endif %}
+  {% if search_pending %}<p><a class="record-link" href="#case-search-index-progress">View search indexing progress</a></p>{% endif %}
   {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count and not search_pending and not running_monitors and not active_chat and not active_call_imports %}<p class="muted" role="status">{% if batch and batch.scope.type != 'failed_retries' %}Checks for the selected batch appear below.{% elif history_filters.status == 'queued' or history_filters.status == 'running' %}Checks matching your status filter appear below.{% else %}Nothing is being processed right now.{% endif %}</p>{% endif %}
 </section>
-<details data-workspace-region class="disclosure processing-disclosure" id="case-search-index"{% if search_pending or search_needs_attention %} open{% endif %}>
-  <summary>Cloudflare search indexing</summary>
-  <p>{{ search_index.label }}{% if search_index.reason %} {{ search_index.reason }}{% endif %}</p>
-  {% if search_pending or search_index.status == 'failed' or search_index.status == 'ready' %}<p>{{ search_index.documents }} completed source{{ search_index.documents|pluralize }} · {{ search_index.passages }} indexed passage{{ search_index.passages|pluralize }}</p>{% endif %}
-  {% if can_edit and search_index.can_retry %}<form method="post" action="{% url 'core:search:retry' case.pk %}">{% csrf_token %}<button class="button button-secondary" type="submit">{% if search_index.status == 'unprepared' %}Prepare search index{% elif search_index.status == 'changed' %}Rebuild search index{% else %}Resume indexing{% endif %}</button></form>{% endif %}
-</details>
 </div>
 {% endpartialdef %}
+<details data-workspace-region class="disclosure processing-disclosure" id="case-search-index"{% if search_pending or search_needs_attention %} open{% endif %}>
+  <summary>Cloudflare AI Search indexing</summary>
+  {% partialdef search_progress inline %}
+  <div class="search-index-progress" id="case-search-index-progress" data-live-region data-live-poll="{{ search_pending|yesno:'true,false' }}"{% if search_index.status == 'ready' or search_index.status == 'failed' %} data-live-outcome="{{ search_index.label }}"{% endif %}>
+    {% include 'core/analysis/search_index_progress.html' %}
+  </div>
+  {% endpartialdef %}
+</details>
 {% partialdef history inline %}
 {% include 'ui/components/refresh_saved.html' with saved_scope='processing history' %}
 <div id="processing-results">
@@ -275,4 +277,4 @@
 {% endif %}
 {% endblock %}
 
-{% partialdef live %}{% partial overview %}{% partial activity %}{% partial history %}{% partial analysis_runs %}{% endpartialdef %}
+{% partialdef live %}{% partial overview %}{% partial activity %}{% partial search_progress %}{% partial history %}{% partial analysis_runs %}{% endpartialdef %}

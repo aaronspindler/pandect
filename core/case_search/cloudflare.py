@@ -2,6 +2,7 @@
 
 import json
 import re
+from contextlib import nullcontext
 from functools import partial
 from http.client import HTTPException
 from urllib.error import HTTPError
@@ -11,17 +12,57 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from cases.models import Case
 from core.analysis.http import NoRedirect
 from core.models import GatewayRequest
 
+from . import rate_limit
+
 MAX_RESPONSE = 1024 * 1024
+MATCH_THRESHOLD = 0.4
+
+
+def instance_settings(keyword_match_mode):
+    """Creation settings for an upload-only index of Pandect text receipts."""
+    return {
+        "public_endpoint_params": {"enabled": False},
+        "embedding_model": "@cf/qwen/qwen3-embedding-0.6b",
+        "index_method": {"vector": True, "keyword": True},
+        "indexing_options": {
+            "keyword_tokenizer": "porter",
+            "file_summary": False,
+            "use_ocr": False,
+        },
+        "chunk": True,
+        "chunk_size": 256,
+        "chunk_overlap": 10,
+        "fusion_method": "rrf",
+        "retrieval_options": {"keyword_match_mode": keyword_match_mode, "boost_by": []},
+        "score_threshold": MATCH_THRESHOLD,
+        "max_num_results": 10,
+        "cache": False,
+        "rewrite_query": False,
+        "reranking": False,
+        "custom_metadata": [
+            {"field_name": key, "data_type": value}
+            for key, value in (
+                ("pub", "number"),
+                ("from_at", "number"),
+                ("to_at", "number"),
+                ("kind", "text"),
+                ("surface", "text"),
+            )
+        ],
+    }
 
 
 class HostedSearchError(Exception):
-    def __init__(self, code):
+    def __init__(self, code, *, retry_at=None, provider_throttled=False):
         self.code = code
+        self.retry_at = retry_at
+        self.provider_throttled = provider_throttled
         super().__init__(code)
 
 
@@ -42,6 +83,8 @@ def request(
     missing_ok=False,
     allow_conflict=False,
     authorize_transfer=None,
+    usage_callback=None,
+    _budget=None,
 ):
     config = settings.PANDECT_CLOUDFLARE_SEARCH
     if (
@@ -60,11 +103,6 @@ def request(
     if not (namespace or collection):
         url += "/" + index.instance
     track = method == "POST" and path in ("/search", "/items")
-    if track:
-        # An operator can change public routing on either resource after provisioning.
-        private_namespace(index)
-        private_instance(index, request(index, "GET"))
-        authorize_transfer()
     headers = {
         "Authorization": "Bearer " + config["token"],
         "cf-aig-collect-log": "false",
@@ -85,32 +123,48 @@ def request(
     elif payload is not None:
         headers["Content-Type"] = "application/json"
         body = json.dumps(payload).encode()
-    outcome = "unavailable"
-    response_bytes = 0
-    try:
-        result, response_bytes = exchange(
-            Request(url + path, data=body, method=method, headers=headers),
-            missing_ok,
-            allow_conflict,
-        )
-        outcome = "complete"
-        return result
-    except HostedSearchError as exc:
-        outcome = exc.code
-        raise
-    finally:
+    budget_scope = nullcontext(_budget) if _budget else rate_limit.budget(index.account)
+    with budget_scope as budget:
+        if _budget is None and (retry_at := budget.reserve(3 if track else 1)):
+            raise HostedSearchError("search_rate_limit", retry_at=retry_at)
         if track:
-            operation = "search_query" if path == "/search" else "search_index"
-            transaction.on_commit(
-                partial(
-                    record_usage,
-                    index.case_key,
-                    operation,
-                    outcome,
-                    len(body or b""),
-                    response_bytes,
-                )
+            # Public routing can change on either resource after provisioning.
+            private_namespace(index, _budget=budget)
+            private_instance(index, request(index, "GET", _budget=budget))
+        if (_budget or track) and (retry_at := budget.cooldown()):
+            raise HostedSearchError("search_rate_limit", retry_at=retry_at)
+        if track:
+            authorize_transfer()
+
+        outcome = "unavailable"
+        response_bytes = 0
+        try:
+            result, response_bytes = exchange(
+                Request(url + path, data=body, method=method, headers=headers),
+                missing_ok,
+                allow_conflict,
             )
+            outcome = "complete"
+            return result
+        except HostedSearchError as exc:
+            outcome = exc.code
+            if exc.retry_at is not None:
+                exc.retry_at = budget.throttle(exc.retry_at)
+            raise
+        finally:
+            if track:
+                operation = "search_query" if path == "/search" else "search_index"
+                register_usage = usage_callback or transaction.on_commit
+                register_usage(
+                    partial(
+                        record_usage,
+                        index.case_key,
+                        operation,
+                        outcome,
+                        len(body or b""),
+                        response_bytes,
+                    )
+                )
 
 
 @transaction.atomic
@@ -132,7 +186,14 @@ def exchange(req, missing_ok, allow_conflict):
         with build_opener(NoRedirect()).open(req, timeout=15) as response:
             raw = response.read(MAX_RESPONSE + 1)
     except HTTPError as exc:
+        retry_after = exc.headers.get("Retry-After") if exc.headers else None
         exc.close()
+        if exc.code == 429:
+            raise HostedSearchError(
+                "search_rate_limit",
+                retry_at=rate_limit.retry_deadline(retry_after, timezone.now()),
+                provider_throttled=True,
+            ) from None
         if missing_ok and exc.code == 404:
             return None, 0
         if allow_conflict and exc.code == 409:
@@ -153,8 +214,8 @@ def exchange(req, missing_ok, allow_conflict):
     return value.get("result"), len(raw)
 
 
-def private_namespace(index):
-    namespace = request(index, "GET", namespace=True)
+def private_namespace(index, *, _budget=None):
+    namespace = request(index, "GET", namespace=True, _budget=_budget)
     if not isinstance(namespace, dict) or namespace.get("name") != index.namespace:
         raise HostedSearchError("search_instance_private")
     endpoint = namespace.get("public_endpoint_params")
@@ -188,22 +249,7 @@ def ensure_instance(index, authorize):
             allow_conflict=True,
             payload={
                 "id": index.instance,
-                "public_endpoint_params": {"enabled": False},
-                "embedding_model": "@cf/qwen/qwen3-embedding-0.6b",
-                "index_method": {"vector": True, "keyword": True},
-                "custom_metadata": [
-                    {"field_name": key, "data_type": value}
-                    for key, value in (
-                        ("pub", "number"),
-                        ("from_at", "number"),
-                        ("to_at", "number"),
-                        ("kind", "text"),
-                        ("surface", "text"),
-                    )
-                ],
-                "cache": False,
-                "rewrite_query": False,
-                "reranking": False,
+                **instance_settings(index.keyword_match_mode),
             },
         )
         if instance is None:

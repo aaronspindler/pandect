@@ -1,0 +1,40 @@
+<p class="search-index-stage"><strong>
+  {% if search_pending and search_index.reason %}
+    Waiting to retry indexing
+  {% elif search_pending and not search_index.provisioned %}
+    Setting up the private search index
+  {% elif search_pending and search_index.preparing %}
+    Preparing passages for search
+  {% elif search_pending and search_index.indexing and not search_index.awaiting_upload %}
+    Waiting for Cloudflare to finish indexing
+  {% else %}
+    {{ search_index.label }}
+  {% endif %}
+</strong></p>
+{% if search_index.reason %}<p class="muted">{{ search_index.reason }}</p>{% endif %}
+{% if search_pending and search_index.provisioned and search_index.preparing %}
+<p class="muted">Counts can grow as Pandect prepares more passages.</p>
+{% endif %}
+{% if search_index.provisioned or search_index.passages or search_index.awaiting_upload or search_index.indexing or search_index.failed %}
+<dl class="search-index-counts" aria-label="Passage counts">
+  <div><dt>Awaiting upload</dt><dd>{{ search_index.awaiting_upload|floatformat:'0g' }}</dd></div>
+  <div><dt>Indexing at Cloudflare</dt><dd>{{ search_index.indexing|floatformat:'0g' }}</dd></div>
+  <div><dt>Indexed</dt><dd>{{ search_index.passages|floatformat:'0g' }}</dd></div>
+  {% if search_index.failed %}
+  <div class="search-index-failed"><dt>Failed</dt><dd>{{ search_index.failed|floatformat:'0g' }}</dd></div>
+  {% endif %}
+</dl>
+{% endif %}
+{% if search_index.documents or search_index.checked_at or search_index.rechecking %}
+<p class="muted search-index-meta">
+  {% if search_index.documents %}<span>Indexed passages from {{ search_index.documents|floatformat:'0g' }} source{{ search_index.documents|pluralize }}</span>{% endif %}
+  {% if search_index.rechecking %}<span>Rechecking {{ search_index.rechecking|floatformat:'0g' }} previously indexed passage{{ search_index.rechecking|pluralize }}</span>{% endif %}
+  {% if search_index.checked_at %}<span>Last checked with Cloudflare <time datetime="{{ search_index.checked_at|date:'c' }}">{{ search_index.checked_at|date:'j M Y, H:i T' }}</time></span>{% endif %}
+</p>
+{% endif %}
+{% if can_edit and search_index.can_retry %}
+<form method="post" action="{% url 'core:search:retry' case.pk %}">
+  {% csrf_token %}
+  <button class="button button-secondary" type="submit">Resume indexing</button>
+</form>
+{% endif %}

@@ -4,6 +4,28 @@
 .analysis-section > :last-child { margin-bottom: 0; }
 .analysis-section .section-header h2 { margin: 0; }
 .processing-disclosure { margin-block: 0; }
+.search-index-progress { max-width: 46rem; padding-bottom: .75rem; }
+.search-index-progress p { margin: .25rem 0 0; }
+.search-index-stage { font-size: 1.25rem; }
+.search-index-counts {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 1rem;
+  margin: .75rem 0;
+  padding-block: .75rem;
+  border-block: 1px solid var(--divider);
+}
+.search-index-counts dt { margin: 0; color: var(--secondary); font-size: .875rem; }
+.search-index-counts dd { margin: .25rem 0 0; font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.search-index-failed dd { color: var(--danger); }
+.search-index-meta { display: flex; flex-wrap: wrap; gap: .25rem 1rem; font-size: .875rem; }
+.search-index-progress form { margin-top: .75rem; }
+@media (max-width: 36rem) {
+  .search-index-counts { grid-auto-flow: row; gap: .5rem; }
+  .search-index-counts div { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
+  .search-index-counts dd { margin: 0; font-size: 1.25rem; }
+}
 .processing-run-counts { max-width: 46rem; margin: 0; border-top: 1px solid var(--divider); }
 .processing-run-counts > div {
   display: grid;

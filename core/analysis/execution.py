@@ -36,6 +36,14 @@ OPENAI_TEXT_MODELS = {
     "narrative_relationships": "gpt-6-luna",
 }
 
+# OpenAI Responses models with image input and text output.
+OPENAI_VISION_MODELS = (
+    "gpt-5.4-mini",
+    "gpt-6-luna",
+    "gpt-6.1-terra",
+    "gpt-6.2-sol",
+)
+
 INFERENCE_OPERATIONS = (
     *(name for name, spec in OPERATIONS.items() if spec.inference),
     "evidence_chat",
@@ -152,6 +160,8 @@ def _installation_models(purpose, execution):
         and config["models"].get("text") == "auto"
     ):
         models.extend(OPENAI_TEXT_MODELS.values())
+    if purpose == "vision":
+        models.extend(OPENAI_VISION_MODELS)
     models.extend(config.get("model_choices", {}).get(purpose, ()))
     return tuple(dict.fromkeys(models))
 

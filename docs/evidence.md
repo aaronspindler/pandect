@@ -261,12 +261,13 @@ Each record shows the confirmed sender and the group destination, with a link
 to the retained CSV. **Info** shows the source row and the export's sender
 details. Group messages also appear in case search and chronology.
 
-Use **Search messages** on the **Messages** tab to find a word or exact phrase
-in the active messages in the conversation. Search ignores letter
-case and counts each matching timeline row once. **Previous match** and **Next
-match** jump between highlighted messages in the chronological transcript. You
-can read the surrounding messages and scroll to earlier or later pages as usual.
-**Clear search** keeps your place in the transcript.
+Use **Search messages** on the **Messages** tab to find literal text in the
+bodies of active messages in the conversation, including across pages. Search
+ignores letter case and counts each matching timeline row once. It runs in
+Pandect's database and works with external AI disabled. **Previous match** and
+**Next match** jump between highlighted messages in the chronological transcript.
+You can read the surrounding messages and scroll to earlier or later pages as
+usual. **Clear search** keeps your place in the transcript.
 
 Use **Jump to date** on either tab to go to the first recorded message on that
 day in the reader's display timezone. In **Sessions & summaries**, Pandect opens

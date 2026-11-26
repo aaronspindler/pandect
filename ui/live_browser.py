@@ -1,6 +1,7 @@
 """Explicit browser journeys for progress fragments, using isolated PostgreSQL."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -12,8 +13,14 @@ from config.tests.browser_base import BrowserTestCase
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
-from core.case_search.tests.fixtures import indexed
-from core.models import AnalysisRun
+from core.case_search import cloudflare, lifecycle, material
+from core.case_search.tests.fixtures import CONFIG, indexed
+from core.models import (
+    AnalysisRun,
+    HostedSearchIndex,
+    HostedSearchItem,
+    HostedSearchSource,
+)
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
 from geo.testing import csv_content
@@ -342,6 +349,89 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(breakdown).to_have_attribute("open", "")
                 expect(field).to_be_focused()
                 expect(field).to_have_value("complete")
+
+    @override_settings(PANDECT_CLOUDFLARE_SEARCH=CONFIG)
+    def test_search_index_progress_updates_in_the_open_disclosure(self):
+        self.case.external_ai_enabled = True
+        self.case.external_analysis_approval = {
+            "hosted_search": cloudflare.destination()
+        }
+        self.case.save(
+            update_fields=["external_ai_enabled", "external_analysis_approval"]
+        )
+        for engine in self.engines:
+            index = HostedSearchIndex.objects.create(
+                case_key=self.case.pk,
+                revision=self.case.external_ai_revision,
+                account=CONFIG["account"],
+                namespace=CONFIG["namespace"],
+                provisioned=True,
+                phase=len(material.surfaces()),
+            )
+            source = HostedSearchSource.objects.create(
+                index=index, surface="original", kind="text", source_key=self.source.pk
+            )
+            lifecycle.prepare_window(self.case, source)
+            item = HostedSearchItem.objects.get(source=source)
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
+                panel = page.locator("#case-search-index")
+                summary = panel.locator(":scope > summary")
+                expect(panel).to_have_attribute("open", "")
+                expect(panel.get_by_text("Awaiting upload", exact=True)).to_be_visible()
+                summary.focus()
+                with patch.object(
+                    cloudflare,
+                    "request",
+                    return_value={
+                        "key": item.filename,
+                        "id": item.pk.hex,
+                        "status": "running",
+                    },
+                ) as request:
+                    self.assertEqual(
+                        self.db(
+                            lifecycle.sync_index.call, str(index.pk), str(index.token)
+                        ),
+                        "queued",
+                    )
+                    request.assert_called_once()
+                metric = panel.locator('dt:text-is("Indexing at Cloudflare") + dd')
+                expect(metric).to_have_text("1", timeout=15000)
+                expect(summary).to_be_focused()
+                expect(panel).to_have_attribute("open", "")
+                expect(page.locator("#processing-activity")).to_have_attribute(
+                    "data-live-poll", "true"
+                )
+                summary.press("Enter")
+                expect(metric).to_be_hidden()
+                page.get_by_role("link", name="View search indexing progress").press(
+                    "Enter"
+                )
+                expect(metric).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"search-index-{width}x{height}")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 321
+                )
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "search-index-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "search-index-forced-colors")
+            index.delete()
 
     def test_hidden_tabs_failures_manual_retry_and_revocation(self):
         activity_url = self.url("cases:activity", case_id=self.case.pk)

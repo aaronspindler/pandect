@@ -280,6 +280,55 @@ class CaseInterfaceTests(TestCase):
         self.case.refresh_from_db()
         self.assertEqual(self.case.external_analysis_models, {})
 
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
+    def test_owner_can_select_distinct_vision_models_with_vision_approval(self):
+        self.login()
+        action = self.url("case_ai_settings")
+        form = self.client.get(self.url("case_settings")).context["ai_settings_form"]
+        for operation in ("ocr", "plate_ocr"):
+            groups = dict(form.fields[operation].choices)
+            self.assertEqual(groups[""], "Default · GPT-4.1 mini")
+            options = dict(groups["OpenAI"])
+            for model, label in (
+                ("gpt-5.4-mini", "GPT-5.4 mini"),
+                ("gpt-6-luna", "GPT-6 Luna"),
+                ("gpt-6.1-terra", "GPT-6.1 Terra"),
+                ("gpt-6.2-sol", "GPT-6.2 Sol"),
+            ):
+                self.assertEqual(options.get(model), label)
+
+        rejected = self.client.post(
+            action, self.ai_draft(ocr="openai/gpt-4o-transcribe")
+        )
+        self.assertTrue(rejected.context["ai_settings_form"].has_error("ocr"))
+
+        selected = {"ocr": "gpt-5.4-mini", "plate_ocr": "gpt-6.2-sol"}
+        review = self.client.post(action, self.ai_draft(**selected))
+        self.assertContains(review, "scanned PDF pages")
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_models, {})
+
+        vision_scope = [
+            row["scope_id"]
+            for row in review.context["destinations"]
+            if "scanned PDF pages" in row["material"]
+        ]
+        self.assertEqual(self.ai_confirm(review, vision_scope).status_code, 302)
+        self.case.refresh_from_db()
+        self.assertEqual(
+            self.case.external_analysis_models,
+            {operation: f"openai:{model}" for operation, model in selected.items()},
+        )
+        for operation, model in selected.items():
+            route = available_executions(self.case, operation, {})["gateway"]
+            self.assertEqual(
+                (route["provider"], route["api"], route["model"]),
+                ("openai", "responses", model),
+            )
+        self.assertNotIn(
+            "gateway", available_executions(self.case, "content_events", {})
+        )
+
     @override_settings(
         PANDECT_AI_GATEWAY=AUTO_OPENAI,
         PANDECT_CLOUDFLARE_SEARCH={

@@ -32,7 +32,7 @@ def indexed(case, sources):
                     index=index, surface=surface, kind=kind, source_key=key
                 )
                 while source.dirty:
-                    lifecycle.prepare_window(index, case, source)
+                    lifecycle.prepare_window(case, source)
                 for item in (
                     HostedSearchItem.objects.filter(source=source)
                     .exclude(status="delete")

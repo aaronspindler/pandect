@@ -1,5 +1,6 @@
 """Preparation, readiness and deliberate import checks remain case scoped."""
 
+from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -25,6 +26,8 @@ from core.models import (
     AnalysisRun,
     CaseAnalysisBatch,
     HostedSearchIndex,
+    HostedSearchItem,
+    HostedSearchSource,
 )
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -448,6 +451,91 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
                 for item in response.context["processing_summary"]
             },
             {"Queued work items": 2, "Processing": 3, "Processed": 5, "Failed": 3},
+        )
+
+    def test_search_index_progress_is_case_scoped(self):
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
+        index = HostedSearchIndex.objects.create(
+            case_key=self.case.pk,
+            revision=self.case.external_ai_revision,
+            provisioned=True,
+        )
+        checked_at = timezone.now()
+
+        def add_passages(destination, statuses, receipt_time):
+            source = HostedSearchSource.objects.create(
+                index=destination, surface="original", kind="text", source_key=uuid4()
+            )
+            HostedSearchItem.objects.bulk_create(
+                HostedSearchItem(
+                    source=source,
+                    status=status,
+                    start=start,
+                    length=1,
+                    available_at=checked_at,
+                    event_start=checked_at,
+                    event_end=checked_at,
+                    checked_at=receipt_time,
+                )
+                for start, status in enumerate(statuses)
+            )
+
+        add_passages(
+            index,
+            ("queued", "recover", "poll", "check", "completed", "error"),
+            checked_at,
+        )
+        newer = checked_at + timedelta(minutes=1)
+        add_passages(index, ("delete",), newer)
+        for case_key, retired in ((self.case.pk, True), (self.other_case.pk, False)):
+            stale = HostedSearchIndex.objects.create(
+                case_key=case_key, revision=uuid4(), retired=retired
+            )
+            add_passages(
+                stale, ("queued", "poll", "check", "completed", "error"), newer
+            )
+
+        expected = {
+            "awaiting_upload": 2,
+            "indexing": 1,
+            "rechecking": 1,
+            "passages": 2,
+            "failed": 1,
+            "checked_at": checked_at,
+            "preparing": True,
+        }
+        self.login("viewer")
+        for headers in ({}, {"X-Pandect-Live": "1"}):
+            with self.subTest(headers=headers):
+                response = self.client.get(self.processing_url(), headers=headers)
+                progress = response.context["search_index"]
+                self.assertEqual({key: progress[key] for key in expected}, expected)
+                self.assertTrue(response.context["live_pending"])
+                self.assertContains(response, 'id="case-search-index-progress"')
+                if not headers:
+                    self.assertContains(response, "Cloudflare AI Search indexing")
+                for label in ("Awaiting upload", "Indexing at Cloudflare", "Indexed"):
+                    self.assertContains(response, label)
+
+        HostedSearchIndex.objects.filter(pk=index.pk).update(
+            status="failed", error_code="search_item_failed"
+        )
+        self.assertNotContains(
+            self.client.get(self.processing_url()), "Resume indexing"
+        )
+        for role in ("owner", "editor"):
+            self.login(role)
+            self.assertContains(
+                self.client.get(self.processing_url()), "Resume indexing"
+            )
+        CaseMembership.objects.filter(
+            case=self.case, user=self.users["viewer"]
+        ).delete()
+        self.login("viewer")
+        revoked = self.client.get(self.processing_url(), HTTP_X_PANDECT_LIVE="1")
+        self.assertNotContains(
+            revoked, 'id="case-search-index-progress"', status_code=404
         )
 
     def test_message_preparation_progress_uses_the_case_batch_scope(self):
