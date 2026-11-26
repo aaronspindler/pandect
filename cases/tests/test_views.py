@@ -26,12 +26,18 @@ from core.analysis.execution import (
     validate_case_execution_grant,
 )
 from core.analysis.testing import approve_case_execution
+from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
 from geo.models import PersonLocationEvidence
 from geo.testing import LOCAL_GEOCODER
 from people.models import Person
 from phone.models import PhoneCallEvidence
 from text.models import TextEvidence
+
+CATALOG_OPENAI = AUTO_OPENAI | {
+    "workers_token": CONFIG["workers_token"],
+    "unified_billing": True,
+}
 
 
 @override_settings(PANDECT_PUBLIC_ORIGIN="https://pandect.example")
@@ -275,7 +281,7 @@ class CaseInterfaceTests(TestCase):
         self.case.refresh_from_db()
         self.assertEqual(self.case.external_analysis_models, {})
 
-    @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI | {"unified_billing": True})
+    @override_settings(PANDECT_AI_GATEWAY=CATALOG_OPENAI)
     def test_effort_choices_are_validated_and_saved_per_task(self):
         self.login()
         action = self.url("case_ai_settings")
@@ -283,7 +289,14 @@ class CaseInterfaceTests(TestCase):
         self.assertEqual(self.ai_confirm(review).status_code, 302)
         self.case.refresh_from_db()
         approval = self.case.external_analysis_approval
-        for model, effort in (("", "none"), ("openai/gpt-4o", "high"), ("", "invalid")):
+        for model, effort in (
+            ("", "none"),
+            ("openai/gpt-4o", "high"),
+            ("anthropic/claude-haiku-4.5", "low"),
+            ("anthropic/claude-sonnet-4.6", "xhigh"),
+            ("anthropic/claude-sonnet-5.5", "none"),
+            ("", "invalid"),
+        ):
             response = self.client.post(
                 action, self.ai_draft(evidence_chat=model, evidence_chat_effort=effort)
             )
@@ -313,6 +326,33 @@ class CaseInterfaceTests(TestCase):
         )
         self.case.refresh_from_db()
         self.assertEqual(self.case.external_analysis_efforts, {})
+
+    @override_settings(PANDECT_AI_GATEWAY=CATALOG_OPENAI)
+    def test_claude_effort_is_saved_with_an_approved_model_and_can_reset(self):
+        self.login()
+        action = self.url("case_ai_settings")
+        draft = self.ai_draft(
+            evidence_chat="anthropic/claude-sonnet-4.6",
+            evidence_chat_effort="max",
+        )
+        review = self.client.post(action, draft)
+        self.assertEqual(self.ai_confirm(review).status_code, 302)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_efforts, {"evidence_chat": "max"})
+        route = available_executions(self.case, "evidence_chat", {})["gateway"]
+        self.assertEqual(
+            route["inference_settings"]["output_config"], {"effort": "max"}
+        )
+        self.assertEqual(
+            self.client.post(
+                action, self.ai_draft(evidence_chat_effort="")
+            ).status_code,
+            302,
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_efforts, {})
+        route = available_executions(self.case, "evidence_chat", {})["gateway"]
+        self.assertNotIn("output_config", route["inference_settings"])
 
     @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
     def test_local_preferences_unavailable_models_and_legacy_exact_grants(self):

@@ -75,13 +75,57 @@ OPENAI_REASONING_EFFORTS = {
 }
 
 
+# Claude's direct API uses hyphens where the Cloudflare catalog uses dots.
+CLAUDE_EFFORTS = ("low", "medium", "high")
+CLAUDE_MAX_EFFORTS = (*CLAUDE_EFFORTS, "max")
+CLAUDE_FULL_EFFORTS = (*CLAUDE_EFFORTS, "xhigh", "max")
+ANTHROPIC_REASONING_EFFORTS = {
+    "claude-opus-4-5": CLAUDE_EFFORTS,
+    "claude-opus-4-6": CLAUDE_MAX_EFFORTS,
+    "claude-sonnet-4-6": CLAUDE_MAX_EFFORTS,
+    "claude-mythos-preview": CLAUDE_MAX_EFFORTS,
+    "claude-opus-4-7": CLAUDE_FULL_EFFORTS,
+    "claude-opus-4-8": CLAUDE_FULL_EFFORTS,
+    "claude-fable-5": CLAUDE_FULL_EFFORTS,
+    "claude-fable-5-1": CLAUDE_FULL_EFFORTS,
+    "claude-fable-5-2": CLAUDE_FULL_EFFORTS,
+    "claude-mythos-5": CLAUDE_FULL_EFFORTS,
+    "claude-mythos-5-1": CLAUDE_FULL_EFFORTS,
+    "claude-mythos-5-2": CLAUDE_FULL_EFFORTS,
+    "claude-opus-5": CLAUDE_FULL_EFFORTS,
+    "claude-opus-5-5": CLAUDE_FULL_EFFORTS,
+    "claude-sonnet-5": CLAUDE_FULL_EFFORTS,
+    "claude-sonnet-5-5": CLAUDE_FULL_EFFORTS,
+    "claude-haiku-5-5": CLAUDE_FULL_EFFORTS,
+}
+REASONING_SETTINGS = {
+    ("openai", "responses"): "reasoning",
+    ("anthropic", "messages"): "output_config",
+}
+
+
 def reasoning_efforts(execution):
-    if execution["provider"] != "openai" or execution["api"] != "responses":
+    provider, api = execution["provider"], execution["api"]
+    if (provider, api) not in REASONING_SETTINGS:
         return ()
-    model = re.sub(
-        r"-\d{4}-\d{2}-\d{2}$", "", execution["model"].removeprefix("openai/")
-    )
+    model = execution["model"].removeprefix(f"{provider}/")
+    if provider == "anthropic":
+        model = re.sub(r"-\d{8}$", "", model).replace(".", "-")
+        return ANTHROPIC_REASONING_EFFORTS.get(model, ())
+    model = re.sub(r"-\d{4}-\d{2}-\d{2}$", "", model)
     return OPENAI_REASONING_EFFORTS.get(model, ())
+
+
+def reasoning_setting(execution):
+    return REASONING_SETTINGS.get((execution["provider"], execution["api"]))
+
+
+def set_reasoning_effort(execution, effort):
+    if effort and effort in reasoning_efforts(execution):
+        key = reasoning_setting(execution)
+        execution["inference_settings"][key] = execution["inference_settings"].get(
+            key, {}
+        ) | {"effort": effort}
 
 
 def model_group(model, provider):

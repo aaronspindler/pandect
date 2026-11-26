@@ -115,6 +115,8 @@ class DirectAITests(EvidenceViewTestMixin, TestCase):
 
     @override_settings(PANDECT_AI_GATEWAY=ANTHROPIC_DIRECT)
     def test_anthropic_uses_messages_and_separate_system_instructions(self):
+        self.case.external_analysis_efforts = {"content_events": "xhigh"}
+        self.case.save(update_fields=["external_analysis_efforts"])
         run = self.queue()
         with patch("core.analysis.gateway.build_opener") as build:
             build.return_value.open.return_value = response(anthropic_reply())
@@ -129,12 +131,18 @@ class DirectAITests(EvidenceViewTestMixin, TestCase):
         self.assertNotIn("cf-aig-authorization", headers)
         payload = json.loads(request.data)
         self.assertEqual(payload["model"], DIRECT_AI["anthropic_model"])
+        self.assertEqual(payload["output_config"], {"effort": "xhigh"})
+        self.assertNotIn("reasoning", payload)
         self.assertGreater(payload["max_tokens"], 0)
         self.assertIn("untrusted", payload["system"])
         self.assertEqual([message["role"] for message in payload["messages"]], ["user"])
         self.assertIn(self.note.body, payload["messages"][0]["content"])
         self.assert_usage_and_provenance(
             run, request, DIRECT_AI["anthropic_model"], "anthropic", (19, 7)
+        )
+        self.assertEqual(
+            run.result.provenance["execution"]["inference_settings"]["output_config"],
+            payload["output_config"],
         )
         self.assertNotIn("Synthetic provider reasoning", json.dumps(run.result.data))
 

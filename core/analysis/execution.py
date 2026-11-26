@@ -15,6 +15,7 @@ from core.analysis.model_catalog import (
     model_group,
     model_purpose,
     reasoning_efforts,
+    set_reasoning_effort,
 )
 from core.analysis.operations import OPERATIONS
 
@@ -54,9 +55,7 @@ def gateway_execution(purpose, operation, *, case=None):
     """Retain the selected provider and method, never its credentials."""
     execution = _selected_gateway_execution(purpose, operation, case)
     if case is not None and purpose == "text":
-        effort = case.external_analysis_efforts.get(operation)
-        if effort and effort in reasoning_efforts(execution):
-            execution["inference_settings"]["reasoning"] = {"effort": effort}
+        set_reasoning_effort(execution, case.external_analysis_efforts.get(operation))
     return execution
 
 

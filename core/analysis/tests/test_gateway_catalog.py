@@ -81,8 +81,14 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
             ),
         ]:
             with self.subTest(model=model):
+                self.case.external_analysis_efforts = {"content_events": "xhigh"}
                 self.route(model)
-                self.case.save(update_fields=["external_analysis_models"])
+                self.case.save(
+                    update_fields=[
+                        "external_analysis_models",
+                        "external_analysis_efforts",
+                    ]
+                )
                 note = self.text()
                 run, _ = start_run(
                     self.users["owner"],
@@ -102,6 +108,14 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
                 payload = json.loads(request.data)
                 self.assertIn(param, payload)
                 self.assertEqual(payload["model"], model)
+                if endpoint == "messages":
+                    self.assertEqual(payload["output_config"], {"effort": "xhigh"})
+                    self.assertNotIn("reasoning", payload)
+                elif endpoint == "responses":
+                    self.assertEqual(payload["reasoning"], {"effort": "xhigh"})
+                else:
+                    self.assertNotIn("output_config", payload)
+                    self.assertNotIn("reasoning", payload)
                 headers = {k.lower(): v for k, v in request.header_items()}
                 self.assertEqual(headers["cf-aig-allowed-providers"], recipient)
                 self.assertEqual(headers["cf-aig-gateway-id"], CONFIG["gateway"])
