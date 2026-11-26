@@ -18,7 +18,8 @@ Provide a random secret of at least 32 characters as `PANDECT_AGENT_SECRET` to
 the Worker and Pandect's web and task services. Configure the Worker's
 `PANDECT_ORIGIN` with the canonical HTTPS Pandect origin, without a trailing
 slash. Set `PANDECT_AGENT_URL` on Pandect to the exact Worker endpoint ending
-in `/step`. The case owner approves this URL in Case Settings. Case Chat also
+in `/step`. Pandect identifies its requests with the `Pandect/0.1` user agent.
+The case owner approves the Worker URL in Case Settings. Case Chat also
 needs the case's AI Gateway model and private AI Search configuration.
 
 Worker callbacks require inbound HTTPS access to the Pandect web service at

@@ -263,6 +263,7 @@ class InvestigationTests(EvidenceViewTestMixin, TestCase):
             with self.assertRaisesMessage(AnalysisError, "chat_agent_unavailable"):
                 hosted_agent.dispatch(turn)
             request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_header("User-agent"), "Pandect/0.1")
             job = json.loads(request.data)
             self.assertEqual(set(job), {"case", "turn", "stage", "capability"})
             self.assertNotIn(turn.question, request.data.decode())

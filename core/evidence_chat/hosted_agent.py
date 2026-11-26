@@ -74,6 +74,7 @@ def dispatch(turn):
         headers={
             "Content-Type": "application/json",
             "Authorization": "Bearer " + config["secret"],
+            "User-Agent": "Pandect/0.1",
         },
     )
     try:
