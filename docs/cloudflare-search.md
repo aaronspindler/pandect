@@ -123,10 +123,13 @@ a claim. Narrative relationship suggestions have a separate passage-linked revie
 
 In **Processing**, open **Cloudflare AI Search indexing** to see the current stage,
 passages awaiting upload, passages indexing at Cloudflare, and indexed or failed passages.
+The source total covers the case's current discovery scope, including sources the
+worker has yet to prepare. A source can produce several passages, and preparation
+checks whether each source can be indexed.
 The panel also shows the last Cloudflare status recorded by the worker, when available.
 Previously indexed passages being rechecked are included in **Indexed** and called out
-separately. Counts cover prepared passages and can grow as Pandect discovers more case
-material. The panel refreshes from saved receipts as the worker progresses.
+separately. Passage counts cover prepared passages and can grow during preparation.
+The panel refreshes as the worker progresses.
 
 Owners and editors can resume a failed active index. Search and upload usage records
 contain transferred byte counts and status. A lost worker delivery retains its cursor

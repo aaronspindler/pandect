@@ -11,7 +11,7 @@ from core.models import HostedSearchIndex, HostedSearchItem, HostedSearchSource
 
 from .hosted import NOTICES, authorize
 from .lifecycle import changed, enqueue, reconcile
-from .material import surfaces
+from .material import source_count, surfaces
 
 
 def add_sources(case_id, source, ids):
@@ -61,10 +61,12 @@ def search_index_status(case, *, count_passages=True):
     )
     reason = (index.error_code if index else "") or ""
     counts = {"documents": 0, "passages": 0}
+    sources_in_scope = None
     if index:
         items = HostedSearchItem.objects.filter(source__index=index)
         indexed = Q(status__in=("completed", "check"))
         if count_passages:
+            sources_in_scope = source_count(case)
             # These are local passage receipts. Discovery may still add to them.
             counts = items.exclude(status="delete").aggregate(
                 documents=Count("source_id", filter=indexed, distinct=True),
@@ -96,6 +98,7 @@ def search_index_status(case, *, count_passages=True):
             reason, "Cloudflare search indexing was interrupted." if reason else ""
         ),
         "provisioned": bool(index and index.provisioned),
+        "sources_in_scope": sources_in_scope,
         **counts,
         "can_retry": status == "failed",
         "token": index.token if index else None,

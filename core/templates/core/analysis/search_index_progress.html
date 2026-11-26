@@ -12,8 +12,11 @@
   {% endif %}
 </strong></p>
 {% if search_index.reason %}<p class="muted">{{ search_index.reason }}</p>{% endif %}
+{% if search_index.sources_in_scope is not None %}
+<p><strong>{{ search_index.sources_in_scope|floatformat:'0g' }}</strong> source{{ search_index.sources_in_scope|pluralize }} in scope for indexing</p>
+{% endif %}
 {% if search_pending and search_index.provisioned and search_index.preparing %}
-<p class="muted">Counts can grow as Pandect prepares more passages.</p>
+<p class="muted">Passage counts can grow during preparation.</p>
 {% endif %}
 {% if search_index.provisioned or search_index.passages or search_index.awaiting_upload or search_index.indexing or search_index.failed %}
 <dl class="search-index-counts" aria-label="Passage counts">

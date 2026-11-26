@@ -13,7 +13,7 @@ from config.tests.browser_base import BrowserTestCase
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
-from core.case_search import cloudflare, lifecycle, material
+from core.case_search import cloudflare, lifecycle
 from core.case_search.tests.fixtures import CONFIG, indexed
 from core.models import (
     AnalysisRun,
@@ -366,7 +366,6 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 account=CONFIG["account"],
                 namespace=CONFIG["namespace"],
                 provisioned=True,
-                phase=len(material.surfaces()),
             )
             source = HostedSearchSource.objects.create(
                 index=index, surface="original", kind="text", source_key=self.source.pk
@@ -379,6 +378,10 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 panel = page.locator("#case-search-index")
                 summary = panel.locator(":scope > summary")
                 expect(panel).to_have_attribute("open", "")
+                source_total = panel.get_by_text(
+                    "1 source in scope for indexing", exact=True
+                )
+                expect(source_total).to_be_visible()
                 expect(panel.get_by_text("Awaiting upload", exact=True)).to_be_visible()
                 summary.focus()
                 with patch.object(
@@ -399,6 +402,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     request.assert_called_once()
                 metric = panel.locator('dt:text-is("Indexing at Cloudflare") + dd')
                 expect(metric).to_have_text("1", timeout=15000)
+                expect(source_total).to_be_visible()
                 expect(summary).to_be_focused()
                 expect(panel).to_have_attribute("open", "")
                 expect(page.locator("#processing-activity")).to_have_attribute(
@@ -421,12 +425,14 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
+                    panel.scroll_into_view_if_needed()
                     self.capture(page, engine, f"search-index-{width}x{height}")
                 page.evaluate("document.documentElement.style.fontSize = '200%'")
                 self.assertLessEqual(
                     page.evaluate("document.documentElement.scrollWidth"), 321
                 )
                 page.evaluate("document.documentElement.style.fontSize = ''")
+                panel.scroll_into_view_if_needed()
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
                 self.capture(page, engine, "search-index-dark")
                 page.emulate_media(color_scheme="light", forced_colors="active")

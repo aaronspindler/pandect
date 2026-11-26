@@ -87,6 +87,16 @@ def rows(case, surface, kind, through=None):
     )
 
 
+def source_count(case):
+    """Count the worker's discovery inventory before passage preparation."""
+    first, *others = (
+        rows(case, surface, kind).order_by().values_list("pk", flat=True)
+        for surface, kind in surfaces()
+    )
+    # Each surface is separate work, even if two surfaces share a UUID.
+    return first.union(*others, all=True).count()
+
+
 def _read(case, source, start=0, through=None, filters=None):
     surface, kind = source.surface, source.kind
     qs = rows(case, surface, kind, through).filter(pk=source.source_key)

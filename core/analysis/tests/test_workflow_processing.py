@@ -39,6 +39,7 @@ from geo.models import (
 )
 from geo.trip_processing import METHOD_VERSION
 from socialmedia.models import InstagramCheck, InstagramConnection, InstagramMonitor
+from text.models import TextEvidence
 
 
 class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
@@ -454,6 +455,19 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         )
 
     def test_search_index_progress_is_case_scoped(self):
+        indexed_source = self.text()
+        self.text()
+        self.text(
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.case.owner,
+        )
+        TextEvidence.objects.create(
+            case=self.other_case,
+            uploaded_by=self.other_case.owner,
+            title="Other case evidence",
+            body="Separate case material",
+        )
         self.case.external_ai_enabled = True
         self.case.save(update_fields=["external_ai_enabled"])
         index = HostedSearchIndex.objects.create(
@@ -463,9 +477,12 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         )
         checked_at = timezone.now()
 
-        def add_passages(destination, statuses, receipt_time):
+        def add_passages(destination, statuses, receipt_time, source_key=None):
             source = HostedSearchSource.objects.create(
-                index=destination, surface="original", kind="text", source_key=uuid4()
+                index=destination,
+                surface="original",
+                kind="text",
+                source_key=source_key or uuid4(),
             )
             HostedSearchItem.objects.bulk_create(
                 HostedSearchItem(
@@ -485,6 +502,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             index,
             ("queued", "recover", "poll", "check", "completed", "error"),
             checked_at,
+            indexed_source.pk,
         )
         newer = checked_at + timedelta(minutes=1)
         add_passages(index, ("delete",), newer)
@@ -497,6 +515,8 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             )
 
         expected = {
+            "sources_in_scope": 4,
+            "documents": 1,
             "awaiting_upload": 2,
             "indexing": 1,
             "rechecking": 1,
@@ -513,6 +533,11 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual({key: progress[key] for key in expected}, expected)
                 self.assertTrue(response.context["live_pending"])
                 self.assertContains(response, 'id="case-search-index-progress"')
+                self.assertContains(
+                    response,
+                    "<p><strong>4</strong> sources in scope for indexing</p>",
+                    html=True,
+                )
                 if not headers:
                     self.assertContains(response, "Cloudflare AI Search indexing")
                 for label in ("Awaiting upload", "Indexing at Cloudflare", "Indexed"):
