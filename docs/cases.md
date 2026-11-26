@@ -261,9 +261,9 @@ including email verification and shared authentication rate limits.
 Domain inspection requires `view_<model>` or `change_<model>` and any case role.
 Creation requires `add_<model>` and owner/editor access; editing requires
 `change_<model>` and owner/editor access. Permission names use the owning app,
-such as `people.add_person` or `document.view_documentevidence`. Deletion follows
-[people](people.md#django-admin), [vehicles](vehicles.md#django-admin-and-authorization),
-or [evidence](evidence.md#permanent-deletion).
+such as `people.add_person` or `document.view_documentevidence`. See the deletion
+rules for [people](people.md#django-admin), [vehicles](vehicles.md#django-admin-and-authorization),
+[evidence](evidence.md#permanent-deletion), and [saved chats](#delete-an-evidence-chat).
 
 Lists, searches, direct/history/deletion URLs, submitted cases, and inline IDs
 are scoped server-side. Revocation/downgrade affects subsequent requests in
@@ -296,11 +296,22 @@ changes roles, or removes members subject to model permissions.
 Memberships have no standalone admin. Viewers/editors cannot mutate cases or
 memberships even with global permissions.
 
+### Delete an Evidence chat
+
+Staff case owners with `core.delete_evidencechat` and the chat's view or change
+permission can open **Core → Evidence chats**, select a chat, and choose
+**Delete**. Review the confirmation before deleting the chat. The deletion
+permanently removes its replies, saved citations, request accounting, and any
+Important marks and notes attached to those replies. Wait for queued or running
+replies and approved extractions to finish before deleting. Original evidence
+and saved extraction results remain in the case.
+
 ### Read-only inspection
 
 Staff with the model's view or change permission can search and inspect records
 in their accessible cases. Invitation and Instagram approval inspection also
-requires case ownership. Read-only records have no add, save, or delete actions.
+requires case ownership. Saved Evidence chats have an
+[owner-only delete action](#delete-an-evidence-chat) on the inspection page.
 Use the case workflow for approvals, retries, edits, and current evidence.
 
 | Admin section | Records available for inspection |

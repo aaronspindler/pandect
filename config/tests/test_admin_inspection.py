@@ -1,18 +1,35 @@
 from datetime import timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from django.apps import apps
 from django.conf import settings
 from django.contrib import admin
+from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import Case, CaseInvitation, CaseMembership
-from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, CaseSearchIndex
+from core.models import (
+    AnalysisResult,
+    AnalysisRun,
+    CaseAnalysisBatch,
+    CaseSearchIndex,
+    ChatAnalysisProposal,
+    ChatMatch,
+    ChatSource,
+    ChatTurn,
+    EvidenceChat,
+    GatewayRequest,
+    ImportantItem,
+    ImportantNote,
+)
+from document.models import DocumentEvidence
 from geo.trip_models import VehicleTripState
 from people.models import Person
 from phone.models import (
@@ -22,6 +39,7 @@ from phone.models import (
     TextMessageEvidence,
 )
 from socialmedia.models import SocialAccount
+from text.models import TextEvidence
 from vehicle.models import Vehicle
 
 
@@ -60,6 +78,18 @@ class AdminInspectionTests(TestCase):
             operation="example-analysis",
             method_version="v1",
             parameters={"private": "synthetic-hidden-parameter"},
+        )
+        cls.chat = EvidenceChat.objects.create(
+            case=cls.case, created_by=cls.owner, title="Synthetic chat question"
+        )
+        cls.turn = ChatTurn.objects.create(
+            case=cls.case,
+            chat=cls.chat,
+            asked_by=cls.owner,
+            ordinal=1,
+            question=cls.chat.title,
+            submission_id=uuid4(),
+            status=ChatTurn.Status.COMPLETE,
         )
 
     def test_project_models_have_an_admin_or_an_intentional_workflow(self):
@@ -171,6 +201,178 @@ class AdminInspectionTests(TestCase):
             302,
         )
 
+    def grant_chat_admin_permissions(self, user):
+        user.user_permissions.add(
+            *Permission.objects.filter(
+                content_type__app_label="core",
+                codename__in=("view_evidencechat", "delete_evidencechat"),
+            )
+        )
+
+    def test_chat_delete_removes_saved_replies_and_keeps_cited_evidence(self):
+        evidence = TextEvidence.objects.create(
+            case=self.case, uploaded_by=self.owner, title="Example", body="Example text"
+        )
+        source = ChatSource.objects.create(
+            case=self.case,
+            turn=self.turn,
+            key="source",
+            locator={},
+            evidence_kind="text",
+            evidence_id=evidence.pk,
+        )
+        match = ChatMatch.objects.create(
+            case=self.case,
+            turn=self.turn,
+            source=source,
+            start=0,
+            end=7,
+            quote="Example",
+        )
+        usage = GatewayRequest.objects.create(
+            case=self.case,
+            chat_turn=self.turn,
+            operation=GatewayRequest.Operation.EVIDENCE_CHAT,
+            model="synthetic-model",
+            request_bytes=1,
+        )
+        mark = ImportantItem.objects.create(
+            case=self.case,
+            chat_turn=self.turn,
+            marked_by=self.owner,
+            marked_at=timezone.now(),
+        )
+        note = ImportantNote.objects.create(
+            item=mark, author=self.owner, body="Example note"
+        )
+        other_chat = EvidenceChat.objects.create(
+            case=self.case, created_by=self.owner, title="Another saved chat"
+        )
+        self.grant_chat_admin_permissions(self.owner)
+        self.client.force_login(self.owner)
+        delete_url = admin_url(EvidenceChat, "delete", self.chat)
+
+        response = self.client.get(admin_url(EvidenceChat, "change", self.chat))
+        self.assertContains(response, f'href="{delete_url}"')
+        self.assertNotContains(response, 'name="_save"')
+        response = self.client.get(delete_url)
+        self.assertContains(response, "Chat reply 1")
+        self.assertContains(response, str(note))
+        self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
+
+        self.assertRedirects(
+            self.client.post(delete_url, {"post": "yes"}),
+            reverse("admin:index"),
+        )
+        for obj in (self.chat, self.turn, source, match, usage, mark, note):
+            self.assertFalse(type(obj).objects.filter(pk=obj.pk).exists())
+        self.assertTrue(TextEvidence.objects.filter(pk=evidence.pk).exists())
+        self.assertTrue(EvidenceChat.objects.filter(pk=other_chat.pk).exists())
+        entry = LogEntry.objects.get(object_id=str(self.chat.pk), action_flag=DELETION)
+        self.assertEqual(entry.object_repr, str(self.chat.pk))
+
+    def test_chat_delete_requires_model_permission_and_case_ownership(self):
+        delete_url = admin_url(EvidenceChat, "delete", self.chat)
+        change_url = admin_url(EvidenceChat, "change", self.chat)
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 403)
+
+        self.owner.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="core", codename="delete_evidencechat"
+            )
+        )
+        self.assertEqual(self.client.get(delete_url).status_code, 403)
+        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 403)
+
+        self.grant_chat_admin_permissions(self.viewer)
+        self.client.force_login(self.viewer)
+        for role in (CaseMembership.Role.VIEWER, CaseMembership.Role.EDITOR):
+            with self.subTest(role=role):
+                self.membership.role = role
+                self.membership.save(update_fields=["role"])
+                self.assertNotContains(
+                    self.client.get(change_url), f'href="{delete_url}"'
+                )
+                self.assertEqual(
+                    self.client.post(delete_url, {"post": "yes"}).status_code, 403
+                )
+        self.membership.delete()
+        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 302)
+
+        self.client.force_login(self.operator)
+        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 302)
+        self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
+
+    def test_chat_delete_checks_for_active_replies_on_confirmation(self):
+        self.grant_chat_admin_permissions(self.owner)
+        self.client.force_login(self.owner)
+        delete_url = admin_url(EvidenceChat, "delete", self.chat)
+        self.assertContains(self.client.get(delete_url), 'name="post"')
+        for status in (ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING):
+            with self.subTest(status=status):
+                ChatTurn.objects.filter(pk=self.turn.pk).update(status=status)
+                response = self.client.post(delete_url, {"post": "yes"})
+                self.assertContains(
+                    response, "Wait for the current reply or approved extraction"
+                )
+                self.assertNotContains(response, 'name="post"')
+                self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
+
+    def test_chat_delete_waits_for_approved_extraction_and_keeps_its_run(self):
+        media_root = self.enterContext(TemporaryDirectory())
+        self.enterContext(self.settings(MEDIA_ROOT=media_root))
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Example PDF",
+            file=SimpleUploadedFile("example.pdf", b"%PDF-1.7\n%%EOF\n"),
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="native_text",
+            method_version="example",
+        )
+        proposal = ChatAnalysisProposal.objects.create(
+            parent=self.turn,
+            document=document,
+            sha256=document.sha256,
+            method_version=run.method_version,
+            status=ChatAnalysisProposal.Status.APPROVED,
+            approved_by=self.owner,
+            run=run,
+        )
+        self.grant_chat_admin_permissions(self.owner)
+        self.client.force_login(self.owner)
+        delete_url = admin_url(EvidenceChat, "delete", self.chat)
+
+        response = self.client.post(delete_url, {"post": "yes"})
+        self.assertContains(
+            response, "Wait for the current reply or approved extraction"
+        )
+        self.assertNotContains(response, 'name="post"')
+        self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
+
+        run.status = AnalysisRun.Status.FAILED
+        run.save(update_fields=("status",))
+        self.assertRedirects(
+            self.client.post(delete_url, {"post": "yes"}), reverse("admin:index")
+        )
+        self.assertFalse(ChatAnalysisProposal.objects.filter(pk=proposal.pk).exists())
+        self.assertTrue(AnalysisRun.objects.filter(pk=run.pk).exists())
+        self.assertTrue(DocumentEvidence.objects.filter(pk=document.pk).exists())
+
+    def test_chat_delete_blocks_cross_case_cascades(self):
+        ChatTurn.objects.filter(pk=self.turn.pk).update(case=self.other_case)
+        self.grant_chat_admin_permissions(self.owner)
+        self.client.force_login(self.owner)
+        delete_url = admin_url(EvidenceChat, "delete", self.chat)
+        response = self.client.post(delete_url, {"post": "yes"})
+        self.assertContains(response, "Related records have inconsistent case links")
+        self.assertNotContains(response, str(self.turn.pk))
+        self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
+
     def test_session_link_respects_archived_sources(self):
         person = Person.objects.create(case=self.case, first_name="Example")
         message = TextMessageEvidence.objects.create(
@@ -247,6 +449,7 @@ class AdminInspectionTests(TestCase):
                 )
                 self.assertEqual(response.status_code, 302)
                 self.assertFalse(type(child).objects.filter(pk=child.pk).exists())
+        self.assertFalse(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
 
         index = CaseSearchIndex.objects.create(
             case=self.other_case, requested_by=self.viewer, profile="v1"
