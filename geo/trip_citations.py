@@ -5,7 +5,12 @@ from django.db.models import Exists, F, OuterRef, Q
 from core.evidence.queries import scoped_evidence
 from core.models import ChatSource
 from geo.analysis.deterministic.trips import _snapshot
-from geo.trip_processing import METHOD_VERSION, _published_generation_states, _trips
+from geo.trip_processing import (
+    METHOD_VERSION,
+    _published_generation_states,
+    _trips,
+    versioned_trip_memberships,
+)
 
 # A chat citation carries every observation identity used in the saved trip.
 # Larger trips remain available in the paginated Trips workspace.
@@ -49,14 +54,8 @@ def citation_inputs(case, trip):
         .exclude(import_batch__document__is_archived=True)
     )
     members = list(
-        trip.sources.filter(
-            case=case,
-            input__case=case,
-            input__generation_id=trip.generation_id,
-            input__observation__in=originals,
-            input__sha256=F("input__observation__sha256"),
-        )
-        .order_by("ordinal")
+        versioned_trip_memberships(case, trip)
+        .filter(input__observation__in=originals)
         .select_related("input__observation")
         .defer(
             "input__observation__raw_row",

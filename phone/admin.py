@@ -114,32 +114,25 @@ class TextMessageEvidenceAdmin(EvidenceAdmin):
     type_fields = TextMessageEvidenceForm.type_fields
 
 
+class CallEvidenceAdmin(EvidenceAdmin):
+    def get_inlines(self, request, obj=None):
+        return self.inlines if obj is not None and obj.attachments.exists() else ()
+
+
 @admin.register(PhoneCallEvidence)
-class PhoneCallEvidenceAdmin(EvidenceAdmin):
+class PhoneCallEvidenceAdmin(CallEvidenceAdmin):
     kind = "phone-call"
     original_fields = PhoneCallEvidenceForm.original_fields
     type_fields = PhoneCallEvidenceForm.type_fields
-
-    def get_inlines(self, request, obj=None):
-        return (
-            (PhoneCallAttachmentInline,)
-            if obj is not None and obj.attachments.exists()
-            else ()
-        )
+    inlines = (PhoneCallAttachmentInline,)
 
 
 @admin.register(FaceTimeEvidence)
-class FaceTimeEvidenceAdmin(EvidenceAdmin):
+class FaceTimeEvidenceAdmin(CallEvidenceAdmin):
     kind = "facetime"
     original_fields = FaceTimeEvidenceForm.original_fields
     type_fields = FaceTimeEvidenceForm.type_fields
-
-    def get_inlines(self, request, obj=None):
-        return (
-            (FaceTimeAttachmentInline,)
-            if obj is not None and obj.attachments.exists()
-            else ()
-        )
+    inlines = (FaceTimeAttachmentInline,)
 
 
 @admin.register(CommunicationContext)

@@ -624,12 +624,6 @@
   flex:none;
 }
 
-.evidence-finding-meta {
-  display:flex;
-  flex-wrap:wrap;
-  gap:.25rem .5rem;
-}
-
 .evidence-check-status {
   display:flex;
   flex-wrap:wrap;

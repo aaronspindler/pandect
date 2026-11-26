@@ -34,7 +34,7 @@
         {% include 'geo/_chronology_journeys.html' %}
       </div></li>{% empty %}<li class="empty-state">No retained timestamps match these filters.</li>{% endfor %}
     </ol>
-    {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Chronology pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#chronology-events">Previous events</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#chronology-events">Next events</a>{% endif %}</nav>{% endif %}
+    {% include 'ui/components/pagination.html' with page=page_obj label='Chronology pages' query=request.GET anchor='chronology-events' item_label='events' only %}
   </section>
 </div>
 {% endblock %}

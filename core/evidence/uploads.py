@@ -1,10 +1,10 @@
 """Bound each original while streaming, before it fills temporary storage."""
 
-from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.core.files.uploadhandler import FileUploadHandler, SkipFile, StopUpload
 
+from accounts.verification import has_verified_email
 from cases.permissions import get_case
 
 CASE_FILE_FORMS = {
@@ -68,7 +68,7 @@ class LimitedUploadHandler(FileUploadHandler):
             if (
                 not match
                 or match.view_name not in CASE_FILE_FORMS
-                or not EmailAddress.objects.filter(user=user, verified=True).exists()
+                or not has_verified_email(user)
             ):
                 raise PermissionDenied
             get_case(user, match.kwargs["case_id"], edit=True)

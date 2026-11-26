@@ -7,7 +7,7 @@ from uuid import UUID
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
-from core.analysis.services import validate_output
+from core.analysis.result_validation import validate_output
 from core.analysis.sources import Source
 from geo.analysis.deterministic.journey_claims import compare_plans, validate_comparison
 from geo.tests.test_analysis import CASE, PERSON, START, VEHICLE, source

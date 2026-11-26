@@ -10,11 +10,13 @@ from django.urls import reverse
 from django.utils.html import escape
 
 from core.analysis.catalogue import project_result
-from core.analysis.services import process_run, resolve_inputs, start_run
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_inputs
 from core.analysis.sources import output, source_id
 from core.analysis.testing import external_grant_kwargs, local_ocr_response, wav_bytes
 from core.analysis.testing import preview_image_bytes as image_bytes
 from core.analysis.tests.test_gateway import CONFIG, TRANSCRIPTION_CONFIG
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

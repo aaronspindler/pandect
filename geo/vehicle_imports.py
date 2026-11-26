@@ -6,13 +6,20 @@ import io
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
+from core.csv_import import (
+    BoundedCSVRecords,
+    BoundedCSVStream,
+    CSVByteLimitExceeded,
+    CSVRecordLimitExceeded,
+    utc_candidates,
+)
 from core.storage import private_file
 
 HEADERS = (
@@ -28,6 +35,7 @@ HEADERS = (
 )
 MAX_ROWS = 100_000
 MAX_BYTES = 100 * 1024 * 1024
+MAX_RECORD_CHARS = 64 * 1024
 MAX_GROUPS = 100
 PARSER_VERSION = "asset-location.v3"
 SUPPORTED_PARSER_VERSIONS = {"asset-location.v1", "asset-location.v2", PARSER_VERSION}
@@ -78,66 +86,13 @@ def parse_timestamp(value, timezone_name, *, parser_version):
             continue
     else:
         raise ValueError(f"Use a timestamp such as {examples}.")
-    zone = ZoneInfo(timezone_name)
-    # A round trip distinguishes both repeated autumn times and missing spring times.
-    candidates = {
-        aware.astimezone(UTC)
-        for fold in (0, 1)
-        if (aware := local.replace(tzinfo=zone, fold=fold))
-        .astimezone(UTC)
-        .astimezone(zone)
-        .replace(tzinfo=None)
-        == local
-    }
+    candidates = utc_candidates(local, ZoneInfo(timezone_name))
     if len(candidates) != 1:
         raise ValueError(
             "This local time is ambiguous or does not exist in the export timezone. "
             "Obtain an export with unambiguous times before importing."
         )
     return candidates.pop()
-
-
-class BoundedReader(io.RawIOBase):
-    """Adapt private storage to a streaming UTF-8 reader with a hard byte bound."""
-
-    def __init__(self, original):
-        super().__init__()
-        self.original = original
-        self.size = 0
-        self.digest = hashlib.sha256()
-        self.limit = min(MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES)
-
-    def readable(self):
-        return True
-
-    def readinto(self, buffer):
-        chunk = self.original.read(min(len(buffer), self.limit - self.size + 1))
-        self.size += len(chunk)
-        if self.size > self.limit:
-            raise ValidationError("Choose a CSV within the import size limit.")
-        self.digest.update(chunk)
-        buffer[: len(chunk)] = chunk
-        return len(chunk)
-
-
-class BoundedCSVLines:
-    """Bound physical lines and whole logical records before csv allocates cells."""
-
-    def __init__(self, text):
-        self.text = text
-        self.record_chars = 0
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        line = self.text.readline(64 * 1024 + 1)
-        if not line:
-            raise StopIteration
-        self.record_chars += len(line)
-        if self.record_chars > 64 * 1024:
-            raise ValidationError("The CSV contains an oversized record.")
-        return line
 
 
 def iter_csv(
@@ -152,20 +107,19 @@ def iter_csv(
     if parser_version not in SUPPORTED_PARSER_VERSIONS:
         raise ValidationError("This import uses an unsupported parser version.")
     missing_speeds = ("",) if parser_version == "asset-location.v1" else ("", "-")
-    bounded = BoundedReader(original)
+    bounded = BoundedCSVStream(
+        original, byte_limit=min(MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES)
+    )
     with io.TextIOWrapper(
         io.BufferedReader(bounded), encoding="utf-8-sig", newline=""
     ) as text:
-        lines = BoundedCSVLines(text)
-        reader = csv.reader(lines, strict=True)
+        records = iter(BoundedCSVRecords(text, record_limit=MAX_RECORD_CHARS))
         count = 0
         try:
-            header = next(reader, [])
-            lines.record_chars = 0
+            header = next(records, [])
             if len(header) != len(HEADERS) or set(header) != set(HEADERS):
                 raise ValidationError("Use the nine-column Asset Location CSV export.")
-            for number, cells in enumerate(reader, 2):
-                lines.record_chars = 0
+            for number, cells in enumerate(records, 2):
                 if not cells:
                     continue
                 count += 1
@@ -237,6 +191,12 @@ def iter_csv(
                         "Heading must be N, NE, E, SE, S, SW, W, NW, or blank."
                     )
                 yield row
+        except CSVByteLimitExceeded:
+            raise ValidationError(
+                "Choose a CSV within the import size limit."
+            ) from None
+        except CSVRecordLimitExceeded:
+            raise ValidationError("The CSV contains an oversized record.") from None
         except UnicodeDecodeError:
             raise ValidationError(
                 "Save the CSV as UTF-8 and select it again."

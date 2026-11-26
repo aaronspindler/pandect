@@ -18,8 +18,8 @@ from django_tasks_db.models import DBTaskResult
 from cases.models import Case, CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch, start_case_analysis
 from core.analysis.reprocessing import start_reprocessing
-from core.analysis.services import process_run
 from core.analysis.tasks import prepare_case_analysis
+from core.analysis.worker import process_run
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, FILE_KINDS, KINDS
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin

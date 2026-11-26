@@ -11,8 +11,9 @@ from playwright.sync_api import expect
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import external_grant_kwargs
+from core.analysis.worker import process_run
 from core.models import AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from people.models import Person

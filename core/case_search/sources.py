@@ -7,13 +7,8 @@ from django.db.models.functions import Coalesce, Concat, Greatest, Least, NullIf
 
 from core.analysis.catalogue import finding_queryset
 from core.evidence.queries import scoped_evidence
-from core.evidence.types import (
-    COMMUNICATION_KINDS,
-    FILE_KINDS,
-    KIND_LABELS,
-    KINDS,
-    LOCATION_KINDS,
-)
+from core.evidence.source_clocks import timestamp_fields
+from core.evidence.types import FILE_KINDS, KIND_LABELS, KINDS
 from geo.models import PointOfInterest
 from geo.trip_processing import saved_trips
 from people.models import Person
@@ -64,20 +59,19 @@ class Source:
     identifiers: tuple = ()
 
 
+def original_date_fields(kind):
+    return (*timestamp_fields(kind, "all"), ("created_at", "Added"))
+
+
 def sources(case, kind):
     if kind in KINDS:
         qs = scoped_evidence(case, kind).filter(is_archived=False)
-        dates = (("collected_at", "Collected"), ("created_at", "Added"))
-        if kind in COMMUNICATION_KINDS:
-            dates = (("occurred_at", "Occurred"), *dates)
-        elif kind in LOCATION_KINDS:
-            dates = (("observed_at", "Observed"), *dates)
         ids = (
             "title",
             "sha256",
             *(("original_filename",) if kind in FILE_KINDS else ()),
         )
-        return Source(qs, F("title"), dates, ids)
+        return Source(qs, F("title"), original_date_fields(kind), ids)
     if kind == "conversation":
         qs = scoped_evidence(case, "text-message").filter(
             is_archived=False, recipient_id__isnull=False

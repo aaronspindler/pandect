@@ -8,10 +8,10 @@ from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
 from audio.models import AudioEvidence
-from core.analysis.services import process_run
 from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_gateway import CONFIG, response
 from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.worker import process_run
 from core.models import AnalysisRun, GatewayRequest
 from core.testing import EvidenceViewTestMixin
 

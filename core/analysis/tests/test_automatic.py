@@ -21,10 +21,12 @@ from core.analysis.automatic import (
 )
 from core.analysis.bulk import prepare_case_analysis_batch, resume_case_analysis
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import process_run, resolve_inputs, start_run
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_inputs
 from core.analysis.testing import external_grant_kwargs, image_bytes, wav_bytes
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, GatewayRequest
 from core.storage import retain_uploaded_originals
 from core.testing import EvidenceViewTestMixin

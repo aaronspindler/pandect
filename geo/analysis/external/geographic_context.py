@@ -16,19 +16,21 @@ from core.analysis.errors import AnalysisError
 from core.analysis.http import NoRedirect
 from core.analysis.sources import output
 from core.parsers import run_parser
-from geo.analysis.deterministic.locations import (
-    EARTH_RADIUS_M,
-    _clusters,
-    _iso,
-    _item,
-    _metrics,
-    _point,
-    _position_kind,
-    _selected,
-    _time,
-    _warnings,
-    distance_m,
+from geo.analysis.deterministic.observations import (
+    cluster_observations,
+    format_observed_time,
+    location_item,
     number,
+    observation_metrics,
+    observation_point,
+    observation_warnings,
+    observed_time,
+    position_kind,
+    selected_observations,
+)
+from geo.coordinates import (
+    EARTH_RADIUS_M,
+    distance_m,
 )
 
 MAX_AREAS = 25
@@ -183,7 +185,7 @@ class ContextClient:
 
 
 def geographic_context(sources, parameters, *, client=None, authorize=None):
-    sources = _selected(sources)
+    sources = selected_observations(sources)
     if (
         not getattr(settings, "PANDECT_MAP_CONTEXT_LOCAL", False)
         and parameters.get("external_processing") is not True
@@ -199,20 +201,21 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
     as_of = reference_time(parameters.get("context_as_of"))
     if as_of and (as_of > timezone.now() or as_of.microsecond):
         raise AnalysisError("map_context_invalid_reference_time")
-    groups = _clusters(sources, grouping)
+    groups = cluster_observations(sources, grouping)
     if not groups:
         return output(
             "No selected observation has usable coordinates. "
             "Review an address geocode first.",
-            metrics=_metrics(sources) | {"Excluded observations": len(sources)},
-            warnings=_warnings(sources),
+            metrics=observation_metrics(sources)
+            | {"Excluded observations": len(sources)},
+            warnings=observation_warnings(sources),
             outcome="insufficient",
         )
     client = client or ContextClient()
     items, artifacts = [], []
     snapshot_bytes = features = vertices = displayed = finding_bytes = 0
     failures = lookups = omitted_findings = truncations = 0
-    exclusions = sum(_point(source) is None for source in sources)
+    exclusions = sum(observation_point(source) is None for source in sources)
     partial = bool(exclusions)
     budgets_exhausted = False
 
@@ -228,8 +231,10 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
         return True
 
     for index, group in enumerate(groups):
-        center = _point(group[0])
-        window_radius = radius + max(distance_m(center, _point(s)) for s in group)
+        center = observation_point(group[0])
+        window_radius = radius + max(
+            distance_m(center, observation_point(s)) for s in group
+        )
         if (
             index >= MAX_AREAS
             or budgets_exhausted
@@ -239,7 +244,7 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
             exclusions += len(group)
             partial = True
             append(
-                _item(
+                location_item(
                     "Map context excluded",
                     "Narrow this selection or its grouping/search radius. Query, "
                     "geometry and output budgets are bounded; polar and "
@@ -338,7 +343,7 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
                 content,
                 options={
                     "center": center,
-                    "points": [_point(source) for source in group],
+                    "points": [observation_point(source) for source in group],
                     "radius_m": radius,
                     "boundary_m": boundary,
                     "max_features": MAX_FEATURES - features,
@@ -357,7 +362,7 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
             matched = set()
             for match in parsed["matches"]:
                 source = group[match["point_index"]]
-                item = _item(
+                item = location_item(
                     f"{', '.join(match['categories'])}: {match['name']}",
                     "Candidate geographic context for this observation. Map geometry "
                     "and labels do not establish presence, occupancy, a meeting "
@@ -374,8 +379,8 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
                             "boundary_distance_m"
                         ],
                         "Ambiguity band (m)": boundary,
-                        "Position origin": _position_kind(source),
-                        "Observation time": _iso(_time(source)),
+                        "Position origin": position_kind(source),
+                        "Observation time": format_observed_time(observed_time(source)),
                         "Geometry method": parsed["version"],
                     },
                 )
@@ -397,7 +402,7 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
                 or parsed["ignored_features"]
             ):
                 append(
-                    _item(
+                    location_item(
                         "Map reference coverage",
                         "No supported match was returned for some observations, "
                         "or the reference response has incomplete geometry/coverage. "
@@ -445,7 +450,7 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
             ):
                 values["Reference snapshot"] = reference_key
             append(
-                _item(
+                location_item(
                     "Map context unavailable",
                     "This lookup or its geometry could not be completed within "
                     "supported bounds. Completed references remain separate; retry "
@@ -458,7 +463,7 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
     result = output(
         "Inspect source-backed geographic context for selected observations.",
         items=items,
-        metrics=_metrics(sources)
+        metrics=observation_metrics(sources)
         | {
             "Spatial groups": len(groups),
             "External lookups": lookups,
@@ -472,7 +477,7 @@ def geographic_context(sources, parameters, *, client=None, authorize=None):
             "Findings omitted by display-byte limit": omitted_findings,
             "Geometry/display truncations": truncations,
         },
-        warnings=_warnings(sources)
+        warnings=observation_warnings(sources)
         + [
             "Map context describes the retained reference snapshot, not necessarily "
             "conditions at the observation time. Historical map state is not "

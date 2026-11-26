@@ -4,12 +4,7 @@
   {% if processing_back_url %}<a class="back-link" href="{{ processing_back_url }}">Back to Processing</a>
   {% else %}<a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>{% endif %}
   {% if run.status == 'queued' or run.status == 'running' %}
-    <section aria-labelledby="import-progress-heading">
-      <h1 id="import-progress-heading">{% if final %}Importing messages{% else %}Preparing message review{% endif %}</h1>
-      <p role="status">{{ run.progress_label }}</p>
-      {% include 'core/analysis/run_progress.html' %}
-      <p>You can return later while processing continues.</p>
-    </section>
+    {% include 'phone/imessage_preparation.html' with run=run final=final standalone=True only %}
   {% else %}
     <h1>{% partial import_outcome %}</h1>
     {% if run.status != 'complete' %}<p role="status">{{ run.get_status_display }}</p>{% endif %}

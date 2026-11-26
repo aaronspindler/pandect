@@ -2,11 +2,15 @@ from django.contrib import admin
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import F, Q
+from django.db.models.deletion import ProtectedError, RestrictedError
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from cases.admin_access import CaseAdminCascadeMixin, CaseScopedReadOnlyAdmin
+from cases.admin_access import CaseScopedReadOnlyAdmin
+from cases.deletion import CASCADE_CONFLICT, cascade_conflicts
+from cases.permissions import get_case
 
+from .evidence_chat.deletion import collect_chat_deletion
 from .models import (
     AnalysisArtifact,
     AnalysisFinding,
@@ -214,8 +218,9 @@ class GatewayRequestAdmin(CoreRecordAdmin):
 
 
 @admin.register(EvidenceChat)
-class EvidenceChatAdmin(CaseAdminCascadeMixin, CoreRecordAdmin):
-    delete_confirmation_max_display = 100
+class EvidenceChatAdmin(CoreRecordAdmin):
+    delete_confirmation_template = "core/admin/chat_delete_confirmation.html"
+    confirmation_required = "Confirm permanent deletion to continue."
     list_display = ("title", "case", "created_at")
     list_filter = ("created_at",)
     ordering = ("-created_at", "id")
@@ -230,31 +235,62 @@ class EvidenceChatAdmin(CaseAdminCascadeMixin, CoreRecordAdmin):
         )
 
     def get_deleted_objects(self, objs, request):
-        # On confirmation POST, the parent acquires the case lock used by chat
-        # submission and retry before we check for work in progress.
-        deleted, counts, permissions, protected = super().get_deleted_objects(
-            objs, request
-        )
+        chat = objs[0]
+        submitted = request.method == "POST"
+        if submitted:
+            # Django holds the transaction through delete_model. Chat submission
+            # and retry use this same case lock.
+            get_case(request.user, chat.case_id, owner=True, lock=True)
+        try:
+            collector = collect_chat_deletion(chat)
+        except ProtectedError, RestrictedError:
+            return (
+                [],
+                {},
+                set(),
+                ["Related records prevent this chat from being deleted."],
+            )
+        if cascade_conflicts(collector, chat.case_id):
+            return [], {}, set(), [CASCADE_CONFLICT]
+        if chat.turns.filter(
+            Q(status__in=(ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING))
+            | Q(
+                analysis_proposal__status=ChatAnalysisProposal.Status.APPROVED,
+                analysis_proposal__run__status__in=(
+                    AnalysisRun.Status.QUEUED,
+                    AnalysisRun.Status.RUNNING,
+                ),
+            )
+        ).exists():
+            return (
+                [],
+                {},
+                set(),
+                [
+                    "Wait for the current reply or approved extraction to finish "
+                    "before deleting this chat."
+                ],
+            )
         if (
-            not protected
-            and objs[0]
-            .turns.filter(
-                Q(status__in=(ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING))
-                | Q(
-                    analysis_proposal__status=ChatAnalysisProposal.Status.APPROVED,
-                    analysis_proposal__run__status__in=(
-                        AnalysisRun.Status.QUEUED,
-                        AnalysisRun.Status.RUNNING,
-                    ),
-                )
-            )
-            .exists()
+            submitted
+            and request.POST.get("post") == request.POST.get("confirm") == "yes"
         ):
-            protected.append(
-                "Wait for the current reply or approved extraction to finish "
-                "before deleting this chat."
+            request.chat_deletion_collector = collector
+            return [], {}, set(), []
+        protected = [self.confirmation_required] if submitted else []
+        return [], collector.record_counts(), set(), protected
+
+    def render_delete_form(self, request, context):
+        if context["protected"] == [self.confirmation_required]:
+            context.update(
+                protected=[],
+                confirmation_error=self.confirmation_required,
+                title="Delete",
             )
-        return deleted, counts, permissions, protected
+        return super().render_delete_form(request, context)
+
+    def delete_model(self, request, obj):
+        request.chat_deletion_collector.delete()
 
     def log_deletions(self, request, queryset):
         # The title contains question text. Keep only the chat ID in the audit log.

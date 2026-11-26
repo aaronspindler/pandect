@@ -143,8 +143,14 @@ def result_navigation(query, case_id):
     return params
 
 
+def run_url(case_id, run_id):
+    return reverse(
+        "core:analysis:detail", kwargs={"case_id": case_id, "run_id": run_id}
+    )
+
+
 def finding_url(case_id, run_id, finding_index, *, show_weak=False, history=None):
-    url = reverse("core:analysis:detail", kwargs={"case_id": case_id, "run_id": run_id})
+    url = run_url(case_id, run_id)
     params = {"weak": 1} if show_weak else {}
     params.update(
         page=finding_index // FINDINGS_PER_PAGE + 1, finding=finding_index + 1

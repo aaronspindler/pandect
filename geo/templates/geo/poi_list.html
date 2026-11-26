@@ -9,5 +9,5 @@
   </li>
 {% endfor %}
 </ul>
-{% if poi_page.has_other_pages %}<nav class="pagination" aria-label="POI pages">{% if poi_page.has_previous %}<a class="button button-secondary" href="{% querystring poi_page=poi_page.previous_page_number %}#poi-list">Previous POIs</a>{% endif %}<span>Page {{ poi_page.number }} of {{ poi_page.paginator.num_pages }}</span>{% if poi_page.has_next %}<a class="button button-secondary" href="{% querystring poi_page=poi_page.next_page_number %}#poi-list">Next POIs</a>{% endif %}</nav>{% endif %}
+{% include 'ui/components/pagination.html' with page=poi_page label='POI pages' query=request.GET parameter='poi_page' anchor='poi-list' item_label='POIs' only %}
 {% else %}<p class="muted">{% if query %}No matching POIs. Try another search.{% else %}No POIs yet. Add a Home, Work, or custom place linked to a person.{% endif %}</p>{% endif %}

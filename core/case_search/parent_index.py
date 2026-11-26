@@ -8,7 +8,7 @@ from django.db.models import Avg, F, Q
 from django.http import Http404
 from django.tasks import task
 
-from core.case_search.indexing import authorize
+from cases.permissions import get_case_for_verified_user
 from core.case_search.parent_material import material, origins
 from core.case_search.parents import VERSION
 from core.case_search.semantic_model import CHUNK_BYTES, profile
@@ -50,7 +50,7 @@ def _pooled(case, anchors, identity):
 @transaction.atomic
 def index_parent(case_id, actor_id, source, key, offset=0):
     try:
-        case = authorize(actor_id, case_id, edit=True, lock=True)
+        case = get_case_for_verified_user(actor_id, case_id, edit=True, lock=True)
     except Http404, PermissionDenied:
         return
     rows, following = material(case, source, key, offset)
@@ -87,7 +87,7 @@ def index_parent(case_id, actor_id, source, key, offset=0):
 @transaction.atomic
 def refresh_parent_vectors(case_id, actor_id, keys, cursor=None):
     try:
-        case = authorize(actor_id, case_id, edit=True, lock=True)
+        case = get_case_for_verified_user(actor_id, case_id, edit=True, lock=True)
     except Http404, PermissionDenied:
         return
     identity = profile()
@@ -113,7 +113,7 @@ def refresh_parent_vectors(case_id, actor_id, keys, cursor=None):
 def index_children(case_id, actor_id, source, scope, cursor=None):
     """Queue small batches when a grouping or extraction run publishes many rows."""
     try:
-        case = authorize(actor_id, case_id, edit=True, lock=True)
+        case = get_case_for_verified_user(actor_id, case_id, edit=True, lock=True)
     except Http404, PermissionDenied:
         return
     rows = origins(case, source).filter(**scope).order_by("pk").distinct()
@@ -133,7 +133,7 @@ def scan_parents(scan_id, actor_id, version, phase, cursor):
     if not scan or phase >= len(ORIGINS):
         return
     try:
-        case = authorize(actor_id, scan.case_id, edit=True, lock=True)
+        case = get_case_for_verified_user(actor_id, scan.case_id, edit=True, lock=True)
     except Http404, PermissionDenied:
         return
     scan = (
@@ -166,7 +166,7 @@ def scan_parents(scan_id, actor_id, version, phase, cursor):
 
 @transaction.atomic
 def prepare_parents(case, actor, *, retry=False):
-    case = authorize(actor.pk, case.pk, edit=True, lock=True)
+    case = get_case_for_verified_user(actor.pk, case.pk, edit=True, lock=True)
     scan, created = SearchParentScan.objects.get_or_create(
         case=case, defaults={"version": VERSION}
     )

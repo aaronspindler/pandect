@@ -25,7 +25,7 @@ from ui.live import render_live
 
 from . import activity, services
 from .forms import QuestionForm
-from .jobs import review_restart_code
+from .search_scope import review_restart_code
 
 
 def _route_context(case, *, turn=None):

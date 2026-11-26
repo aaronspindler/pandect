@@ -10,12 +10,14 @@ from django.views.decorators.http import require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.evidence.daily_chronology import daily_chronology, timestamp_fields
+from core.evidence.daily_chronology import daily_chronology
 from core.evidence.queries import local_date_range, person_evidence, scoped_evidence
 from core.evidence.source_clocks import (
     attach_clock_details,
     attach_unplaced_dates,
     is_date_only_message,
+    timestamp_fields,
+    timestamp_records,
 )
 from core.evidence.time_claims import time_claims_page
 from core.evidence.types import KIND_LABELS, KINDS
@@ -101,13 +103,11 @@ def chronology_records(case, filters):
     queries = []
     for kind, queryset in _filtered_sources(case, filters):
         for field, label in timestamp_fields(kind, filters["category"]):
-            events = queryset.filter(**{f"{field}__isnull": False}).annotate(
+            events = timestamp_records(queryset, case, kind, field).annotate(
                 event_at=F(field),
                 event_label=Value(label, output_field=CharField()),
                 kind=Value(kind, output_field=CharField()),
             )
-            if kind == "text-message" and field == "occurred_at":
-                events = events.filter(~is_date_only_message(case))
             queries.append(
                 events.filter(**date_range)
                 .order_by()

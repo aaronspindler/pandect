@@ -141,14 +141,14 @@ class CollectionPaginationTests(EvidenceViewTestMixin, TestCase):
             "browse_sources": "next",
             "source_after": first.context["form"].source_page.after,
         }
-        with patch("core.analysis.views.start_selected_analysis") as start:
+        with patch("core.analysis.submission_views.start_selected_analysis") as start:
             last = self.client.post(url, post)
             start.assert_not_called()
         self.assertEqual(last.context["form"].source_page.number, 2)
         self.assertEqual(last.context["form"].retained_sources[0][0], selected)
         self.assertContains(last, f'type="hidden" name="sources" value="{selected}"')
         added = last.context["form"].source_page[-1][0]
-        with patch("core.analysis.views.start_selected_analysis") as start:
+        with patch("core.analysis.submission_views.start_selected_analysis") as start:
             searched = self.client.post(
                 url,
                 post
@@ -161,7 +161,7 @@ class CollectionPaginationTests(EvidenceViewTestMixin, TestCase):
             start.assert_not_called()
         self.assertEqual(len(searched.context["form"].source_page), 1)
         self.assertEqual(len(searched.context["form"].retained_sources), 2)
-        with patch("core.analysis.views.start_selected_analysis") as start:
+        with patch("core.analysis.submission_views.start_selected_analysis") as start:
             empty = self.client.post(
                 url,
                 post
@@ -189,7 +189,7 @@ class CollectionPaginationTests(EvidenceViewTestMixin, TestCase):
             set(cleared.context["form"].data.getlist("sources")), {selected, added}
         )
         with patch(
-            "core.analysis.views.start_selected_analysis",
+            "core.analysis.submission_views.start_selected_analysis",
             side_effect=ValueError("should not queue"),
         ) as start:
             removed = self.client.post(url, post | {"remove_source": selected})

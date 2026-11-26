@@ -6,12 +6,12 @@ from json import dumps
 from math import isfinite
 from uuid import uuid5
 
-from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Count, Exists, F, OuterRef, Q
 from django.utils import timezone
 
+from accounts.verification import has_verified_email
 from cases.permissions import get_case
 from core.analysis.errors import AnalysisError, error_message
 from people.models import Person
@@ -338,7 +338,7 @@ def _prepare_revision(revision, case, batch):
         actor = batch.requested_by
         actor.refresh_from_db(fields=("is_active",))
         get_case(actor, case.pk, edit=True)
-        if not EmailAddress.objects.filter(user=actor, verified=True).exists():
+        if not has_verified_email(actor):
             raise PermissionDenied
         revision.published_at = timezone.now()
         revision.published_by_id = batch.requested_by_id

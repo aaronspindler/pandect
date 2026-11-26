@@ -15,9 +15,11 @@ from core.analysis.artifacts import decode_artifact
 from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
 from core.analysis.forms import analysis_form
-from core.analysis.services import process_run, resolve_inputs, start_run
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_inputs
 from core.analysis.sources import output
 from core.analysis.testing import local_ocr_response
+from core.analysis.worker import process_run
 from core.models import (
     AnalysisArtifact,
     AnalysisResult,
@@ -316,7 +318,7 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
             outcome="partial",
         ) | {"artifacts": [artifact]}
         with patch(
-            "core.analysis.services.get_operation",
+            "core.analysis.worker.get_operation",
             return_value=SimpleNamespace(
                 version=run.method_version,
                 function=Mock(return_value=data),

@@ -8,9 +8,10 @@ from django.test import TestCase, override_settings
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from text.models import TextEvidence

@@ -3,7 +3,7 @@
 from django.test import TestCase
 from django.urls import reverse
 
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.models import SavedSelection
 from core.testing import EvidenceViewTestMixin
 

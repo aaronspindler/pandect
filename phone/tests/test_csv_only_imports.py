@@ -8,7 +8,9 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.analysis.operations import get_operation
-from core.analysis.services import process_run, snapshot_sources, start_run
+from core.analysis.services import start_run
+from core.analysis.source_selection import snapshot_sources
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

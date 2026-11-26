@@ -17,12 +17,12 @@ from cases.permissions import case_context
 from core.evidence.queries import scoped_evidence
 from core.evidence.source_clocks import (
     attach_daily_message_clocks,
-    is_date_only_message,
     set_call_interval,
+    timestamp_fields,
+    timestamp_records,
 )
 from core.evidence.types import (
     CALL_KINDS,
-    COMMUNICATION_KINDS,
     KIND_LABELS,
     KINDS,
     LOCATION_KINDS,
@@ -70,16 +70,6 @@ class DayForm(forms.Form):
         return day
 
 
-def timestamp_fields(kind, category):
-    if category in ("all", "observed"):
-        if kind in COMMUNICATION_KINDS:
-            yield "occurred_at", "Occurred"
-        elif kind in LOCATION_KINDS:
-            yield "observed_at", "Observed"
-    if category in ("all", "acquired"):
-        yield "collected_at", "Collected"
-
-
 def _timeline_day(stamp):
     day = timezone.localdate(stamp)
     # A change near midnight can make the wall date disagree with the
@@ -98,11 +88,8 @@ def _nearest_recorded_day(case, *, boundary=None, forward=False):
     branches = []
     for kind in KINDS:
         for field, _ in timestamp_fields(kind, "all"):
-            query = scoped_evidence(case, kind).filter(
-                is_archived=False, **{field + "__isnull": False}
-            )
-            if field == "occurred_at" and kind == "text-message":
-                query = query.filter(~is_date_only_message(case))
+            records = scoped_evidence(case, kind).filter(is_archived=False)
+            query = timestamp_records(records, case, kind, field)
             if boundary is not None:
                 query = query.filter(**{field + lookup: boundary})
             branches.append(

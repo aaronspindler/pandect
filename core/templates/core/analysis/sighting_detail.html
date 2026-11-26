@@ -47,13 +47,7 @@
   <ul class="source-list">
     {% for row in alternatives %}<li><a href="{% url 'core:analysis:sighting_detail' case.pk row.run.pk %}">{{ row.title }} · {{ row.description }}</a> <small>{{ row.run.created_at|date:'j M Y, H:i T' }}</small></li>{% endfor %}
   </ul>
-  {% if alternatives.has_other_pages %}
-  <nav class="pagination" aria-label="Alternative group pages">
-    {% if alternatives.has_previous %}<a class="button button-secondary" href="{% querystring alternatives=alternatives.previous_page_number %}#sighting-alternatives">Previous</a>{% endif %}
-    <span>Page {{ alternatives.number }} of {{ alternatives.paginator.num_pages }}</span>
-    {% if alternatives.has_next %}<a class="button button-secondary" href="{% querystring alternatives=alternatives.next_page_number %}#sighting-alternatives">Next</a>{% endif %}
-  </nav>
-  {% endif %}
+  {% include 'ui/components/pagination.html' with page=alternatives label='Alternative group pages' query=request.GET parameter='alternatives' anchor='sighting-alternatives' only %}
 </section>
 {% endif %}
 {% if can_edit and not stale_code %}
@@ -72,13 +66,7 @@
 <details class="disclosure" id="sighting-review-history"{% if request.GET.reviews %} open{% endif %}>
   <summary>Review history</summary>
   <ul class="source-list">{% for entry,label in history_rows %}<li><strong>{{ label }}</strong> · {{ entry.reviewed_by.get_username }} · <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:'j M Y, H:i T' }}</time></li>{% endfor %}</ul>
-  {% if history.has_other_pages %}
-  <nav class="pagination" aria-label="Review history pages">
-    {% if history.has_previous %}<a class="button button-secondary" href="{% querystring reviews=history.previous_page_number %}#sighting-review-history">Previous</a>{% endif %}
-    <span>Page {{ history.number }} of {{ history.paginator.num_pages }}</span>
-    {% if history.has_next %}<a class="button button-secondary" href="{% querystring reviews=history.next_page_number %}#sighting-review-history">Next</a>{% endif %}
-  </nav>
-  {% endif %}
+  {% include 'ui/components/pagination.html' with page=history label='Review history pages' query=request.GET parameter='reviews' anchor='sighting-review-history' only %}
 </details>
 {% endif %}
 <details class="disclosure">

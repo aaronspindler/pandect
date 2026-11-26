@@ -19,20 +19,16 @@ from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
 from cases.models import Case, CaseMembership
+from core.analysis.address_estimates import require_current_geocode_reviews
 from core.analysis.errors import AnalysisError
 from core.analysis.operations import get_operation
-from core.analysis.services import (
-    cancel_run,
-    process_run,
-    require_current_geocode_reviews,
-    resolve_inputs,
-    resolve_snapshots,
-    snapshot_sources,
-    start_run,
-    validate_output,
-)
+from core.analysis.result_validation import validate_output
+from core.analysis.services import cancel_run, start_run
+from core.analysis.source_resolution import resolve_inputs, resolve_snapshots
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import Source, output
 from core.analysis.testing import external_grant_kwargs
+from core.analysis.worker import process_run
 from core.models import (
     AnalysisResult,
     AnalysisReview,
@@ -211,7 +207,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             for index in range(2)
         ]
         selections = [self.selection(item) for item in texts]
-        patch_target = "core.analysis.services.resolve_snapshots"
+        patch_target = "core.analysis.source_resolution.resolve_snapshots"
         with (
             patch(patch_target) as hydrate,
             self.assertRaisesMessage(ValidationError, "exceed 1,000,000 characters"),
@@ -231,7 +227,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
 
     def test_submission_resolves_content_once(self):
         with patch(
-            "core.analysis.services.resolve_snapshots", wraps=resolve_snapshots
+            "core.analysis.source_resolution.resolve_snapshots", wraps=resolve_snapshots
         ) as hydrate:
             self.start()
         self.assertEqual(hydrate.call_count, 1)
@@ -367,9 +363,12 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             return extract_entities(sources, parameters)
 
         with (
-            patch("core.analysis.services.resolve_inputs", side_effect=observe_sources),
             patch(
-                "core.analysis.services.get_operation",
+                "core.analysis.source_resolution.resolve_inputs",
+                side_effect=observe_sources,
+            ),
+            patch(
+                "core.analysis.worker.get_operation",
                 return_value=SimpleNamespace(
                     function=observe_analysis, version=run.method_version
                 ),
@@ -402,7 +401,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             return extract_entities(sources, parameters)
 
         with patch(
-            "core.analysis.services.get_operation",
+            "core.analysis.worker.get_operation",
             return_value=SimpleNamespace(
                 function=cancelled_operation, version=second.method_version
             ),
@@ -424,7 +423,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             return extract_entities(sources, parameters)
 
         with patch(
-            "core.analysis.services.get_operation",
+            "core.analysis.worker.get_operation",
             return_value=SimpleNamespace(function=revoke, version=run.method_version),
         ):
             self.assertEqual(process_run(str(run.pk)), "access_removed")
@@ -554,7 +553,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
     def test_processing_resolves_inputs_once_before_work_and_again_at_publication(self):
         run, _ = self.start()
         with patch(
-            "core.analysis.services.resolve_inputs", wraps=resolve_inputs
+            "core.analysis.source_resolution.resolve_inputs", wraps=resolve_inputs
         ) as resolve:
             process_run(str(run.pk))
         self.assertEqual(resolve.call_count, 2)
@@ -569,7 +568,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             [self.selection(result_id=str(run.result.pk)) for run in (first, second)],
         )
         with patch(
-            "core.analysis.services.hashlib.sha256", wraps=hashlib.sha256
+            "core.analysis.source_resolution.hashlib.sha256", wraps=hashlib.sha256
         ) as digest:
             self.assertEqual(len(resolve_inputs(current, self.case)), 2)
         self.assertEqual(digest.call_count, 1)
@@ -959,7 +958,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             raise RuntimeError("Synthetic private publication failure")
 
         with patch(
-            "core.analysis.services.AnalysisResult.objects.create",
+            "core.analysis.worker.AnalysisResult.objects.create",
             side_effect=fail_after_insert,
         ):
             self.assertEqual(process_run(str(run.pk)), "processing_failed")
@@ -1021,7 +1020,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         changed = SimpleNamespace(
             function=function, version=get_operation("entities").version + ".changed"
         )
-        with patch("core.analysis.services.get_operation", return_value=changed):
+        with patch("core.analysis.worker.get_operation", return_value=changed):
             self.assertEqual(process_run(str(run.pk)), "processing_version_unavailable")
         function.assert_not_called()
         self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
@@ -1033,7 +1032,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             raise RuntimeError("Synthetic sensitive source text and credentials")
 
         with patch(
-            "core.analysis.services.get_operation",
+            "core.analysis.worker.get_operation",
             return_value=SimpleNamespace(
                 function=failed_operation, version=run.method_version
             ),
@@ -1119,7 +1118,7 @@ class QueuePublicationTests(TransactionTestCase):
 
         with (
             patch(
-                "core.analysis.services.resolve_inputs",
+                "core.analysis.source_resolution.resolve_inputs",
                 side_effect=resolve_after_both_checks,
             ),
             ThreadPoolExecutor(max_workers=2) as executor,

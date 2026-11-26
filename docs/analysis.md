@@ -843,9 +843,14 @@ credentials.
 `core.evidence.types` registers ten types; `core.evidence.queries` checks same-case
 references. `core.analysis.reports` dispatches phone/geo reports; duplicates and
 neutral helpers stay in core. [Architecture](architecture.md#dependency-boundaries)
-owns composition/parser boundaries. `core.analysis.services` handles access,
-snapshots, publication, and estimate selection. `operations` dispatches processors. UUID-only
-tasks separate durable runs, results, and search records from disposable queue records.
+owns composition/parser boundaries. `core.analysis.services` owns run submission
+and cancellation. `source_selection` records exact versions of selected originals
+and derivatives, and `source_resolution` reopens them with current integrity and
+dependency checks. `worker` rechecks access and approval, dispatches the processors
+registered in `operations`, validates their output through `result_validation`, and
+publishes results and follow-ups. `address_estimates` owns estimate decisions and
+checks their current revisions. UUID-only tasks separate durable runs, results, and
+search records from disposable queue records.
 
 Shared factories select domain forms; bases own selection/submission, processing
 location/approval, archive and periods. Domain forms validate/serialize operations.

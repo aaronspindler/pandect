@@ -4,7 +4,6 @@ import time
 from itertools import batched
 from uuid import uuid4, uuid5
 
-from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
@@ -12,6 +11,7 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from accounts.verification import has_verified_email
 from cases.permissions import get_case
 from core.storage import file_integrity, retain_uploaded_originals, staged_file_upload
 from document.models import DocumentEvidence
@@ -241,7 +241,7 @@ def _authorize(batch, *, lock=False):
     except get_user_model().DoesNotExist:
         raise Http404 from None
     case = get_case(actor, batch.case_id, edit=True, lock=lock)
-    if not EmailAddress.objects.filter(user=actor, verified=True).exists():
+    if not has_verified_email(actor):
         raise PermissionDenied("Verify your email before processing.")
     archived = (
         DocumentEvidence.objects.filter(pk=batch.document_id, case=case)

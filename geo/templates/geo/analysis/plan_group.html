@@ -11,5 +11,5 @@
   {% if source.derived_result_id %}<a class="record-link" href="{{ source.url }}">Inspect selected address estimate</a>{% endif %}
   {% if source.item.source_row %}<a class="record-link" href="{{ source.original_url }}?info=1#original-csv-row">Open source CSV row {{ source.item.source_row }}</a>{% endif %}
 </li>{% endfor %}</ol>
-{% if page.has_other_pages %}<nav class="pagination" aria-label="Observation pages">{% if page.has_previous %}<a class="button button-secondary" href="{% querystring page=page.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="button button-secondary" href="{% querystring page=page.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
+{% include 'ui/components/pagination.html' with page=page label='Observation pages' query=request.GET only %}
 {% endblock %}

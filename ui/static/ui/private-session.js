@@ -40,6 +40,12 @@
     return false;
   }
 
+  function clearIfAccessDenied(response) {
+    const denied = response.type === "opaqueredirect" || [401, 403, 404].includes(response.status);
+    if (denied) clearPrivatePage();
+    return denied;
+  }
+
   function reload() {
     if (["GET", "HEAD"].includes(requestMethod)) location.reload();
     // A fresh read must not replay the request that produced a private form.
@@ -59,9 +65,7 @@
       const response = await fetch(location.href, {
         cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(10000),
       });
-      if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-        clearPrivatePage();
-      } else if (response.ok) matches(response.headers.get("X-Pandect-Session"));
+      if (!clearIfAccessDenied(response) && response.ok) matches(response.headers.get("X-Pandect-Session"));
     } catch {
       // A transient connection error does not confirm an access change.
     } finally {
@@ -77,5 +81,5 @@
     document.dispatchEvent(new Event("pandect:before-navigate"));
     reload();
   });
-  window.PandectPrivateSession = {matches, checkRole, clearPrivatePage};
+  window.PandectPrivateSession = {matches, checkRole, clearPrivatePage, clearIfAccessDenied};
 })();

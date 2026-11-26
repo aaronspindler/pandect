@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.evidence_chat.corpus import original_keys, rank, read_window
 from core.evidence_chat.corpus_navigation import _closest_event
 from core.models import AnalysisResult, AnalysisRun

@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.evidence_chat import corpus_search
 from core.evidence_chat.corpus import cite
 from core.evidence_chat.corpus_navigation import linked_materials

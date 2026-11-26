@@ -252,6 +252,10 @@ window.PandectPage((signal) => {
       }
     });
     xhr.addEventListener("load", () => {
+      if (window.PandectPrivateSession.clearIfAccessDenied(xhr)) {
+        resolve();
+        return;
+      }
       let result;
       try {result = JSON.parse(xhr.responseText);} catch {result = null;}
       if (result && [200, 201, 400, 409].includes(xhr.status) &&
@@ -263,8 +267,6 @@ window.PandectPage((signal) => {
         setStatus(entry, "added", "Added to this case.");
         const link = element("a", "View evidence", {href:result.detail_url, class:"record-link"});
         entry.node.append(link); announce(`${entry.file.name} added.`);
-      } else if ([401,403,404].includes(xhr.status)) {
-        window.PandectPrivateSession.clearPrivatePage();
       } else if (xhr.status === 409 && result?.code === "duplicate_evidence") {
         entry.frozen = null;
         entry.duplicateConfirmation = result.confirmation;

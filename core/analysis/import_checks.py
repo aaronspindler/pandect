@@ -14,7 +14,8 @@ from cases.permissions import get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.forms import EvidenceAnalysisForm
-from core.analysis.services import resolve_inputs, start_run
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_inputs
 from core.evidence.queries import scoped_evidence
 from core.models import AnalysisRun, CaseAnalysisBatch
 from geo.models import VehicleLocationImport

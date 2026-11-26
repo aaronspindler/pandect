@@ -149,8 +149,7 @@ def poi_save(request, case_id, poi_id=None):
             latest_poi = PointOfInterest.objects.select_related("person").get(
                 pk=poi.pk, person__case=case
             )
-            form.data = form.data.copy()
-            form.data["revision"] = form.initial["revision"]
+            form.refresh_revision()
     return render(
         request,
         "geo/poi_form.html",
@@ -164,7 +163,7 @@ def poi_save(request, case_id, poi_id=None):
             "back_url": back_url,
             "back_label": back_label,
         },
-        status=409 if form.stale else 400 if request.method == "POST" else 200,
+        status=form.response_status,
     )
 
 

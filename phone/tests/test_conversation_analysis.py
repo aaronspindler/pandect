@@ -15,7 +15,7 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.analysis.catalogue import project_result
 from core.analysis.operations import get_operation
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.models import (
     AnalysisFindingSource,
     AnalysisResult,

@@ -12,7 +12,8 @@ from django_tasks_db.models import DBTaskResult
 
 from core.analysis.forms import analysis_form
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.evidence.types import COMMUNICATION_KINDS
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin

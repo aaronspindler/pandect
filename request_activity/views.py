@@ -12,15 +12,13 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponseNotAllowed
 from django.template.response import TemplateResponse
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 
-from .spool import STALE_HEARTBEAT_SECONDS, read_health
+from .spool import heartbeat_is_stale, read_health
 from .store import Reader, StoreUnavailable, normalize_fingerprint, normalize_ip
 
 OPERATOR_GROUP = "Request activity operators"
 PAGE_SIZE = 50
-HEARTBEAT_GRACE = timedelta(seconds=STALE_HEARTBEAT_SECONDS)
 
 
 def can_view_request_activity(user):
@@ -106,18 +104,11 @@ def _capture_health():
         return None
     try:
         state = read_health(path)
-        if state is None:
-            return None
-        for field in ("heartbeat_at", "last_gap_at", "queued_oldest_at"):
-            if state[field]:
-                state[field] = parse_datetime(state[field])
-        heartbeat = state["heartbeat_at"]
-        state["stale"] = (
-            heartbeat is None or timezone.now() - heartbeat > HEARTBEAT_GRACE
-        )
-        return state
-    except KeyError, OSError, SQLiteError, TypeError, ValueError:
+    except OSError, SQLiteError, ValueError:
         return None
+    if state is not None:
+        state["stale"] = heartbeat_is_stale(state["heartbeat_at"], now=timezone.now())
+    return state
 
 
 def _midnight(day):

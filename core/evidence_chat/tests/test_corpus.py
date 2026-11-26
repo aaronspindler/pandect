@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.evidence.retention import set_evidence_archive
 from core.evidence_chat import corpus
 from core.evidence_chat.corpus import cite, discover, rank, read_window
@@ -35,7 +35,7 @@ class CorpusTests(EvidenceTestMixin, TestCase):
         # Another case's write leaves the stored version reusable. Forcing an
         # invalid fallback digest proves whether PostgreSQL chose that branch.
         self.create_evidence(case=self.other_case)
-        with patch.object(corpus, "_body_digest", return_value=Value("invalid")):
+        with patch.object(corpus, "text_sha256", return_value=Value("invalid")):
             self.assertEqual(
                 read_window(self.case, locator, 0, 4, review=True)["text"], "Mica"
             )
@@ -50,7 +50,7 @@ class CorpusTests(EvidenceTestMixin, TestCase):
             current["verified_body"]["revision"], locator["verified_body"]["revision"]
         )
         locator["verified_body"] = current["verified_body"]
-        with patch.object(corpus, "_body_digest", return_value=Value("invalid")):
+        with patch.object(corpus, "text_sha256", return_value=Value("invalid")):
             self.assertEqual(
                 read_window(self.case, locator, 0, 4, review=True)["text"], "Mica"
             )

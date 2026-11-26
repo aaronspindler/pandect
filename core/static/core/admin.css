@@ -1,5 +1,5 @@
-/* Retained originals and full checksums must remain readable on narrow screens. */
-.delete-confirmation #site-name {
+/* Keep confirmation titles and metadata readable on narrow screens. */
+.delete-confirmation :is(#site-name, .breadcrumbs, #content > p) {
     overflow-wrap: anywhere;
 }
 

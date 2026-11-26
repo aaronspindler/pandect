@@ -16,7 +16,7 @@ from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
 from core.analysis.errors import AnalysisError
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.case_search.approval import (
     approve_case_search,
     revoke_case_search,

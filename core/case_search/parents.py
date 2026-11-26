@@ -14,7 +14,6 @@ from django.db.models import (
     IntegerField,
     OuterRef,
     Q,
-    Subquery,
     UUIDField,
     When,
 )
@@ -22,13 +21,13 @@ from django.db.models.lookups import Exact
 from pgvector.django import CosineDistance
 
 from cases.permissions import get_case
-from core.analysis.catalogue import SUCCESSFUL
-from core.analysis.services import SourceResolutionCache
+from core.analysis.published import latest_successful_run_id
+from core.analysis.source_resolution import SourceResolutionCache
 from core.case_search.grammar import TOKEN
 from core.case_search.retained import valid_sources
 from core.case_search.semantic_sources import read_sources, source_queryset
 from core.evidence.queries import scoped_evidence
-from core.models import AnalysisResult, AnalysisRun, SearchParent
+from core.models import AnalysisResult, SearchParent
 from people.models import Person
 from phone.saved_sessions import valid_sessions
 
@@ -108,23 +107,12 @@ def active_sessions(case):
 
 
 def summary_sources(case):
-    latest = (
-        AnalysisRun.objects.filter(
-            case=case,
-            result__case=case,
-            status__in=SUCCESSFUL,
-            equivalence_key=OuterRef("run__equivalence_key"),
-        )
-        .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
-        .order_by("-created_at", "-pk")
-        .values("pk")[:1]
-    )
     return AnalysisResult.objects.filter(
         Q(run__operation="session_summaries")
         | Q(run__operation="text_topics", run__parameters___search_generation="briefs"),
         case=case,
         run__case=case,
-        run_id=Subquery(latest),
+        run_id=latest_successful_run_id(case, "run__equivalence_key"),
     )
 
 

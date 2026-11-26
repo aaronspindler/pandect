@@ -17,9 +17,10 @@ from PIL import Image
 
 from cases.models import Case, CaseMembership
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.sources import output
 from core.analysis.testing import external_grant_kwargs
+from core.analysis.worker import process_run
 from core.models import AnalysisArtifact, AnalysisResult
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
@@ -344,7 +345,7 @@ class GeographicReferenceArtifactTests(GeographicReferenceFixtures, TestCase):
                 ),
             ),
             patch(
-                "core.analysis.services.AnalysisArtifact.save",
+                "core.analysis.worker.AnalysisArtifact.save",
                 autospec=True,
                 side_effect=fail_second,
             ),
@@ -442,7 +443,7 @@ class ArtifactCommitTests(GeographicReferenceFixtures, TransactionTestCase):
                         ),
                     ),
                     patch(
-                        "core.analysis.services.transaction.atomic",
+                        "core.analysis.worker.transaction.atomic",
                         side_effect=atomic_context,
                     ),
                 ):

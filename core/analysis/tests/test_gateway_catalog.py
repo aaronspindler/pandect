@@ -20,10 +20,11 @@ from core.analysis.gateway import (
     endpoint_and_headers,
     gateway_route_configured,
 )
-from core.analysis.services import authorize_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_gateway import CONFIG, response
 from core.analysis.tests.test_openai_gateway import openai_reply
+from core.analysis.worker import authorize_run
 from core.models import GatewayRequest
 from core.testing import EvidenceViewTestMixin
 

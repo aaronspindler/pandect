@@ -2,6 +2,7 @@ from django import forms
 from django.core.signing import BadSignature, Signer
 
 from socialmedia.models import SocialAccount
+from ui.forms import SignedRevisionForm
 
 REVISION_SALT = "people.social-account-revision"
 
@@ -12,8 +13,8 @@ def social_account_revision(account):
     )
 
 
-class SocialAccountForm(forms.ModelForm):
-    revision = forms.CharField(widget=forms.HiddenInput)
+class SocialAccountForm(SignedRevisionForm):
+    stale_message = "This social account has newer saved details. Review them below."
 
     class Meta:
         model = SocialAccount
@@ -29,13 +30,9 @@ class SocialAccountForm(forms.ModelForm):
             ),
         }
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.stale = False
-        if self.instance._state.adding:
-            del self.fields["revision"]
-        else:
-            self.initial["revision"] = social_account_revision(self.instance)
+    @classmethod
+    def revision_for(cls, instance):
+        return social_account_revision(instance)
 
     def clean_revision(self):
         revision = self.cleaned_data["revision"]
@@ -52,10 +49,6 @@ class SocialAccountForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        if self.stale:
-            self.add_error(
-                None, "This social account has newer saved details. Review them below."
-            )
         platform = cleaned.get("platform")
         username = cleaned.get("username")
         if (

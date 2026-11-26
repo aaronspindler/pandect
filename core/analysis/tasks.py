@@ -3,7 +3,7 @@
 from django.tasks import task
 
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.services import process_run
+from core.analysis.worker import process_run
 
 
 @task

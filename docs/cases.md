@@ -301,11 +301,12 @@ memberships even with global permissions.
 
 Staff case owners with `core.delete_evidencechat` and the chat's view or change
 permission can open **Core → Evidence chats**, select a chat, and choose
-**Delete**. Review the confirmation before deleting the chat. The deletion
-permanently removes its replies, saved citations, request accounting, and any
-Important marks and notes attached to those replies. Wait for queued or running
-replies and approved extractions to finish before deleting. Original evidence
-and saved extraction results remain in the case.
+**Delete**. Review the chat's case and deletion counts by record type, check the
+confirmation box, and choose **Permanently delete chat**. Deletion permanently
+removes the chat's replies, saved source records and citations, request
+accounting, and any Important marks and notes attached to those replies. Wait
+for queued or running replies and approved extractions to finish before
+deleting. Original evidence and saved extraction results remain in the case.
 
 ### Read-only inspection
 

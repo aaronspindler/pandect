@@ -3424,8 +3424,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
     def test_quiet_evidence_workspace_panels_and_visual_target(self):
         from datetime import UTC, datetime
 
-        from core.analysis.services import process_run, start_run
+        from core.analysis.services import start_run
         from core.analysis.testing import image_bytes
+        from core.analysis.worker import process_run
         from phone.models import PhoneCallEvidence
 
         case = Case.objects.create(owner=self.owner, name="Harbour records")

@@ -14,6 +14,7 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils.crypto import constant_time_compare
 
+from cases.permissions import get_case_for_verified_user
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import execution_confirmation
 from core.analysis.extraction_reuse import (
@@ -24,8 +25,8 @@ from core.analysis.extraction_reuse import (
     identified_pdf,
 )
 from core.analysis.operations import get_operation
-from core.analysis.services import snapshot_sources, start_run
-from core.case_search.indexing import authorize
+from core.analysis.services import start_run
+from core.analysis.source_selection import snapshot_sources
 from core.evidence.queries import scoped_evidence
 from core.models import ChatAnalysisProposal, ChatTurn
 from core.parser_contract import MAX_BYTES
@@ -58,7 +59,7 @@ def check_offer(proposal):
 
     parent = proposal.parent
     try:
-        case = authorize(parent.asked_by_id, parent.case_id, edit=True)
+        case = get_case_for_verified_user(parent.asked_by_id, parent.case_id, edit=True)
     except PermissionDenied, Http404:
         raise AnalysisError("access_removed") from None
     if parent.chat.case_id != case.pk or parent.status != "complete":
@@ -142,7 +143,7 @@ def evaluate(turn, decision, windows, *, remaining):
     snapshots = snapshot_sources(turn.case, _selection(doc))
     run = find_extraction(turn.case_id, snapshots, version, published=True)
     if run and run.status in PUBLISHED:
-        from .jobs import _authorize
+        from .checkpoints import authorize_turn
 
         turn.plan["saved_extraction"] = str(run.pk)
         if remaining or run.status in ("empty", "unsupported", "insufficient"):
@@ -150,7 +151,7 @@ def evaluate(turn, decision, windows, *, remaining):
                 turn,
                 run,
                 windows,
-                lambda selected, **kw: _authorize(turn, selected, **kw),
+                lambda selected, **kw: authorize_turn(turn, selected, **kw),
             )
         result = decision["answer"]
         result["summary"] = (
@@ -199,7 +200,7 @@ def reviewed_token(proposal, actor):
 
 @transaction.atomic
 def respond(actor, case_id, chat_id, turn_id, action, token):
-    case = authorize(actor.pk, case_id, edit=True, lock=True)
+    case = get_case_for_verified_user(actor.pk, case_id, edit=True, lock=True)
     proposal = get_object_or_404(
         ChatAnalysisProposal.objects.select_related("parent__chat").select_for_update(
             of=("self",)
@@ -265,7 +266,7 @@ def run_finished(run):
 
 def resume_idle_chat(case_id, chat_id):
     """Link and enqueue atomically under the same case lock as ordinary submissions."""
-    from .jobs import enqueue_turn
+    from .checkpoints import enqueue_turn
 
     ready = (
         ChatAnalysisProposal.objects.filter(
@@ -341,7 +342,8 @@ def check_continuation(turn):
 
 
 def finish_continuation(turn):
-    from .jobs import _authorize, _finish_answer
+    from .answer_jobs import finish_answer
+    from .checkpoints import authorize_turn
 
     proposal = check_continuation(turn)
     refs = dict(
@@ -360,6 +362,6 @@ def finish_continuation(turn):
         turn,
         proposal.run,
         context,
-        lambda windows, **kw: _authorize(turn, windows, **kw),
+        lambda windows, **kw: authorize_turn(turn, windows, **kw),
     )
-    _finish_answer(turn, result, used)
+    finish_answer(turn, result, used)

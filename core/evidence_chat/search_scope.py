@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from core.evidence.types import KINDS
+from core.models import ChatTurn
 
 QUOTED_TEXT = re.compile(r"""“[^”]*”|‘[^’]*’|"[^"]*"|(?<!\w)'[^']*'(?!\w)""")
 TYPE = re.compile(r"(?<!\S)type:([\w-]+)\b", re.I)
@@ -25,6 +26,7 @@ FULL_REVIEW = re.compile(
     r"(?P<messages>(?:text\s+)?messages?)\b)?",
     re.I,
 )
+FULL_REVIEW_VERSION = 2
 
 
 def review_population(question, *, direct_only=False):
@@ -68,6 +70,60 @@ def search_filters(question, timezone_name):
 
 def question_filters(turn):
     return search_filters(turn.question, turn.plan.get("timezone", "UTC"))
+
+
+def preceding_review_clarification(turn):
+    from . import engine
+
+    if (
+        turn.ordinal <= 1
+        or engine.NEW_QUESTION.match(turn.question)
+        or turn.question.rstrip().endswith("?")
+        or engine.review_requested(turn.question)
+    ):
+        return None
+    previous = (
+        ChatTurn.objects.filter(
+            case_id=turn.case_id,
+            chat_id=turn.chat_id,
+            ordinal=turn.ordinal - 1,
+            status="complete",
+            mode="clarification",
+        )
+        .only("question", "answer", "plan")
+        .first()
+    )
+    if previous and engine.review_requested(previous.question):
+        return previous
+    return None
+
+
+def review_restart_code(turn):
+    if turn.error_code == "chat_review_scope_retired":
+        return turn.error_code
+    version = turn.plan.get("review_version")
+    if turn.mode != "full" or version == FULL_REVIEW_VERSION:
+        return ""
+    if review_population(turn.question) == "text-message":
+        if version != 1 or question_filters(turn).get("record_type") != "text-message":
+            return "chat_review_scope_retired"
+    previous = preceding_review_clarification(turn)
+    if previous and review_population(previous.question) == "text-message":
+        if (
+            version != 1
+            or turn.plan.get("scoped_clarification") != str(previous.pk)
+            or question_filters(previous).get("record_type") != "text-message"
+            or question_filters(turn).get("record_type", "text-message")
+            != "text-message"
+        ):
+            return "chat_review_scope_retired"
+    if version == 1:
+        return ""
+    if question_filters(turn):
+        return "chat_review_scope_retired"
+    if turn.plan.get("literal"):
+        return "chat_literal_review_retired"
+    return ""
 
 
 def scope_rows(queryset, case, surface, kind, filters, *, include_recordings=False):

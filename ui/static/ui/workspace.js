@@ -156,7 +156,7 @@
   }
   document.addEventListener("click", event => {
     const link = event.target.closest("a[href]");
-    if (!link || event.defaultPrevented || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+    if (!link || event.defaultPrevented || !window.PandectPage.isPlainClick(event) ||
         link.target || link.hasAttribute("download") || link.matches("[data-quick-form], [data-workspace-document]") || !link.matches(navLinks)) return;
     const url = new URL(link.href);
     if (url.origin !== location.origin || !url.pathname.startsWith(root) || needsDocument(document) || accessLost) return;

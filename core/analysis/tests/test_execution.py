@@ -23,9 +23,10 @@ from core.analysis.execution import (
     requires_inference,
     snapshot_execution,
 )
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.worker import process_run
 from core.models import AnalysisRun, GatewayRequest
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence

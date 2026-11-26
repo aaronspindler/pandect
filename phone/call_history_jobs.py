@@ -6,13 +6,13 @@ from dataclasses import asdict
 from itertools import batched
 from uuid import UUID, uuid4
 
-from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
 from django.db.models import F, Q
 from django.http import Http404
 from django.tasks import task
 
+from accounts.verification import has_verified_email
 from cases.permissions import get_case
 from core.evidence.queries import scoped_evidence
 from core.storage import (
@@ -87,7 +87,7 @@ def _uuid(value):
 
 def _editor(actor, case_id, *, lock=False):
     case = get_case(actor, case_id, edit=True, lock=lock)
-    if not EmailAddress.objects.filter(user=actor, verified=True).exists():
+    if not has_verified_email(actor):
         raise PermissionDenied("Verify your email before processing an import.")
     return case
 

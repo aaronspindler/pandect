@@ -9,14 +9,12 @@ from django.urls import reverse
 from django.utils.html import escape
 
 from cases.models import CaseMembership
+from core.analysis.address_estimates import set_address_estimate
 from core.analysis.operations import get_operation
-from core.analysis.services import (
-    process_run,
-    set_address_estimate,
-    snapshot_sources,
-    start_run,
-)
+from core.analysis.services import start_run
 from core.analysis.sightings import candidate_links
+from core.analysis.source_selection import snapshot_sources
+from core.analysis.worker import process_run
 from core.evidence.deletion import plan_deletion
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, ImportantItem
 from core.testing import EvidenceViewTestMixin
@@ -242,7 +240,7 @@ class SightingWorkflowTests(EvidenceViewTestMixin, TestCase):
             return data
 
         with patch(
-            "core.analysis.services.get_operation",
+            "core.analysis.worker.get_operation",
             return_value=replace(operation, function=revoke_before_publication),
         ):
             self.assertEqual(process_run(run.pk), "access_removed")

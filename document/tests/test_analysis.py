@@ -18,8 +18,9 @@ from pypdf.generic import (
 )
 
 from core.analysis.errors import AnalysisError
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import file_source
+from core.analysis.worker import process_run
 from core.models import GatewayRequest
 from core.parsers import run_parser
 from core.testing import EvidenceViewTestMixin

@@ -53,8 +53,7 @@ def social_account_save(request, case_id, person_id, account_id=None):
             return redirect(person_accounts_url(request, person))
         if form.stale:
             latest_account = person.social_accounts.get(pk=account_id)
-            form.data = form.data.copy()
-            form.data["revision"] = form.initial["revision"]
+            form.refresh_revision()
     return render(
         request,
         "socialmedia/social_account_form.html",
@@ -68,7 +67,7 @@ def social_account_save(request, case_id, person_id, account_id=None):
             "return_url": person_accounts_url(request, person),
             "list_query": list_query(request),
         },
-        status=409 if form.stale else 400 if request.method == "POST" else 200,
+        status=form.response_status,
     )
 
 

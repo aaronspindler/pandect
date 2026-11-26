@@ -119,43 +119,10 @@
   background:var(--selected);
 }
 
-.app-rail-link[aria-current],.app-rail-link.is-current {
+.app-rail-link[aria-current] {
   background:var(--selected);
   color:var(--accent);
   box-shadow:inset 3px 0 var(--accent);
-}
-
-.app-rail-tools {
-  position:relative;
-}
-
-.app-rail-tools>summary::-webkit-details-marker {
-  display:none;
-}
-
-.app-rail-panel {
-  position:fixed;
-  z-index:30;
-  min-width:0;
-  overflow:auto;
-  margin:0;
-  padding:1rem;
-  border:1px solid var(--divider);
-  border-radius:.75rem;
-  background:var(--surface);
-  box-shadow:0 .5rem 1.5rem rgb(0 0 0 / .12);
-  inset:1rem auto auto 4.75rem;
-  width:19rem;
-  max-width:calc(100vw - 5rem);
-  max-height:calc(100dvh - 2rem);
-}
-
-.app-rail-panel .case-details-body {
-  padding:1rem .25rem 0;
-}
-
-.app-rail-panel dd {
-  overflow-wrap:anywhere;
 }
 
 .app-rail-account {
@@ -922,33 +889,6 @@ dd {
   gap:.5rem
 }
 
-.search-input-row {
-  display:flex;
-  gap:.375rem;
-  align-items:center
-}
-
-.search-input-row input {
-  flex:1
-}
-
-.search-submit {
-  padding:.5rem .625rem;
-  flex:none
-}
-
-.evidence-filter-row {
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:.5rem
-}
-
-.evidence-filter-row select {
-  font-size:.875rem;
-  padding:.5rem;
-  min-height:44px
-}
-
 .evidence-records {
   scrollbar-width:thin;
   scrollbar-color:var(--divider) transparent;
@@ -1361,10 +1301,6 @@ dd {
   }
 }
 
-@media(min-width:80rem) {
-  .app-rail-panel { left:7.75rem; }
-}
-
 @media(max-width:63.999rem) {
   .app-navigation {
     position:relative;
@@ -1390,12 +1326,6 @@ dd {
   .app-rail-account {
     width:auto;
     margin:0;
-  }
-  .app-rail-panel {
-    position:fixed;
-    inset:4rem .5rem auto auto;
-    max-width:calc(100vw - 1rem);
-    max-height:calc(100dvh - 5rem);
   }
   .app-page .main-content { margin-left:0; min-height:0; }
   .global-header {
@@ -1505,7 +1435,6 @@ dd {
     outline-offset:-2px;
   }
 
-  .app-rail-panel { box-shadow:none; }
   .button,.button:hover {
     border:1px solid ButtonText;
     background:Canvas;
@@ -1627,7 +1556,6 @@ audio { width: 100%; max-width: 42rem; }
 .case-summary-card--active { --summary-accent:var(--accent); }
 .case-summary-card--success { --summary-accent:var(--success); }
 .case-summary-card--error { --summary-accent:var(--danger); }
-.rail-details { margin-top:1rem; border-top:1px solid var(--divider); }
 .collection-row>.status { margin-left:auto; }
 .collection-row>.icon { align-self:center; }
 .collection-row-content { flex:1; }

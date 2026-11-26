@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from audio.models import AudioEvidence
 from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.services import cancel_run, process_run
+from core.analysis.services import cancel_run
 from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
@@ -15,6 +15,7 @@ from core.analysis.transcripts import (
     select_transcript,
     transcription_profile,
 )
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 

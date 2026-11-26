@@ -11,7 +11,7 @@ from core.models import AnalysisReview, AnalysisRun
 
 
 def verified_estimate_uses(queryset, case):
-    from core.analysis.services import SourceResolutionCache, resolve_inputs
+    from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 
     # The saved review ID identifies the exact accepted estimate, including
     # historical single-candidate inputs that omitted a candidate index.

@@ -14,7 +14,7 @@ from playwright.sync_api import expect
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.errors import AnalysisError
-from core.analysis.services import process_run
+from core.analysis.worker import process_run
 from core.evidence_chat import ai, jobs, services
 from core.evidence_chat.tests.test_decisions_worker import answer_from_quotes
 from core.evidence_chat.tests.test_engine import decision

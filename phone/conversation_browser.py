@@ -16,7 +16,8 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import project_result
 from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
-from core.analysis.services import resolve_inputs, snapshot_sources
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.tests.test_execution import LOCAL
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence

@@ -13,13 +13,13 @@ from core.analysis.catalogue import (
     raw_finding_item,
 )
 from core.analysis.errors import AnalysisError
-from core.analysis.services import SourceResolutionCache, resolve_inputs
+from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 from core.analysis.sources import source_id
 from core.evidence.types import LOCATION_KINDS
 from core.models import AnalysisFinding
 from geo.journey_claim_checks import check_source_integrity
-from geo.trip_models import VehicleTrip, VehicleTripSource
-from geo.trip_processing import saved_trips
+from geo.trip_models import VehicleTrip
+from geo.trip_processing import saved_trips, versioned_trip_memberships
 from text.analysis.synthesis import validate_references
 
 CLAIM_STATUS = {
@@ -232,16 +232,11 @@ def _trip_input(case, trip_id, *, historical=False):
             "Choose individual observations instead."
         )
     rows = list(
-        VehicleTripSource.objects.filter(
-            trip=trip,
-            case=case,
-            input__case=case,
+        versioned_trip_memberships(case, trip)
+        .filter(
             input__observation__case=case,
             input__observation__vehicle=trip.vehicle_id,
-            input__generation_id=trip.generation_id,
-            input__sha256=F("input__observation__sha256"),
         )
-        .order_by("ordinal")
         .values_list("input__observation_id", flat=True)[: trip.source_count + 1]
     )
     if len(rows) != trip.source_count or len(rows) < 2 or len(set(rows)) != len(rows):

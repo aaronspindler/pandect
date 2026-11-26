@@ -12,8 +12,9 @@ from PIL import Image
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import local_ocr_response
+from core.analysis.worker import process_run
 from core.parsers import MAX_BYTES
 from core.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence

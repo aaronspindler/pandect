@@ -15,13 +15,25 @@ from core.analysis.approval import revoke_case_execution
 from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import configured_external_executions
-from core.analysis.services import resolve_inputs, snapshot_sources
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.testing import approve_case_execution
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import response
 from core.analysis.tests.test_openai_gateway import OPENAI, openai_reply
-from core.evidence_chat import ai, corpus, engine, engine_counts, jobs, services
-from core.evidence_chat.search_scope import review_population
+from core.evidence_chat import (
+    ai,
+    corpus,
+    engine,
+    engine_counts,
+    full_review,
+    jobs,
+    services,
+    turn_retrieval,
+)
+from core.evidence_chat.checkpoints import authorize_turn
+from core.evidence_chat.history import reply_context
+from core.evidence_chat.search_scope import review_population, review_restart_code
 from core.models import AnalysisResult, AnalysisRun, ExtractedPassage, GatewayRequest
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -125,19 +137,27 @@ class QuestionRoutingTests(SimpleTestCase):
             "book2", "book2", 0, "I watched a falcon settle.", strong=True
         )
         irrelevant = window("book3", "book3", 0, "The bridge opened.")
-        self.assertFalse(jobs._advances(target, [shifted, copy, irrelevant], prior))
-        self.assertTrue(jobs._advances(target, [distant], prior))
-        finding_search = target | {"lookup": "search_findings"}
-        self.assertTrue(jobs._advances(finding_search, [copy], prior))
-        repeat = window("summary", "book1", 0, prior[0].text, surface="finding")
-        self.assertFalse(jobs._advances(finding_search, [repeat], prior))
-        self.assertFalse(jobs._advances(finding_search, [copy], [*prior, copy]))
         self.assertFalse(
-            jobs._advances(finding_search | {"independent_source": True}, [copy], prior)
+            turn_retrieval.advances_lookup(target, [shifted, copy, irrelevant], prior)
+        )
+        self.assertTrue(turn_retrieval.advances_lookup(target, [distant], prior))
+        finding_search = target | {"lookup": "search_findings"}
+        self.assertTrue(turn_retrieval.advances_lookup(finding_search, [copy], prior))
+        repeat = window("summary", "book1", 0, prior[0].text, surface="finding")
+        self.assertFalse(
+            turn_retrieval.advances_lookup(finding_search, [repeat], prior)
+        )
+        self.assertFalse(
+            turn_retrieval.advances_lookup(finding_search, [copy], [*prior, copy])
+        )
+        self.assertFalse(
+            turn_retrieval.advances_lookup(
+                finding_search | {"independent_source": True}, [copy], prior
+            )
         )
         target["independent_source"] = True
-        self.assertFalse(jobs._advances(target, [distant], prior))
-        self.assertTrue(jobs._advances(target, [semantic], prior))
+        self.assertFalse(turn_retrieval.advances_lookup(target, [distant], prior))
+        self.assertTrue(turn_retrieval.advances_lookup(target, [semantic], prior))
 
     def test_only_a_request_to_inspect_the_full_set_overrides_an_ordinary_plan(self):
         for original, expected in (
@@ -479,7 +499,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         turn = self.ask("List every record that mentions Mica by name.")
         with patch.object(ai, "infer", side_effect=AssertionError("literal lookup")):
             self.process(turn)
-            with patch.object(corpus, "_body_digest", return_value=Value("invalid")):
+            with patch.object(corpus, "text_sha256", return_value=Value("invalid")):
                 for _ in range(3):
                     self.process(turn)
                     self.assertEqual(turn.status, "running", turn.error_code)
@@ -518,8 +538,8 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         saved = first.sources.get(evidence_id=record.pk)
         self.assertIn("verified_body", saved.locator)
         turn = self.ask("Check every record for the departure.", chat_id=first.chat_id)
-        with patch.object(corpus, "_body_digest", return_value=Value("invalid")):
-            self.assertEqual(jobs._history(turn)[0]["reply_context"], quote)
+        with patch.object(corpus, "text_sha256", return_value=Value("invalid")):
+            self.assertEqual(reply_context(turn)[0]["reply_context"], quote)
             self.assertIsNone(services.inspect_turn(first))
 
         # An older ordinary reply has no stamp. The active review verifies
@@ -547,8 +567,8 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             self.source("An unrelated record added after the review froze.")
             self.process(turn)
             self.assertEqual(turn.status, "running", turn.error_code)
-            with patch.object(corpus, "_body_digest", return_value=Value("invalid")):
-                self.assertEqual(jobs._authorize(turn).pk, self.case.pk)
+            with patch.object(corpus, "text_sha256", return_value=Value("invalid")):
+                self.assertEqual(authorize_turn(turn).pk, self.case.pk)
                 for _ in range(2):
                     self.process(turn)
                     self.assertEqual(turn.status, "running", turn.error_code)
@@ -596,7 +616,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             self.finish(turn)
         self.assertEqual(turn.plan["matched_records"], 1)
         self.assertEqual(turn.sources.filter(status="match").count(), 2)
-        self.assertEqual(turn.hits.count(), jobs.LITERAL_CITATIONS_PER_RECORD)
+        self.assertEqual(turn.hits.count(), full_review.LITERAL_CITATIONS_PER_RECORD)
 
     def test_exhaustive_windows_overlap_and_failure_retries_without_duplicates(self):
         self.source(" " * 1300 + "pickup registered at Gate C. " + " " * 2500)
@@ -796,7 +816,9 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
 
         with (
             patch.object(ai, "infer", side_effect=infer) as model,
-            patch.object(jobs, "_advances", wraps=jobs._advances) as advances,
+            patch.object(
+                turn_retrieval, "advances_lookup", wraps=turn_retrieval.advances_lookup
+            ) as advances,
         ):
             self.process(turn)
             self.assertEqual(
@@ -889,7 +911,9 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(turn.plan["stage"], "refine")
         with (
             patch.object(
-                jobs, "_rank", side_effect=AnalysisError("chat_budget_exhausted")
+                turn_retrieval,
+                "rank_windows",
+                side_effect=AnalysisError("chat_budget_exhausted"),
             ),
             patch.object(ai, "infer") as model,
         ):
@@ -1016,7 +1040,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(turn.plan["stage"], "review")
         self.assertEqual(len(turn.plan["review_question_sources"]), 2)
         self.assertEqual(turn.total, 2)
-        checked_review = jobs._checked_review
+        checked_review = full_review._checked_review
 
         def change_source_after_batch_read(active, windows, spans):
             self.assertEqual(len(windows), 1)
@@ -1038,9 +1062,11 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             return checked_review(active, windows, spans)
 
         with (
-            patch.object(jobs, "REVIEW_BATCH", 1),
+            patch.object(full_review, "REVIEW_BATCH", 1),
             patch.object(
-                jobs, "_checked_review", side_effect=change_source_after_batch_read
+                full_review,
+                "_checked_review",
+                side_effect=change_source_after_batch_read,
             ) as review,
             patch("core.analysis.local.build_opener") as transport,
         ):
@@ -1065,7 +1091,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         rank.assert_not_called()
         model.assert_not_called()
         self.assertEqual(turn.error_code, "chat_review_scope_retired")
-        self.assertEqual(jobs.review_restart_code(turn), turn.error_code)
+        self.assertEqual(review_restart_code(turn), turn.error_code)
 
     def test_typed_date_and_participant_counts_with_missing_date(self):
         other = Person.objects.create(case=self.case, first_name="Adrian")

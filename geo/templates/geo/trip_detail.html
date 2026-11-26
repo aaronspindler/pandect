@@ -4,13 +4,7 @@
   <h2 id="trip-findings" tabindex="-1">Findings from trip observations</h2>
   {% if findings_page %}
     {% include 'core/analysis/_catalogue_rows.html' with rows=findings_page only %}
-    {% if findings_page.has_other_pages %}
-    <nav class="pagination" aria-label="Trip finding pages">
-      {% if findings_page.has_previous %}<a class="button button-secondary" href="{% querystring findings_page=findings_page.previous_page_number %}#trip-findings">Previous findings</a>{% endif %}
-      <span>Page {{ findings_page.number }} of {{ findings_page.paginator.num_pages }}</span>
-      {% if findings_page.has_next %}<a class="button button-secondary" href="{% querystring findings_page=findings_page.next_page_number %}#trip-findings">Next findings</a>{% endif %}
-    </nav>
-    {% endif %}
+    {% include 'ui/components/pagination.html' with page=findings_page label='Trip finding pages' query=request.GET parameter='findings_page' anchor='trip-findings' item_label='findings' only %}
   {% else %}<p class="muted">No saved findings cite these observations.</p>{% endif %}
 </section>
 <section class="content-section" aria-labelledby="trip-list" tabindex="-1">
@@ -30,6 +24,6 @@
     </li>
     {% empty %}<li>No address-only observations in this trip.</li>{% endfor %}
   </ol>
-  {% if source_page.has_other_pages %}<nav class="pagination" aria-label="Trip observation pages">{% if source_page.has_previous %}<a class="button button-secondary" href="{% querystring sources_page=source_page.previous_page_number %}#trip-list">Previous observations</a>{% endif %}<span>Page {{ source_page.number }} of {{ source_page.paginator.num_pages }}</span>{% if source_page.has_next %}<a class="button button-secondary" href="{% querystring sources_page=source_page.next_page_number %}#trip-list">Next observations</a>{% endif %}</nav>{% endif %}
+  {% include 'ui/components/pagination.html' with page=source_page label='Trip observation pages' query=request.GET parameter='sources_page' anchor='trip-list' item_label='observations' only %}
 </section>
 {% endblock %}

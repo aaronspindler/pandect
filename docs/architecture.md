@@ -70,6 +70,8 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   `AUTH_USER_MODEL = "accounts.User"` is set before any initial migration.
 - django-allauth supplies username/email sign-in, registration, mandatory email
   verification, password recovery, and sign-out under `/accounts/`.
+  `accounts.verification` checks the saved verification state for product
+  requests, upload and event gates, and background jobs.
 - Django admin uses the same allauth sign-in flow and requires staff permissions.
   Authentication rate limits share Django's PostgreSQL cache. An accounts
   migration creates the upstream cache schema; it is not a Pandect domain model.
@@ -79,7 +81,8 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
 - `cases/` owns the investigation boundary (`Case`), viewer/editor collaboration
   (`CaseMembership`), and UUID-keyed `CaseInvitation`. Ownership is separate from
   membership. `cases.permissions` supplies current case authorization to product
-  views. See [case workflows and permissions](cases.md).
+  views and can reload and verify an actor for background work. See
+  [case workflows and permissions](cases.md).
 - `/health/` checks database connectivity without returning secrets or case data.
 - `core/` is one Django app owning abstract evidence/file bases, common evidence
   management and the unified workspace, plus durable analysis runs, results,
@@ -134,8 +137,10 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   social accounts linked to people and [case-bound Instagram monitors](instagram-monitors.md). `video/` is a registered placeholder only.
 - `marketing/` owns public routes, templates, styles, and tests. It shares small
   design primitives and brand assets with `ui/`, which owns the product shell,
-  shared controls, and error templates. Every template and static asset lives in
-  its owning app; template `DIRS` and `STATICFILES_DIRS` are empty.
+  shared controls, and error templates. Use the shared pagination component for
+  standard page links, including independently paginated sections. Every template
+  and static asset lives in its owning app; template `DIRS` and
+  `STATICFILES_DIRS` are empty.
 
 Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
 Allauth does not implement case invitations or authorization.
@@ -183,12 +188,24 @@ stay with its entry point.
 | Case AI, Meaning Search, ranking, and preparation settings | `cases.analysis_settings`, `cases.search_settings` |
 | Product evidence intake, duplicate review, and shared archive transitions | `core.evidence.retention` |
 | Important marks and dated notes | `core.important.services` |
-| Analysis execution, retry, and sighting review | `core.analysis.services`, `core.analysis.retries`, `core.analysis.sightings` |
-| Evidence chat submission, retry, and interrupted delivery recovery | `core.evidence_chat.services` |
+| Analysis submission, worker execution, and retry | `core.analysis.services`, `core.analysis.worker`, `core.analysis.retries` |
+| Analysis input snapshots, source resolution, and result validation | `core.analysis.source_selection`, `core.analysis.source_resolution`, `core.analysis.result_validation` |
+| Sighting review and address estimate selection | `core.analysis.sightings`, `core.analysis.address_estimates` |
+| Evidence Chat submission, retry, and recovery | `core.evidence_chat.services` |
+| Evidence Chat delivery, saved progress, and exhaustive review | `core.evidence_chat.jobs`, `core.evidence_chat.checkpoints`, `core.evidence_chat.full_review` |
 | Vehicle CSV retention, preparation, and publication | `geo.vehicle_import_jobs` |
 | Plan comparison source review and submission | `geo.journey_claim_requests` |
 | Call additions and conversation summary requests | `phone.call_attachments`, `phone.instance_summaries` |
 | Text claim source review and quotation matching | `text.claim_comparison_requests` |
+
+Case routes are owned by the investigation list and lifecycle, settings,
+search settings, and collaboration modules in `cases`. Evidence routes
+live in `core.evidence.intake_views`, `workspace_views`, and `record_views`.
+The analysis URL configuration points to the adapters for submission,
+reprocessing, saved runs, reports, and private outputs. Saved finding reader
+context lives in `core.analysis.result_reader`. `ui.forms.SignedRevisionForm`
+handles revision validation and retry tokens for records edited from a
+saved version.
 
 Existing queued task paths stay stable across service refactors. Keep task
 entry points importable while persisted deliveries can refer to them.
@@ -226,10 +243,18 @@ and optional background generation use independently configured routes.
 [Background tasks](background-tasks.md#meaning-search-indexing) describes
 index preparation and recovery.
 
+`core.analysis.published` owns shared queries for saved analysis and its
+extracted passages. `core.evidence.source_clocks` owns how original timestamps
+are classified for chronology, search, and chat.
+
 The core parser runner uses isolated Python subprocesses, resource limits,
 bounded input/output, and a fixed dispatch allowlist. Domain parsers are Django-free
 and never load settings/models in a child process. Type-specific processing stays
 in its domain, including text methods reused for document or conversation text.
+`core.parsers.read_source` verifies the case storage key, byte count, and
+checksum for original previews and parser-backed analysis. `core.csv_import`
+shares bounded CSV reading and local timestamp resolution. Import format rules
+and error messages live with the phone and vehicle importers.
 Audio decoding uses pinned PyAV with bundled FFmpeg libraries inside this same
 boundary; no FFmpeg executable or separate service is required. See the
 [recording profiles and bounds](original-previews.md#recordings).

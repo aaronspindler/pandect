@@ -18,7 +18,7 @@ from core.case_search.documents import FIELDS, searchable
 from core.case_search.sources import name
 from core.evidence.queries import scoped_evidence
 from core.evidence.source_clocks import is_date_only_message
-from phone.conversations import pair_messages
+from phone.conversations import pair_messages, reported_pair
 
 GROUP_LIMIT = 12
 
@@ -31,10 +31,7 @@ def matching(case, selection, *, archived=False):
     else:
         rows = scoped_evidence(case, "text-message")
         if pair:
-            a, b = pair
-            rows = rows.filter(
-                Q(sender_id=a, recipient_id=b) | Q(sender_id=b, recipient_id=a)
-            )
+            rows = rows.filter(reported_pair(*pair))
     rows = rows.filter(
         Q(group_source__isnull=True)
         | Q(communication_context__created_at__lte=selection["through"]),

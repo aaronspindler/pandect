@@ -1,0 +1,31 @@
+{% extends "admin/delete_confirmation.html" %}
+{% load admin_urls static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'core/admin.css' %}">
+{% endblock %}
+
+{% block delete_confirm %}
+  <p>This permanently deletes the Evidence chat “{{ object }}” in {{ object.case }} and the records attached to its replies.</p>
+  <section class="deletion-summary" aria-labelledby="deletion-summary-heading">
+    <h2 id="deletion-summary-heading">Deletion summary</h2>
+    {% include "core/admin/deletion_record_counts.html" with record_counts=model_count only %}
+  </section>
+  <form method="post">
+    {% csrf_token %}
+    {% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
+    {% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
+    {% if confirmation_error %}<p role="alert">{{ confirmation_error }}</p>{% endif %}
+    <p><label class="evidence-delete-confirm"><input type="checkbox" name="confirm" value="yes" required> I confirm permanent deletion.</label></p>
+    <button type="submit" name="post" value="yes">Permanently delete chat</button>
+    {% url opts|admin_urlname:'change' object.pk|admin_urlquote as cancel_url %}
+    <a class="button evidence-delete-cancel" href="{% add_preserved_filters cancel_url %}">Cancel</a>
+  </form>
+{% endblock %}
+
+{% block delete_protected %}
+  {% for reason in protected %}<p role="alert">{{ reason }}</p>{% endfor %}
+  {% url opts|admin_urlname:'change' object.pk|admin_urlquote as cancel_url %}
+  <a class="button evidence-delete-cancel" href="{% add_preserved_filters cancel_url %}">Cancel</a>
+{% endblock %}

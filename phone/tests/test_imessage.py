@@ -20,7 +20,7 @@ from django_tasks_db.models import DBTaskResult
 
 from cases.models import Case, CaseMembership
 from core.analysis.errors import AnalysisError
-from core.analysis.services import validate_output
+from core.analysis.result_validation import validate_output
 from core.analysis.sources import Source
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin

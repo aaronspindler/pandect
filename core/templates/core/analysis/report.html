@@ -26,7 +26,7 @@
   {% if name == 'duplicates' and data.items %}<p class="muted">Identical files may be copies of the same source.</p>{% endif %}
   {% if data.warnings %}<ul class="notice analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
 </section>
-{% if data.pair_page %}<section class="analysis-section" aria-labelledby="report-pairs"><h2 id="report-pairs" tabindex="-1">Calls by participant pair</h2><table class="analysis-metadata-table"><thead><tr><th scope="col">Reported participants</th><th scope="col">Calls</th></tr></thead><tbody>{% for pair in data.pair_page %}<tr><th scope="row">{{ pair.label }}</th><td>{{ pair.count }}</td></tr>{% endfor %}</tbody></table>{% if data.pair_page.has_other_pages %}<nav class="pagination" aria-label="Participant pair pages">{% if data.pair_page.has_previous %}<a class="button button-secondary" href="{% querystring pair_page=data.pair_page.previous_page_number %}#report-pairs">Previous pairs</a>{% endif %}<span>Page {{ data.pair_page.number }} of {{ data.pair_page.paginator.num_pages }}</span>{% if data.pair_page.has_next %}<a class="button button-secondary" href="{% querystring pair_page=data.pair_page.next_page_number %}#report-pairs">Next pairs</a>{% endif %}</nav>{% endif %}</section>{% endif %}
+{% if data.pair_page %}<section class="analysis-section" aria-labelledby="report-pairs"><h2 id="report-pairs" tabindex="-1">Calls by participant pair</h2><table class="analysis-metadata-table"><thead><tr><th scope="col">Reported participants</th><th scope="col">Calls</th></tr></thead><tbody>{% for pair in data.pair_page %}<tr><th scope="row">{{ pair.label }}</th><td>{{ pair.count }}</td></tr>{% endfor %}</tbody></table>{% include 'ui/components/pagination.html' with page=data.pair_page label='Participant pair pages' query=request.GET parameter='pair_page' anchor='report-pairs' item_label='pairs' only %}</section>{% endif %}
 {% if data.primary_measurements %}<section class="analysis-section" aria-labelledby="report-totals">
   <h2 id="report-totals" tabindex="-1">Report totals</h2>
   {% include 'core/analysis/measurements.html' with measurements=data.primary_measurements only %}
@@ -36,7 +36,7 @@
     <h2 id="report-records" tabindex="-1">{% if name == 'duplicates' %}Matching files{% else %}Records{% endif %}</h2>
     {% for table in tables %}{% include 'core/analysis/report_table.html' %}{% endfor %}
     <p class="muted">Showing {{ data.page_obj.start_index }}–{{ data.page_obj.end_index }} of {{ data.page_obj.paginator.count }} records. Totals cover the full selection.</p>
-    {% if data.page_obj.has_other_pages %}<nav class="pagination" aria-label="Report record pages">{% if data.page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=data.page_obj.previous_page_number %}#report-records">Previous records</a>{% endif %}<span>Page {{ data.page_obj.number }} of {{ data.page_obj.paginator.num_pages }}</span>{% if data.page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=data.page_obj.next_page_number %}#report-records">Next records</a>{% endif %}</nav>{% endif %}
+    {% include 'ui/components/pagination.html' with page=data.page_obj label='Report record pages' query=request.GET anchor='report-records' item_label='records' only %}
   </section>
 {% else %}
   <div class="empty-state">

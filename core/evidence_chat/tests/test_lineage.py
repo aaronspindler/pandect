@@ -2,8 +2,9 @@ from uuid import UUID
 
 from django.test import TestCase
 
-from core.evidence_chat import corpus, engine, jobs
+from core.evidence_chat import corpus, engine
 from core.evidence_chat.lineage import corroboration, forwarded_origins
+from core.evidence_chat.turn_retrieval import advances_lookup
 from core.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
 from phone.models import CommunicationContext, TextMessageEvidence
@@ -56,7 +57,7 @@ class SourceLineageTests(EvidenceTestMixin, TestCase):
             {"originals": 2, "partial": False, "forwards": 1, "repeated_wording": 1},
         )
         self.assertFalse(
-            jobs._advances(
+            advances_lookup(
                 {
                     "query": "dispatch arrival",
                     "missing_fact": "Independent account of arrival.",

@@ -6,8 +6,7 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import Error as BrowserError
 
-HANDLE = re.compile(r"[a-z0-9._]{1,30}", re.ASCII | re.IGNORECASE)
-MAX_MEMBERS = 10_000
+from socialmedia.instagram_rosters import validate_handle
 
 
 class LiveBrowserError(Exception):
@@ -17,13 +16,10 @@ class LiveBrowserError(Exception):
 
 
 def _handle(value):
-    return (
-        value.lower()
-        if isinstance(value, str)
-        and HANDLE.fullmatch(value)
-        and value not in {".", ".."}
-        else ""
-    )
+    try:
+        return validate_handle(value).lower()
+    except ValueError:
+        return ""
 
 
 def _official_path(page):

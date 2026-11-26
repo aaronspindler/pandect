@@ -3,15 +3,16 @@
 from itertools import batched, zip_longest
 
 from django.db import transaction
-from django.db.models import Case, F, Func, IntegerField, Q, When, Window
+from django.db.models import Case, F, Func, IntegerField, When, Window
 from django.db.models.functions import RowNumber
 from django.db.models.lookups import Exact
 from pgvector.django import CosineDistance
 
+from cases.permissions import get_case_for_verified_user
 from core.analysis.errors import AnalysisError
 from core.case_search.approval import search_approval_current
 from core.case_search.grammar import Query, parse_query
-from core.case_search.indexing import authorize, search_index_status
+from core.case_search.indexing import search_index_status
 from core.case_search.parents import (
     anchor,
     current_parent_ids,
@@ -23,9 +24,8 @@ from core.case_search.passage_relations import query_relations, rank_related
 from core.case_search.queries import RelatedMatches
 from core.case_search.retained import RetainedMatches
 from core.case_search.semantic_model import embed, is_external, profile
-from core.case_search.semantic_sources import source_queryset
+from core.case_search.semantic_sources import document_source_condition
 from core.models import SearchPassage
-from core.models.search import SOURCE_FIELDS
 
 MAX_DISTANCE = 0.55
 HOSTED_MIN_SIMILARITY = 0.4884
@@ -68,7 +68,7 @@ def related_results(
     parsed = meaning_query(query, record_type)
     if parsed is None:
         return [], ""
-    case = authorize(user.pk, case.pk)
+    case = get_case_for_verified_user(user.pk, case.pk)
     hosted = is_external()
     active_profile = profile()
     revision = embedding_revision or (
@@ -77,7 +77,9 @@ def related_results(
 
     def authorize_query():
         current = (
-            authorize_request() if authorize_request else authorize(user.pk, case.pk)
+            authorize_request()
+            if authorize_request
+            else get_case_for_verified_user(user.pk, case.pk)
         )
         if current.pk != case.pk:
             raise AnalysisError("access_removed")
@@ -192,7 +194,7 @@ def related_results(
         from .rerank import rerank_order
 
         def recheck():
-            current = authorize(user.pk, case.pk)
+            current = get_case_for_verified_user(user.pk, case.pk)
             if not _current_excerpts(current, rows, record_type, start, end):
                 raise AnalysisError("source_changed")
             return current
@@ -206,7 +208,7 @@ def related_results(
         )
         recheck()
         rows = [rows[n] for n in order][:RESULT_LIMIT]
-    authorize(user.pk, case.pk)
+    get_case_for_verified_user(user.pk, case.pk)
     if not include_source:
         rows = [
             {k: v for k, v in row.items() if k not in ("source", "start")}
@@ -275,17 +277,9 @@ def _nearest(
     limit=RESULT_LIMIT,
     group_passages=False,
 ):
-    eligible = Q(pk__in=[])
-    for source in SOURCE_FIELDS:
-        sources = source_queryset(case, source, **filters)
-        if through:
-            date = (
-                "result__created_at"
-                if source in ("finding", "extraction")
-                else "created_at"
-            )
-            sources = sources.filter(**{f"{date}__lte": through})
-        eligible |= Q(**{f"document__{source}_id__in": sources.order_by().values("pk")})
+    eligible = document_source_condition(
+        case, prefix="document__", through=through, **filters
+    )
     # The planner may evaluate a distance predicate before filtering by profile.
     # CASE prevents pgvector from ever comparing two different vector widths.
     width = Func("embedding", function="vector_dims", output_field=IntegerField())

@@ -25,7 +25,7 @@ class ChatServiceTests(EvidenceViewTestMixin, TestCase):
         )
         route.start()
         self.addCleanup(route.stop)
-        queue = patch("core.evidence_chat.jobs.enqueue_turn")
+        queue = patch("core.evidence_chat.checkpoints.enqueue_turn")
         self.enqueue = queue.start()
         self.addCleanup(queue.stop)
 

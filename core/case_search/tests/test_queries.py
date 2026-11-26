@@ -6,7 +6,7 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.case_search import retained
 from core.case_search.queries import parse_query, search, suggest
 from core.case_search.semantic_sources import read_sources, source_queryset

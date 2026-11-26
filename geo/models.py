@@ -13,6 +13,7 @@ from core.storage import (
     canonical_bytes,
 )
 from document.models import DocumentEvidence
+from geo.coordinates import WEB_MERCATOR_MAX_LATITUDE
 from geo.trip_models import (  # noqa: F401
     VehicleTrip,
     VehicleTripGeneration,
@@ -534,4 +535,4 @@ class PointOfInterest(models.Model):
 
     @property
     def plottable(self):
-        return abs(self.latitude) <= 85.05112878
+        return abs(self.latitude) <= WEB_MERCATOR_MAX_LATITUDE

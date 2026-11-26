@@ -6,13 +6,13 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from uuid import uuid4
 
-from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
 from django.http import Http404
 from django.utils import timezone
 
+from accounts.verification import has_verified_email
 from cases.models import Case
 from cases.permissions import get_case
 from core.storage import retain_uploaded_originals
@@ -65,10 +65,7 @@ def _validation_error(code):
 
 
 def _verified(user):
-    if (
-        not user.is_active
-        or not EmailAddress.objects.filter(user=user, verified=True).exists()
-    ):
+    if not user.is_active or not has_verified_email(user):
         raise PermissionDenied("A verified active account is required.")
 
 

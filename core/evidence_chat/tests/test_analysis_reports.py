@@ -10,11 +10,12 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import Source, source_id
 from core.evidence.deletion import execute_deletion, plan_deletion
-from core.evidence_chat import corpus, jobs, services
+from core.evidence_chat import corpus, services
 from core.evidence_chat.analysis_reports import analysis_materials
+from core.evidence_chat.checkpoints import source_row
 from core.evidence_chat.reports import timing_materials
 from core.models import (
     AnalysisReportIndex,
@@ -188,7 +189,7 @@ class SavedAnalysisTests(EvidenceTestMixin, TestCase):
                 ]
             },
         )
-        jobs._row(turn, report.locator, "context").save()
+        source_row(turn, report.locator, "context").save()
         self.assertEqual(
             services.inspect_turn(turn)["claims"][0]["citations"][0]["quote"], quote
         )

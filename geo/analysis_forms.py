@@ -4,7 +4,8 @@ from django import forms
 from django.utils import timezone
 
 from core.analysis.form_base import BaseAnalysisForm
-from geo.analysis.deterministic.locations import LIMITS, comparison_periods
+from geo.analysis.deterministic.movement import comparison_periods
+from geo.analysis.deterministic.observations import LIMITS
 from ui.forms import UTCDateTimeField
 
 

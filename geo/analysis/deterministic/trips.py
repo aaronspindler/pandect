@@ -7,7 +7,8 @@ from uuid import UUID
 from django.db.models import Count, F, Max
 
 from core.evidence.queries import scoped_evidence
-from geo.analysis.deterministic.locations import distance_m, normalize_address
+from geo.analysis.deterministic.locations import normalize_address
+from geo.coordinates import distance_m
 from geo.trip_models import VehicleTrip, VehicleTripSource
 
 CHUNK_SIZE = 500
@@ -32,7 +33,7 @@ def _snapshot(item):
     }
 
 
-def _time(source):
+def observed_time(source):
     return datetime.fromisoformat(source["observed_at"])
 
 
@@ -112,8 +113,8 @@ class Segmenter:
             evidence_state="active",
             kind=kind,
             ordinal=ordinal,
-            start_at=_time(source),
-            end_at=_time(source),
+            start_at=observed_time(source),
+            end_at=observed_time(source),
         )
 
     def append(self, trip_id, source, seconds=0):
@@ -140,14 +141,18 @@ class Segmenter:
         origin = entry["origin"]
         moved = entry.get("first_movement")
         trip = self.trips.get(pk=trip_id, kind="trip")
-        if moved is None or moved > end["ordinal"] or _time(end) <= _time(origin):
+        if (
+            moved is None
+            or moved > end["ordinal"]
+            or observed_time(end) <= observed_time(origin)
+        ):
             trip.delete()
         else:
             trip.sources.filter(ordinal__gt=end["ordinal"]).delete()
             totals = trip.sources.aggregate(
                 count=Count("pk"), largest=Max("gap_seconds")
             )
-            trip.end_at = _time(end)
+            trip.end_at = observed_time(end)
             trip.source_count = totals["count"]
             trip.largest_gap_seconds = totals["largest"] or 0
             trip.basis = (
@@ -173,7 +178,9 @@ class Segmenter:
     def stopped(self, entry):
         return (
             not entry["run_positive"]
-            and (_time(entry["previous"]) - _time(entry["run_start"])).total_seconds()
+            and (
+                observed_time(entry["previous"]) - observed_time(entry["run_start"])
+            ).total_seconds()
             >= STOP_SECONDS
         )
 
@@ -185,7 +192,7 @@ class Segmenter:
 
     def gap(self, entry, first, last, seconds):
         trip = self.create(entry, first, kind="gap")
-        trip.end_at = _time(last)
+        trip.end_at = observed_time(last)
         trip.source_count = 2
         trip.largest_gap_seconds = seconds
         trip.basis = "Reported observation times"
@@ -207,7 +214,7 @@ class Segmenter:
         if previous is None:
             self.reset(entry, source)
             return
-        seconds = (_time(source) - _time(previous)).total_seconds()
+        seconds = (observed_time(source) - observed_time(previous)).total_seconds()
         same = _same(previous, source)
         if seconds > GAP_SECONDS or same is None or (seconds == 0 and same is False):
             self.finish_block(entry)

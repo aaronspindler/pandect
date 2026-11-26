@@ -97,11 +97,9 @@
           {% if row.capture.reason == 'count_mismatch' or row.previous.reason == 'count_mismatch' %}<p>Profile count mismatch</p>{% endif %}
         </div></a>
       {% endfor %}
-      {% if page.has_other_pages %}<nav class="pagination" aria-label="Earlier {{ change.title|lower }} pages">
-        {% if page.has_previous %}<a class="button button-secondary" href="{% if direction == 'followers' %}{% querystring followers=page.previous_page_number %}{% else %}{% querystring following=page.previous_page_number %}{% endif %}#{{ direction }}">Previous</a>{% endif %}
-        <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-        {% if page.has_next %}<a class="button button-secondary" href="{% if direction == 'followers' %}{% querystring followers=page.next_page_number %}{% else %}{% querystring following=page.next_page_number %}{% endif %}#{{ direction }}">Next</a>{% endif %}
-      </nav>{% endif %}
+      {% with subject=change.title|lower %}
+        {% include 'ui/components/pagination.html' with page=page label='Earlier '|add:subject|add:' pages' query=request.GET parameter=direction anchor=direction only %}
+      {% endwith %}
     </section>
     {% endif %}
   {% endwith %}{% endfor %}
@@ -117,7 +115,7 @@
       </p>{% endfor %}
     </div></div>
     {% empty %}<p>The first check has not run yet.</p>{% endfor %}
-    {% include 'socialmedia/monitor_pagination.html' with page_obj=history label='Check history pages' anchor='checks' %}
+    {% include 'ui/components/pagination.html' with page=history label='Check history pages' query=request.GET anchor='checks' only %}
   </section>
 </details>
 {% endblock %}

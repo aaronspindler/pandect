@@ -19,16 +19,14 @@ from core.analysis.execution import (
     transfer_scope,
 )
 from core.analysis.operations import get_operation
-from core.analysis.services import (
-    process_run,
-    resolve_inputs,
-    snapshot_sources,
-    start_run,
-)
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import source_id
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from phone.models import TextMessageEvidence

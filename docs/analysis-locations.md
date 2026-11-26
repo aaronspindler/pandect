@@ -13,6 +13,13 @@ trips](#automatic-vehicle-trips) also work from addresses. Derived coordinates
 never replace reported ones; comparisons can retain both and flag disagreement.
 No method verifies presence, identifies drivers or infers engine state from zero speed.
 
+Shared WGS84 validation and distance calculations live in `geo.coordinates`.
+The deterministic analysis modules share selection, bounds, and finding
+presentation through `geo.analysis.deterministic.observations`. The
+`movement` module owns visits, journeys, period comparisons, and travel
+discrepancies. The `locations` module owns address wording, quality, spatial
+grouping, proximity, co-location, and same-event comparisons.
+
 ## Available comparisons
 
 | Method | Result and interpretation |

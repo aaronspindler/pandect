@@ -16,8 +16,10 @@ from core.analysis.forms import analysis_form
 from core.analysis.import_checks import imported_sources
 from core.analysis.operations import OPERATIONS
 from core.analysis.reprocessing import start_reprocessing
-from core.analysis.services import process_run, snapshot_sources, start_run
+from core.analysis.services import start_run
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import selection
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, CaseSearchIndex
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

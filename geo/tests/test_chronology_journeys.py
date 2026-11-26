@@ -4,7 +4,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.analysis.navigation import finding_url
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.models import AnalysisFindingSource, AnalysisResult
 from core.testing import EvidenceViewTestMixin
 from geo.chronology import JOURNEYS_PER_OBSERVATION, attach_candidate_journeys

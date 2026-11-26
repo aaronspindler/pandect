@@ -18,7 +18,7 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from cases.permissions import get_case
 from core.analysis.operations import get_operation
-from core.analysis.services import process_run
+from core.analysis.worker import process_run
 from core.evidence import deletion
 from core.evidence.types import KINDS
 from core.models import (
@@ -259,7 +259,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
             return {"summary": "Derived content", "items": []}
 
         with patch(
-            "core.analysis.services.get_operation",
+            "core.analysis.worker.get_operation",
             return_value=replace(operation, function=finish_after_delete),
         ):
             process_run(run.pk)

@@ -48,6 +48,13 @@ def pair_messages(case, first_person, second_person):
     )
 
 
+def reported_pair(first_id, second_id):
+    """Match either direction of the reported pair on a scoped queryset."""
+    return Q(sender_id=first_id, recipient_id=second_id) | Q(
+        sender_id=second_id, recipient_id=first_id
+    )
+
+
 def imported_contexts(case):
     return CommunicationContext.objects.filter(
         case=case,

@@ -1,194 +1,31 @@
-"""Bounded, deterministic comparisons of retained location observations.
-
-These methods describe observations and candidate interpretations. They never
-assign an unlinked observation to a subject or reconstruct a road route.
-"""
+"""Compare reported locations, address wording, and spatial claims."""
 
 import math
 import re
 import unicodedata
-from collections import Counter, defaultdict
-from datetime import UTC, datetime
-from itertools import combinations, pairwise
+from collections import defaultdict
+from itertools import combinations
 
 from core.analysis.sources import output
-from core.evidence.types import LOCATION_KINDS
-
-VERSION = "location-observations.v2"
-MAX_SOURCES = 500
-EARTH_RADIUS_M = 6_371_008.8
-WEB_MERCATOR_MAX_LATITUDE = 85.05112878
-LIMITS = {
-    "distance_m": (100, 1, 100_000),
-    "gap_minutes": (60, 1, 10_080),
-    "dwell_minutes": (5, 0, 1_440),
-    "time_window_minutes": (10, 0, 1_440),
-    "speed_limit_kmh": (300, 1, 3_000),
-    "radius_m": (1_000, 1, 500_000),
-    "boundary_m": (10, 0, 10_000),
-}
-CAUTION = (
-    "Positions have no retained measured accuracy. Decimal precision is not accuracy; "
-    "reviewed geocodes may be building, street or area estimates."
+from geo.analysis.deterministic.observations import (
+    cluster_observations,
+    format_observed_time,
+    location_item,
+    number,
+    observation_metrics,
+    observation_point,
+    observation_warnings,
+    observed_time,
+    position_kind,
+    selected_observations,
+    source_order_discrepancies,
+    subject_key,
 )
-MOVEMENT_CAUTION = (
-    "Candidates describe selected observations, not continuous presence, a verified "
-    "route, transport mode, driver identity, or proof of a person's presence."
+from geo.coordinates import (
+    EARTH_RADIUS_M,
+    coordinate,
+    distance_m,
 )
-
-
-def number(parameters, key):
-    default, minimum, maximum = LIMITS[key]
-    raw = parameters.get(key, default)
-    if isinstance(raw, bool):
-        raise ValueError(f"{key} must be a finite number.")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{key} must be a finite number.") from exc
-    if not math.isfinite(value) or not minimum <= value <= maximum:
-        raise ValueError(f"{key} must be between {minimum} and {maximum}.")
-    return value
-
-
-def coordinate(latitude, longitude):
-    if isinstance(latitude, bool) or isinstance(longitude, bool):
-        raise ValueError("Coordinates must be finite decimal degrees.")
-    try:
-        point = float(latitude), float(longitude)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Coordinates must be finite decimal degrees.") from exc
-    if not all(math.isfinite(x) for x in point):
-        raise ValueError("Coordinates must be finite decimal degrees.")
-    if not -90 <= point[0] <= 90 or not -180 <= point[1] <= 180:
-        raise ValueError("Coordinates are outside WGS84 latitude/longitude bounds.")
-    return point
-
-
-def distance_m(first, second):
-    "Spherical surface distance, including dateline and polar observations."
-    lat1, lon1 = map(math.radians, coordinate(*first))
-    lat2, lon2 = map(math.radians, coordinate(*second))
-    term = math.sin((lat2 - lat1) / 2) ** 2
-    term += math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
-    return 2 * EARTH_RADIUS_M * math.asin(min(1, math.sqrt(max(0, term))))
-
-
-def _selected(sources, *, allow_alternatives=False):
-    sources = list(sources)
-    if len(sources) > MAX_SOURCES:
-        raise ValueError(f"Select at most {MAX_SOURCES} observations.")
-    if any(s.kind not in LOCATION_KINDS for s in sources):
-        raise ValueError("Select location observations for this analysis.")
-    if len({str(s.item.case_id) for s in sources}) > 1:
-        raise ValueError("All observations must belong to the same case.")
-    if len({str(s.id) for s in sources}) != len(sources):
-        raise ValueError("Select each source once.")
-    if not allow_alternatives and len(
-        {(s.kind, str(s.item.pk)) for s in sources}
-    ) != len(sources):
-        raise ValueError(
-            "Choose one interpretation per original observation. "
-            "Use location quality to compare alternative interpretations."
-        )
-    return sources
-
-
-def _subject(source):
-    if source.kind == "person-location":
-        return f"person:{source.item.person_id}"
-    if source.kind == "vehicle-location":
-        return f"vehicle:{source.item.vehicle_id}"
-    return None
-
-
-def _time(source):
-    value = getattr(source.item, "observed_at", None)
-    return (
-        value if isinstance(value, datetime) and value.utcoffset() is not None else None
-    )
-
-
-def _iso(value):
-    return value.astimezone(UTC).isoformat() if value else "Not recorded"
-
-
-def _point(source):
-    value = source.coordinates
-    return coordinate(*value) if value is not None else None
-
-
-def _position_kind(source):
-    return (
-        "Reported coordinates"
-        if getattr(source.item, "latitude", None) is not None
-        else "Reviewed derived coordinates"
-        if source.coordinates is not None
-        else "No usable coordinates"
-    )
-
-
-def _item(label, text, sources, **values):
-    return {
-        "label": label,
-        "text": text,
-        "source_ids": [str(s.id) for s in sources],
-        "anchors": [s.anchor() for s in sources],
-        "values": values,
-    }
-
-
-def _metrics(sources):
-    def count(condition):
-        return len({(s.kind, str(s.item.pk)) for s in sources if condition(s)})
-
-    return {
-        "Selected observations": count(lambda s: True),
-        "Selected interpretations": len(sources),
-        "With coordinates": count(lambda s: _point(s) is not None),
-        "With event time": count(lambda s: _time(s) is not None),
-        "Unlinked observations": count(lambda s: _subject(s) is None),
-        "Method version": VERSION,
-    }
-
-
-def _warnings(sources, *, movement=False):
-    messages = [CAUTION]
-    missing = sum(_point(s) is None for s in sources)
-    if missing:
-        messages.append(
-            f"{missing} observations have no usable coordinate interpretation."
-        )
-    if movement:
-        messages.append(MOVEMENT_CAUTION)
-        unlinked = sum(_subject(s) is None for s in sources)
-        untimed = sum(_time(s) is None for s in sources)
-        if unlinked:
-            messages.append(
-                f"{unlinked} unlinked observations are excluded from subject movement."
-            )
-        if untimed:
-            messages.append(f"{untimed} observations have no usable event time.")
-    return messages
-
-
-def _clusters(sources, radius):
-    "Deterministic anchor-radius groups; avoids transitive chains of places."
-    groups = []
-    for source in sorted(
-        (s for s in sources if _point(s) is not None),
-        key=lambda s: (s.kind, str(s.item.pk)),
-    ):
-        candidates = [
-            (distance_m(_point(source), _point(g[0])), index)
-            for index, g in enumerate(groups)
-        ]
-        nearest = min(candidates, default=(math.inf, -1))
-        if nearest[0] <= radius:
-            groups[nearest[1]].append(source)
-        else:
-            groups.append([source])
-    return groups
 
 
 def normalize_address(address):
@@ -216,14 +53,14 @@ def normalize_address(address):
 
 
 def normalize_addresses(sources, parameters):
-    sources = _selected(sources)
+    sources = selected_observations(sources)
     groups = defaultdict(list)
     items = []
     for source in sources:
         raw = getattr(source.item, "address", "")
         parsed = normalize_address(raw)
         items.append(
-            _item(
+            location_item(
                 "Address derivative",
                 "Original address is retained; normalization is a comparison aid.",
                 [source],
@@ -244,7 +81,7 @@ def normalize_addresses(sources, parameters):
     matches = [group for group in groups.values() if len(group) > 1]
     for group in matches:
         items.append(
-            _item(
+            location_item(
                 "Candidate equivalent wording",
                 (
                     "Same conservatively normalized address, including any "
@@ -261,7 +98,8 @@ def normalize_addresses(sources, parameters):
     return output(
         "Compare original addresses and conservative derivatives.",
         items=items,
-        metrics=_metrics(sources) | {"Candidate wording groups": len(matches)},
+        metrics=observation_metrics(sources)
+        | {"Candidate wording groups": len(matches)},
         warnings=[
             (
                 "Identical wording and a common street name do not establish "
@@ -273,46 +111,14 @@ def normalize_addresses(sources, parameters):
     )
 
 
-def _source_order_discrepancies(sources):
-    groups = defaultdict(list)
-    for source in sources:
-        if _subject(source) is not None:
-            groups[_subject(source)].append(source)
-    items = []
-    for group in groups.values():
-        # Source row order is meaningful only within the same retained export.
-        imports = defaultdict(list)
-        for source in group:
-            if getattr(source.item, "import_batch_id", None) and getattr(
-                source.item, "source_row", None
-            ):
-                imports[str(source.item.import_batch_id)].append(source)
-        for imported in imports.values():
-            ordered = sorted(imported, key=lambda s: s.item.source_row)
-            for first, second in pairwise(ordered):
-                if _time(first) and _time(second) and _time(second) < _time(first):
-                    items.append(
-                        _item(
-                            "Source-row ordering discrepancy",
-                            (
-                                "Later export row reports an earlier event "
-                                "time; originals are not reordered or "
-                                "corrected."
-                            ),
-                            [first, second],
-                        )
-                    )
-    return items
-
-
 def location_quality(sources, parameters):
-    sources = _selected(sources, allow_alternatives=True)
+    sources = selected_observations(sources, allow_alternatives=True)
     radius = number(parameters, "distance_m")
     items = []
     signatures = defaultdict(list)
     for source in sources:
         item = source.item
-        position, observed = _point(source), _time(source)
+        position, observed = observation_point(source), observed_time(source)
         flags = []
         if observed is None:
             flags.append("Event time is missing or lacks an explicit timezone")
@@ -335,18 +141,22 @@ def location_quality(sources, parameters):
             )
         timezone = getattr(getattr(item, "import_batch", None), "timezone", "")
         items.append(
-            _item(
+            location_item(
                 "Observation quality",
                 "; ".join(flags)
                 or "No configured discrepancy found; source accuracy remains unknown.",
                 [source],
                 **{
-                    "Event time": _iso(observed),
-                    "Receipt time": _iso(receipt),
-                    "Collection time": _iso(getattr(item, "collected_at", None)),
-                    "Upload time": _iso(getattr(item, "created_at", None)),
+                    "Event time": format_observed_time(observed),
+                    "Receipt time": format_observed_time(receipt),
+                    "Collection time": format_observed_time(
+                        getattr(item, "collected_at", None)
+                    ),
+                    "Upload time": format_observed_time(
+                        getattr(item, "created_at", None)
+                    ),
                     "Export timezone": timezone or "Not recorded",
-                    "Position origin": _position_kind(source),
+                    "Position origin": position_kind(source),
                     "Address": getattr(item, "address", "") or "Not recorded",
                     "Reviewed derivative coordinates": str(source.derived_coordinates)
                     if source.derived_coordinates is not None
@@ -355,7 +165,12 @@ def location_quality(sources, parameters):
             )
         )
         signatures[
-            (_subject(source), position, _iso(observed), getattr(item, "address", ""))
+            (
+                subject_key(source),
+                position,
+                format_observed_time(observed),
+                getattr(item, "address", ""),
+            )
         ].append(source)
     interpretations = defaultdict(list)
     for source in sources:
@@ -363,7 +178,7 @@ def location_quality(sources, parameters):
     for group in interpretations.values():
         if len(group) > 1:
             items.append(
-                _item(
+                location_item(
                     "Alternative interpretations of one observation",
                     "These selected versions refer to one retained original. "
                     "They are alternatives, not independent samples or corroboration.",
@@ -375,7 +190,7 @@ def location_quality(sources, parameters):
         originals = {(source.kind, str(source.item.pk)) for source in group}
         if len(originals) > 1:
             items.append(
-                _item(
+                location_item(
                     "Repeated-observation candidate",
                     "Identical selected location/time/association fields; "
                     "independent original occurrences remain separate.",
@@ -383,16 +198,16 @@ def location_quality(sources, parameters):
                     **{"Original occurrences": len(originals)},
                 )
             )
-    items.extend(_source_order_discrepancies(sources))
+    items.extend(source_order_discrepancies(sources))
     return output(
         ("Review time semantics, positional interpretation and repeated observations."),
         items=items,
-        metrics=_metrics(sources)
+        metrics=observation_metrics(sources)
         | {
             "Unique original observations": len(interpretations),
             "Selected interpretations": len(sources),
         },
-        warnings=_warnings(sources)
+        warnings=observation_warnings(sources)
         + [
             "Alternative versions of one original are compared deliberately here. "
             "They must not be counted as independent observations or visits."
@@ -402,11 +217,11 @@ def location_quality(sources, parameters):
 
 
 def spatial_groups(sources, parameters):
-    sources = _selected(sources)
+    sources = selected_observations(sources)
     radius = number(parameters, "distance_m")
-    groups = _clusters(sources, radius)
+    groups = cluster_observations(sources, radius)
     items = [
-        _item(
+        location_item(
             f"Spatial group {index + 1}",
             (
                 "Candidate grouping within the configured radius of its first"
@@ -415,11 +230,11 @@ def spatial_groups(sources, parameters):
             group,
             **{
                 "Observations": len(group),
-                "Anchor latitude": _point(group[0])[0],
-                "Anchor longitude": _point(group[0])[1],
+                "Anchor latitude": observation_point(group[0])[0],
+                "Anchor longitude": observation_point(group[0])[1],
                 "Anchor radius (m)": radius,
                 "Position origins": ", ".join(
-                    sorted({_position_kind(s) for s in group})
+                    sorted({position_kind(s) for s in group})
                 ),
             },
         )
@@ -428,8 +243,8 @@ def spatial_groups(sources, parameters):
     return output(
         "Inspect groups of nearby observed or reviewed positions.",
         items=items,
-        metrics=_metrics(sources) | {"Spatial groups": len(groups)},
-        warnings=_warnings(sources)
+        metrics=observation_metrics(sources) | {"Spatial groups": len(groups)},
+        warnings=observation_warnings(sources)
         + [
             (
                 "No external map layer is used. Coordinates supply geographic"
@@ -498,7 +313,7 @@ def _polygon(vertices):
 
 
 def proximity(sources, parameters):
-    sources = _selected(sources)
+    sources = selected_observations(sources)
     boundary = number(parameters, "boundary_m")
     polygon = parameters.get("polygon")
     if polygon is not None:
@@ -510,11 +325,11 @@ def proximity(sources, parameters):
             reference_source = next(
                 (s for s in sources if str(s.id) == reference_id), None
             )
-            if reference_source is None or _point(reference_source) is None:
+            if reference_source is None or observation_point(reference_source) is None:
                 raise ValueError(
                     "The reference must be a selected coordinate-bearing observation."
                 )
-            reference = _point(reference_source)
+            reference = observation_point(reference_source)
         else:
             reference = coordinate(
                 parameters.get("reference_latitude"),
@@ -523,7 +338,7 @@ def proximity(sources, parameters):
         radius = number(parameters, "radius_m")
     items = []
     for source in sources:
-        point = _point(source)
+        point = observation_point(source)
         if point is None:
             continue
         if polygon:
@@ -558,7 +373,7 @@ def proximity(sources, parameters):
             )
             values = {"Distance estimate (m)": round(distance, 2), "Radius (m)": radius}
         items.append(
-            _item(
+            location_item(
                 classification,
                 (
                     "Geometric comparison; unknown accuracy can change the "
@@ -566,14 +381,14 @@ def proximity(sources, parameters):
                 ),
                 [source],
                 **values,
-                **{"Position origin": _position_kind(source)},
+                **{"Position origin": position_kind(source)},
             )
         )
     return output(
         "Compare selected observations with the configured radius or geofence.",
         items=items,
-        metrics=_metrics(sources) | {"Compared observations": len(items)},
-        warnings=_warnings(sources)
+        metrics=observation_metrics(sources) | {"Compared observations": len(items)},
+        warnings=observation_warnings(sources)
         + [
             f"Boundary ambiguity band: {boundary:g} m. Spherical distance estimates; "
             "polygon boundary distances use a local projection."
@@ -582,613 +397,28 @@ def proximity(sources, parameters):
     )
 
 
-def _tracks(sources):
-    groups = defaultdict(list)
-    for source in sources:
-        if (
-            _subject(source) is not None
-            and _time(source)
-            and _point(source) is not None
-        ):
-            groups[_subject(source)].append(source)
-    return {
-        key: sorted(group, key=lambda s: (_time(s), s.kind, str(s.item.pk)))
-        for key, group in groups.items()
-    }
-
-
-def _blocks(track, gap_seconds):
-    blocks = []
-    for source in track:
-        if (
-            not blocks
-            or (_time(source) - _time(blocks[-1][-1])).total_seconds() > gap_seconds
-        ):
-            blocks.append([source])
-        else:
-            blocks[-1].append(source)
-    return blocks
-
-
-def _gap_findings(sources, parameters):
-    threshold = number(parameters, "gap_minutes") * 60
-    items = []
-    for subject, track in _tracks(sources).items():
-        for first, second in pairwise(track):
-            seconds = (_time(second) - _time(first)).total_seconds()
-            if seconds > threshold:
-                items.append(
-                    _item(
-                        "Coverage gap",
-                        "This gap between usable timed positions is excluded from "
-                        "visit and journey segmentation. "
-                        "The endpoint samples do not establish continuous presence, "
-                        "inactivity or a route between them.",
-                        [first, second],
-                        **{
-                            "Subject association": subject,
-                            "Last usable observation before gap": _iso(_time(first)),
-                            "First usable observation after gap": _iso(_time(second)),
-                            "Gap seconds": seconds,
-                            "Maximum supported gap seconds": threshold,
-                        },
-                    )
-                )
-    return items
-
-
-def _stationary_runs(block, radius):
-    runs = []
-    for index, source in enumerate(block):
-        if runs and distance_m(_point(block[runs[-1][0]]), _point(source)) <= radius:
-            runs[-1].append(index)
-        else:
-            runs.append([index])
-    return runs
-
-
-def _visits(sources, parameters):
-    radius = number(parameters, "distance_m")
-    gap = number(parameters, "gap_minutes") * 60
-    dwell = number(parameters, "dwell_minutes") * 60
-    visits = []
-    for subject, track in _tracks(sources).items():
-        for block in _blocks(track, gap):
-            for indexes in _stationary_runs(block, radius):
-                members = [block[index] for index in indexes]
-                seconds = (_time(members[-1]) - _time(members[0])).total_seconds()
-                if len(members) >= 2 and seconds >= dwell:
-                    visits.append((subject, members, seconds))
-    return visits
-
-
-def candidate_visits(sources, parameters):
-    sources = _selected(sources)
-    radius = number(parameters, "distance_m")
-    visits = _visits(sources, parameters)
-    places = _clusters([members[0] for _, members, _ in visits], radius)
-    place_by_id = {
-        str(source.id): index + 1
-        for index, group in enumerate(places)
-        for source in group
-    }
-    items = []
-    counts = Counter()
-    for subject, members, seconds in visits:
-        place = place_by_id[str(members[0].id)]
-        counts[(subject, place)] += 1
-        items.append(
-            _item(
-                f"Candidate visit to place {place}",
-                (
-                    "The observed first/last samples bound this candidate "
-                    "interval; continuous presence between reports is "
-                    "inferred. No arrival/departure outside these samples is "
-                    "established."
-                ),
-                members,
-                **{
-                    "Subject association": subject,
-                    "Place group": place,
-                    "Samples": len(members),
-                    "First observed": _iso(_time(members[0])),
-                    "Last observed": _iso(_time(members[-1])),
-                    "Observed span (seconds)": seconds,
-                    "UTC weekday": _time(members[0]).strftime("%A"),
-                    "UTC starting hour": _time(members[0]).hour,
-                },
-            )
-        )
-    for (subject, place), count in sorted(counts.items()):
-        matching = [
-            members
-            for candidate_subject, members, _ in visits
-            if candidate_subject == subject and place_by_id[str(members[0].id)] == place
-        ]
-        members = [source for group in matching for source in group]
-        items.append(
-            _item(
-                f"Place {place} visit frequency",
-                (
-                    "Counted candidate visits under the configured "
-                    "segmentation, not stationary sample counts. Frequent "
-                    "does not imply home or workplace."
-                ),
-                members,
-                **{
-                    "Subject association": subject,
-                    "Candidate visits": count,
-                    "Observed samples": len(members),
-                    "UTC starting hours": ", ".join(
-                        str(_time(group[0]).hour) for group in matching
-                    ),
-                },
-            )
-        )
-    gaps = _gap_findings(sources, parameters)
-    return output(
-        "Inspect candidate visits and repeated-place counts.",
-        items=items + gaps,
-        metrics=_metrics(sources)
-        | {
-            "Candidate visits": len(visits),
-            "Excluded sampling gaps": len(gaps),
-            "Place groups": len(places),
-            "Maximum gap (minutes)": number(parameters, "gap_minutes"),
-            "Minimum observed span (minutes)": number(parameters, "dwell_minutes"),
-        },
-        warnings=_warnings(sources, movement=True)
-        + [
-            (
-                "Zero reported speed is not parking or engine state. A long "
-                "reporting gap splits candidates rather than proving a stay."
-            )
-        ],
-        outcome="complete" if visits else "insufficient",
-    )
-
-
-def _trips(sources, parameters):
-    radius = number(parameters, "distance_m")
-    gap = number(parameters, "gap_minutes") * 60
-    dwell = number(parameters, "dwell_minutes") * 60
-    trips = []
-    for subject, track in _tracks(sources).items():
-        for block in _blocks(track, gap):
-            start = 0
-            for indexes in _stationary_runs(block, radius):
-                span = (
-                    _time(block[indexes[-1]]) - _time(block[indexes[0]])
-                ).total_seconds()
-                if len(indexes) < 2 or span < dwell:
-                    continue
-                if indexes[0] > start and any(
-                    distance_m(_point(block[start]), _point(s)) > radius
-                    for s in block[start : indexes[0] + 1]
-                ):
-                    trips.append((subject, block[start : indexes[0] + 1]))
-                start = indexes[-1]
-            remainder = block[start:]
-            if len(remainder) >= 2 and any(
-                distance_m(_point(remainder[0]), _point(s)) > radius for s in remainder
-            ):
-                trips.append((subject, remainder))
-    return trips
-
-
-def candidate_trips(sources, parameters):
-    sources = _selected(sources)
-    trips = _trips(sources, parameters)
-    items = []
-    for subject, members in trips:
-        seconds = (_time(members[-1]) - _time(members[0])).total_seconds()
-        straight_segments = [
-            distance_m(_point(a), _point(b)) for a, b in pairwise(members)
-        ]
-        items.append(
-            _item(
-                "Candidate journey",
-                (
-                    "Endpoints are first/last included observations. Straight"
-                    " segments are distance estimates, not roads travelled. "
-                    "Stationary samples and configured maximum gaps delimit "
-                    "this candidate; unsampled departures/arrivals remain "
-                    "unknown."
-                ),
-                members,
-                **{
-                    "Subject association": subject,
-                    "First observed": _iso(_time(members[0])),
-                    "Last observed": _iso(_time(members[-1])),
-                    "Elapsed seconds": seconds,
-                    "Origin latitude": _point(members[0])[0],
-                    "Origin longitude": _point(members[0])[1],
-                    "Destination latitude": _point(members[-1])[0],
-                    "Destination longitude": _point(members[-1])[1],
-                    "Observed straight-segment sum (m)": round(
-                        sum(straight_segments), 2
-                    ),
-                    "Largest sampling interval (seconds)": max(
-                        (_time(b) - _time(a)).total_seconds()
-                        for a, b in pairwise(members)
-                    ),
-                    "Samples": len(members),
-                },
-            )
-        )
-    gaps = _gap_findings(sources, parameters)
-    return output(
-        "Inspect candidate journeys and drives from associated observations.",
-        items=items + gaps,
-        metrics=_metrics(sources)
-        | {
-            "Candidate journeys": len(trips),
-            "Excluded sampling gaps": len(gaps),
-            "Maximum gap (minutes)": number(parameters, "gap_minutes"),
-        },
-        warnings=_warnings(sources, movement=True),
-        outcome="complete" if trips else "insufficient",
-    )
-
-
-def comparison_periods(parameters):
-    names = ("period_a_start", "period_a_end", "period_b_start", "period_b_end")
-    if not any(parameters.get(name) for name in names):
-        return None
-    if not all(parameters.get(name) for name in names):
-        raise ValueError("Choose start and end timestamps for both comparison periods.")
-    values = []
-    for name in names:
-        try:
-            value = datetime.fromisoformat(parameters[name])
-            if value.utcoffset() is None:
-                raise ValueError
-        except ValueError, TypeError:
-            raise ValueError(
-                "Comparison periods need ISO timestamps with explicit timezones."
-            ) from None
-        values.append(value.astimezone(UTC))
-    first, second = (values[0], values[1]), (values[2], values[3])
-    if any(start >= end for start, end in (first, second)):
-        raise ValueError("Each comparison period must end after it starts.")
-    if max(first[0], second[0]) < min(first[1], second[1]):
-        raise ValueError(
-            "Choose disjoint comparison periods to avoid counting samples twice."
-        )
-    return {"A": first, "B": second}
-
-
-def _within(source, bounds):
-    value = _time(source)
-    return value is not None and bounds[0] <= value < bounds[1]
-
-
-def _coverage_values(sources, bounds, parameters):
-    timed = [s for s in sources if _within(s, bounds)]
-    positioned = sorted((s for s in timed if _point(s) is not None), key=_time)
-    intervals = [(_time(b) - _time(a)).total_seconds() for a, b in pairwise(positioned)]
-    maximum_gap = number(parameters, "gap_minutes") * 60
-    return {
-        "Window start (inclusive)": _iso(bounds[0]),
-        "Window end (exclusive)": _iso(bounds[1]),
-        "Window duration denominator (seconds)": (
-            bounds[1] - bounds[0]
-        ).total_seconds(),
-        "Selected timed observations": len(timed),
-        "Usable timed positions": len(positioned),
-        "Timed observations without coordinates": len(timed) - len(positioned),
-        "First usable observation": _iso(_time(positioned[0]))
-        if positioned
-        else "Not recorded",
-        "Last usable observation": _iso(_time(positioned[-1]))
-        if positioned
-        else "Not recorded",
-        "Observed usable span (seconds)": (
-            _time(positioned[-1]) - _time(positioned[0])
-        ).total_seconds()
-        if positioned
-        else 0,
-        "Largest sampling interval (seconds)": max(intervals)
-        if intervals
-        else "Unknown",
-        "Excluded sampling gaps": sum(value > maximum_gap for value in intervals),
-        "Summed within-threshold sample intervals (seconds)": sum(
-            value for value in intervals if value <= maximum_gap
-        ),
-    }
-
-
-def _month_bounds(value):
-    start = value.astimezone(UTC).replace(
-        day=1, hour=0, minute=0, second=0, microsecond=0
-    )
-    end = (
-        start.replace(year=start.year + 1, month=1)
-        if start.month == 12
-        else start.replace(month=start.month + 1)
-    )
-    return start, end
-
-
-def _hour_counts(matching):
-    hours = Counter(_time(trip[0]).astimezone(UTC).hour for trip in matching)
-    return (
-        "; ".join(
-            f"{hour:02d}:00 UTC: {count}" for hour, count in sorted(hours.items())
-        )
-        or "No observed departures"
-    )
-
-
-def _corridor_signatures(trips, places):
-    signatures = Counter()
-    for trip in trips:
-        sequence = []
-        for source in trip:
-            place = places[str(source.id)]
-            if not sequence or sequence[-1] != place:
-                sequence.append(place)
-        if len(sequence) >= 3:
-            signatures[tuple(sequence)] += 1
-    return signatures
-
-
-def _routine_comparison(pair, period_trips, places, reference_sources):
-    subject, origin, destination = pair
-    selected = {
-        name: [
-            trip
-            for candidate_subject, trip in trips
-            if candidate_subject == subject
-            and places[str(trip[0].id)] == origin
-            and places[str(trip[-1].id)] == destination
-        ]
-        for name, trips in period_trips.items()
-    }
-    denominators = {
-        name: sum(candidate_subject == subject for candidate_subject, _ in trips)
-        for name, trips in period_trips.items()
-    }
-    if not any(selected.values()):
-        return None
-    first_count, second_count = len(selected["A"]), len(selected["B"])
-    shares = {
-        name: len(trips) / denominators[name] if denominators[name] else None
-        for name, trips in selected.items()
-    }
-    if not all(denominators.values()):
-        change = "Insufficient journey coverage in one comparison period"
-    elif first_count == 0:
-        change = "Endpoint pair newly observed in period B's selected journeys"
-    elif second_count == 0:
-        change = "Endpoint pair not observed in period B's selected journeys"
-    elif shares["B"] > shares["A"]:
-        change = "Endpoint pair has a larger share of selected journeys in period B"
-    elif shares["B"] < shares["A"]:
-        change = "Endpoint pair has a smaller share of selected journeys in period B"
-    else:
-        change = "Same endpoint-pair share among selected journeys"
-    values = {"Subject association": subject, "Observed recurrence comparison": change}
-    for name, trips in selected.items():
-        values |= {
-            f"Period {name} pair journeys": len(trips),
-            f"Period {name} subject journey denominator": denominators[name],
-            f"Period {name} pair share": round(shares[name], 4)
-            if shares[name] is not None
-            else "Unknown",
-            f"Period {name} UTC departure distribution": _hour_counts(trips),
-            f"Period {name} observed durations (seconds)": ", ".join(
-                str((_time(t[-1]) - _time(t[0])).total_seconds()) for t in trips
-            )
-            or "No observed journeys",
-        }
-    corridors = {
-        name: _corridor_signatures(trips, places) for name, trips in selected.items()
-    }
-    if all(corridors.values()):
-        common = set(corridors["A"]) & set(corridors["B"])
-        values |= {
-            "Observed corridor comparison": (
-                "Interior-sample spatial-group sequences; "
-                "sampling density can change these sequences"
-            ),
-            "Shared observed sequences": len(common),
-            "Sequences first observed in B": len(
-                set(corridors["B"]) - set(corridors["A"])
-            ),
-        }
-        for name, signatures in corridors.items():
-            values[f"Period {name} observed group sequences"] = "; ".join(
-                f"{' → '.join(str(place) for place in sequence)} ({count})"
-                for sequence, count in sorted(signatures.items())
-            )
-    else:
-        values["Observed corridor comparison"] = (
-            "Insufficient interior samples in one or both periods; "
-            "endpoints do not establish a corridor"
-        )
-    members = {
-        str(s.id): s for name in selected for trip in selected[name] for s in trip
-    }
-    reference_places = {origin, destination}
-    for signatures in corridors.values():
-        reference_places.update(place for sequence in signatures for place in sequence)
-    for place in reference_places:
-        source = reference_sources[place]
-        members[str(source.id)] = source
-    values["Reference spatial-group anchor coordinates"] = "; ".join(
-        f"{place}: {_point(reference_sources[place])}"
-        for place in sorted(reference_places)
-    )
-    return _item(
-        f"Place {origin} → place {destination} · period comparison",
-        "Observed changes describe the selected samples, "
-        "not suspicious behavior or "
-        "unobserved habits. Compare period coverage and reporting density first. "
-        "Interior sample groups do not reconstruct road routes. "
-        "Source links include the spatial-group reference anchors.",
-        list(members.values()),
-        **values,
-    )
-
-
-def movement_routines(sources, parameters):
-    sources = _selected(sources)
-    periods = comparison_periods(parameters)
-    trips = _trips(sources, parameters)
-    # Use one spatial reference for endpoints and observed interior groups.
-    groups = _clusters(sources, number(parameters, "distance_m"))
-    place_by_id = {
-        str(source.id): index + 1
-        for index, group in enumerate(groups)
-        for source in group
-    }
-    reference_sources = {index + 1: group[0] for index, group in enumerate(groups)}
-    pairs = defaultdict(list)
-    for subject, members in trips:
-        pairs[
-            (subject, place_by_id[str(members[0].id)], place_by_id[str(members[-1].id)])
-        ].append(members)
-    subject_sources = defaultdict(list)
-    for source in sources:
-        if _subject(source) is not None:
-            subject_sources[_subject(source)].append(source)
-    items = []
-    for (subject, origin, destination), matching in sorted(pairs.items()):
-        members = list({str(s.id): s for trip in matching for s in trip}.values())
-        for place in (origin, destination):
-            anchor = reference_sources[place]
-            if str(anchor.id) not in {str(source.id) for source in members}:
-                members.append(anchor)
-        months = Counter(
-            _time(trip[0]).astimezone(UTC).strftime("%Y-%m") for trip in matching
-        )
-        items.append(
-            _item(
-                f"Place {origin} → place {destination}",
-                "Directed endpoint pattern among selected candidate journeys. Shared "
-                "endpoints do not establish a shared route or habitual role.",
-                members,
-                **{
-                    "Subject association": subject,
-                    "Origin group anchor coordinates": str(
-                        _point(reference_sources[origin])
-                    ),
-                    "Destination group anchor coordinates": str(
-                        _point(reference_sources[destination])
-                    ),
-                    "Candidate journeys": len(matching),
-                    "UTC departure distribution": _hour_counts(matching),
-                    "Selected monthly counts": "; ".join(
-                        f"{month}: {count}" for month, count in sorted(months.items())
-                    ),
-                    "Observed duration seconds": ", ".join(
-                        str((_time(t[-1]) - _time(t[0])).total_seconds())
-                        for t in matching
-                    ),
-                },
-            )
-        )
-    if periods:
-        period_trips = {
-            name: _trips([s for s in sources if _within(s, bounds)], parameters)
-            for name, bounds in periods.items()
-        }
-        # Boundary-truncated candidates may differ from full-selection segmentation.
-        comparison_pairs = {
-            (subject, place_by_id[str(trip[0].id)], place_by_id[str(trip[-1].id)])
-            for candidates in period_trips.values()
-            for subject, trip in candidates
-        }
-        for subject, selected in sorted(subject_sources.items()):
-            for name, bounds in periods.items():
-                usable = [s for s in selected if _within(s, bounds)]
-                items.append(
-                    _item(
-                        f"Period {name} observation coverage",
-                        "Counts use only selected sources inside this window; "
-                        "missing "
-                        "event times cannot be assigned to either period. "
-                        "Summed sample "
-                        "intervals are not continuous-presence coverage. Links include "
-                        "selection context when the window contains no samples.",
-                        usable or selected,
-                        **{
-                            "Subject association": subject,
-                            **_coverage_values(selected, bounds, parameters),
-                        },
-                    )
-                )
-        for pair in sorted(comparison_pairs):
-            comparison = _routine_comparison(
-                pair, period_trips, place_by_id, reference_sources
-            )
-            if comparison is not None:
-                items.append(comparison)
-    else:
-        for subject, selected in sorted(subject_sources.items()):
-            months = {_month_bounds(_time(s)) for s in selected if _time(s)}
-            for bounds in sorted(months):
-                members = [s for s in selected if _within(s, bounds)]
-                items.append(
-                    _item(
-                        "Selected calendar-month coverage",
-                        "The full calendar month is the denominator; "
-                        "selected samples "
-                        "and their intervals do not establish "
-                        "uninterrupted observation.",
-                        members,
-                        **{
-                            "Subject association": subject,
-                            **_coverage_values(selected, bounds, parameters),
-                        },
-                    )
-                )
-    gaps = _gap_findings(sources, parameters)
-    return output(
-        "Compare directed origins/destinations, selected coverage "
-        "and observed movement patterns.",
-        items=items + gaps,
-        metrics=_metrics(sources)
-        | {
-            "Candidate journeys": len(trips),
-            "Directed place pairs": len(pairs),
-            "Explicit comparison periods": bool(periods),
-            "Excluded sampling gaps": len(gaps),
-        },
-        warnings=_warnings(sources, movement=True)
-        + [
-            "Counts depend on selected periods, reporting density "
-            "and missing observations. "
-            "Period bounds are inclusive/exclusive UTC and can cut candidate journeys. "
-            "Observed interior-point groups are sampling-sensitive "
-            "corridor candidates, "
-            "not reconstructed road routes or claims about suspicious behavior."
-        ],
-        outcome="complete" if trips else "insufficient",
-    )
-
-
 def colocation(sources, parameters):
-    sources = _selected(sources)
+    sources = selected_observations(sources)
     radius = number(parameters, "distance_m")
     window = number(parameters, "time_window_minutes") * 60
     observed = [
         source
         for source in sources
-        if _subject(source) is not None and _time(source) and _point(source) is not None
+        if subject_key(source) is not None
+        and observed_time(source)
+        and observation_point(source) is not None
     ]
     items = []
     for first, second in combinations(observed, 2):
-        if _subject(first) == _subject(second):
+        if subject_key(first) == subject_key(second):
             continue
-        seconds = abs((_time(first) - _time(second)).total_seconds())
+        seconds = abs((observed_time(first) - observed_time(second)).total_seconds())
         if seconds > window:
             continue
-        distance = distance_m(_point(first), _point(second))
+        distance = distance_m(observation_point(first), observation_point(second))
         if distance <= radius:
             items.append(
-                _item(
+                location_item(
                     "Candidate nearby observations",
                     (
                         "Two associated samples fit the selected "
@@ -1201,10 +431,12 @@ def colocation(sources, parameters):
                     **{
                         "Distance estimate (m)": round(distance, 2),
                         "Time difference (seconds)": seconds,
-                        "First event time": _iso(_time(first)),
-                        "Second event time": _iso(_time(second)),
+                        "First event time": format_observed_time(observed_time(first)),
+                        "Second event time": format_observed_time(
+                            observed_time(second)
+                        ),
                         "Position origins": (
-                            f"{_position_kind(first)}; {_position_kind(second)}"
+                            f"{position_kind(first)}; {position_kind(second)}"
                         ),
                         "Temporal interpretation": (
                             "Point samples within tolerance; "
@@ -1215,7 +447,7 @@ def colocation(sources, parameters):
             )
             if len(items) >= 1000:
                 break
-    warnings = _warnings(sources, movement=True)
+    warnings = observation_warnings(sources, movement=True)
     if len(items) >= 1000:
         warnings.append(
             "Candidate output is capped at 1,000 pairs; narrow the "
@@ -1224,7 +456,7 @@ def colocation(sources, parameters):
     return output(
         "Inspect candidate co-location with source/time/position limitations.",
         items=items,
-        metrics=_metrics(sources)
+        metrics=observation_metrics(sources)
         | {
             "Candidate pairs": len(items),
             "Time tolerance (minutes)": window / 60,
@@ -1239,67 +471,8 @@ def colocation(sources, parameters):
     )
 
 
-def travel_discrepancies(sources, parameters):
-    sources = _selected(sources)
-    speed_limit = number(parameters, "speed_limit_kmh")
-    gap = number(parameters, "gap_minutes") * 60
-    radius = number(parameters, "distance_m")
-    items = _gap_findings(sources, parameters)
-    for track in _tracks(sources).values():
-        for first, second in pairwise(track):
-            seconds = (_time(second) - _time(first)).total_seconds()
-            distance = distance_m(_point(first), _point(second))
-            if seconds > gap:
-                continue
-            if seconds == 0 and distance > radius:
-                items.append(
-                    _item(
-                        "Simultaneous position discrepancy",
-                        (
-                            "Distant samples have the same reported time. "
-                            "Review clocks, associations and coordinate "
-                            "interpretations; neither observation is "
-                            "corrected."
-                        ),
-                        [first, second],
-                        **{"Distance estimate (m)": round(distance, 2)},
-                    )
-                )
-            elif seconds > 0:
-                speed = distance / seconds * 3.6
-                if speed > speed_limit:
-                    items.append(
-                        _item(
-                            "Rapid-transition discrepancy",
-                            (
-                                "Straight-line distance/time exceeds the "
-                                "selected screening threshold. This may be a "
-                                "timestamp, position, source or association "
-                                "problem; it is not a transport-mode or "
-                                "deception conclusion."
-                            ),
-                            [first, second],
-                            **{
-                                "Elapsed seconds": seconds,
-                                "Distance estimate (m)": round(distance, 2),
-                                "Required average km/h": round(speed, 2),
-                                "Screening threshold km/h": speed_limit,
-                            },
-                        )
-                    )
-    # Only retained row order can support a chronology claim; selection order cannot.
-    items.extend(_source_order_discrepancies(sources))
-    return output(
-        ("Review apparently incompatible transitions and source-order discrepancies."),
-        items=items,
-        metrics=_metrics(sources) | {"Reported discrepancies or gaps": len(items)},
-        warnings=_warnings(sources, movement=True),
-        outcome="complete" if _tracks(sources) else "insufficient",
-    )
-
-
 def location_conflicts(sources, parameters):
-    sources = _selected(sources)
+    sources = selected_observations(sources)
     event = parameters.get("event_label", "")
     if not isinstance(event, str) or not event.strip() or len(event) > 200:
         raise ValueError(
@@ -1317,23 +490,26 @@ def location_conflicts(sources, parameters):
         values = {
             "Claimed event/place": event,
             "Address": getattr(source.item, "address", "") or "Not recorded",
-            "Event time": _iso(_time(source)),
-            "Subject association": _subject(source) or "Unlinked observation",
-            "Position origin": _position_kind(source),
+            "Event time": format_observed_time(observed_time(source)),
+            "Subject association": subject_key(source) or "Unlinked observation",
+            "Position origin": position_kind(source),
             "Source citation": getattr(source.item, "source", "") or "Not recorded",
         }
-        if _point(source):
-            values |= {"Latitude": _point(source)[0], "Longitude": _point(source)[1]}
-        if _point(source) and _point(first):
+        if observation_point(source):
+            values |= {
+                "Latitude": observation_point(source)[0],
+                "Longitude": observation_point(source)[1],
+            }
+        if observation_point(source) and observation_point(first):
             values["Distance from first selected observation (m)"] = round(
-                distance_m(_point(source), _point(first)), 2
+                distance_m(observation_point(source), observation_point(first)), 2
             )
-        if _time(source) and _time(first):
+        if observed_time(source) and observed_time(first):
             values["Time difference from first selected observation (seconds)"] = (
-                _time(source) - _time(first)
+                observed_time(source) - observed_time(first)
             ).total_seconds()
         items.append(
-            _item(
+            location_item(
                 "Selected observation comparison",
                 (
                     "This comparison reflects the investigator's explicit "
@@ -1351,8 +527,8 @@ def location_conflicts(sources, parameters):
             " a true observation."
         ),
         items=items,
-        metrics=_metrics(sources),
-        warnings=_warnings(sources)
+        metrics=observation_metrics(sources),
+        warnings=observation_warnings(sources)
         + [
             (
                 "Accept, reject or leave the interpretation unresolved "

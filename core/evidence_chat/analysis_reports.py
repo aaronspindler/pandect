@@ -8,10 +8,10 @@ from django.db.models import Exists, F, OuterRef, Q
 from django.db.models.expressions import RawSQL
 from django.urls import reverse
 
-from core.analysis.catalogue import SUCCESSFUL
 from core.analysis.operations import OPERATIONS
+from core.analysis.published import successful_results
 from core.analysis.report_index import report_words
-from core.models import AnalysisReportIndex, AnalysisResult
+from core.models import AnalysisReportIndex
 
 from . import corpus
 from .corpus_search import terms_for
@@ -36,13 +36,8 @@ REPORT_TERMS = {
 
 def eligible_results(case):
     return (
-        AnalysisResult.objects.filter(
-            case=case,
-            run__case=case,
-            run__status__in=SUCCESSFUL,
-            run__operation__in=OPERATIONS,
-        )
-        .filter(Q(run__previous_run__isnull=True) | Q(run__previous_run__case=case))
+        successful_results(case)
+        .filter(run__operation__in=OPERATIONS)
         .exclude(run__parameters__contains={"_search_generation": "briefs"})
     )
 

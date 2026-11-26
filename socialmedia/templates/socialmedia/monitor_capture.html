@@ -24,6 +24,6 @@
 {% if not capture.baseline_eligible %}<p>This partial list cannot establish a new baseline.</p>{% elif not comparison %}<p>There is no retained comparison for this capture.</p>{% endif %}
 {% if page_obj %}<ul class="record-list">{% for member in page_obj %}<li class="record-row"><div><strong>@{{ member.handle }}</strong>{% if show_changes and member.handle_only %}<p>Handle match only · A rename can appear as an addition.</p>{% endif %}</div></li>{% endfor %}</ul>
 {% else %}<p>{% if show_changes %}No additions to show.{% else %}No handles were observed.{% endif %}</p>{% endif %}
-{% include 'socialmedia/monitor_pagination.html' with label='Handle pages' %}
+{% include 'ui/components/pagination.html' with page=page_obj label='Handle pages' query=request.GET only %}
 </section>
 {% endblock %}

@@ -50,10 +50,7 @@
     });
     if (accessLost) return null;
     if (location.href !== origin || !trigger.isConnected || dialog.open) return false;
-    if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-      window.PandectPrivateSession.clearPrivatePage();
-      return null;
-    }
+    if (window.PandectPrivateSession.clearIfAccessDenied(response)) return null;
     if (!response.ok || response.headers.get("X-Pandect-Form") !== "record") return false;
     if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return null;
     const fragment = new DOMParser().parseFromString(await response.text(), "text/html");
@@ -128,10 +125,7 @@
         cache: "no-store", redirect: "manual", signal: controller.signal,
       });
       if (request !== controller) return;
-      if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-        window.PandectPrivateSession.clearPrivatePage();
-        return;
-      }
+      if (window.PandectPrivateSession.clearIfAccessDenied(response)) return;
       if (response.headers.get("X-Pandect-Form") &&
           !window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
       if (form && response.ok && response.headers.get("X-Pandect-Form") === "saved") {
@@ -179,8 +173,8 @@
 
   document.addEventListener("click", event => {
     const trigger = event.target.closest("a[data-quick-form]");
-    if (!trigger || accessLost || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey ||
-        event.shiftKey || event.altKey || trigger.target || trigger.origin !== location.origin || dialog.open) return;
+    if (!trigger || accessLost || event.defaultPrevented || !window.PandectPage.isPlainClick(event) ||
+        trigger.target || trigger.origin !== location.origin || dialog.open) return;
     event.preventDefault();
     window.PandectWorkspace?.beginLocal();
     opener = trigger;

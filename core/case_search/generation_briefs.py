@@ -8,6 +8,7 @@ from django.db.models import Count, Exists, Func, IntegerField, OuterRef, Q, Sum
 from django.db.models.functions import Coalesce, Length
 
 from core.analysis.errors import AnalysisError
+from core.analysis.published import PASSAGE_OPERATIONS
 from core.analysis.sources import Source
 from core.case_search.semantic_model import CHUNK_BYTES
 from core.case_search.semantic_sources import BODY_FIELDS, source_queryset
@@ -41,7 +42,7 @@ def eligible_sections(case, source):
         )
         # Short pages of the same multi-page source still belong in its brief.
         multi |= Exists(peers)
-        qs = qs.filter(result__run__operation__in=corpus.EXTRACTIONS)
+        qs = qs.filter(result__run__operation__in=PASSAGE_OPERATIONS)
     return qs.alias(
         byte_length=Func(field, function="octet_length", output_field=IntegerField())
     ).filter(multi)
@@ -150,7 +151,7 @@ class BriefSource(Source):
 
 
 def resolve_brief(run, case):
-    from core.analysis.services import SourceResolutionCache, resolve_snapshots
+    from core.analysis.source_resolution import SourceResolutionCache, resolve_snapshots
 
     if len(run.inputs) != 1:
         raise AnalysisError("source_changed")

@@ -12,7 +12,11 @@ from django.utils import timezone
 
 from core.analysis.http import NoRedirect
 from core.analysis.sources import output
-from geo.analysis.deterministic.locations import _item, _selected, coordinate
+from geo.analysis.deterministic.observations import (
+    location_item,
+    selected_observations,
+)
+from geo.coordinates import coordinate
 
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_LOOKUPS = 25
@@ -169,7 +173,7 @@ class Geocoder:
 
 
 def geocode_locations(sources, parameters, *, client=None, authorize=None):
-    sources = _selected(sources)
+    sources = selected_observations(sources)
     if (
         not getattr(settings, "PANDECT_GEOCODER_LOCAL", False)
         and parameters.get("external_processing") is not True
@@ -230,7 +234,7 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
         except GeocodingError as exc:
             failures += len(members)
             items.append(
-                _item(
+                location_item(
                     "Lookup unavailable",
                     (
                         "Completed lookups are retained; this lookup did not produce "
@@ -245,7 +249,7 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
         authorize()
         if not candidates:
             items.append(
-                _item(
+                location_item(
                     "No geocode match",
                     "No candidate returned. "
                     "The original address/coordinates remain unchanged.",
@@ -260,7 +264,7 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
         for index, candidate in enumerate(candidates):
             candidates_count += 1
             items.append(
-                _item(
+                location_item(
                     f"Geocode candidate {index + 1}",
                     (
                         "Derived estimate requiring investigator review before "
@@ -281,7 +285,7 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
             )
     for source in skipped:
         items.append(
-            _item(
+            location_item(
                 "Lookup unsupported",
                 (
                     "This selection has no address for forward lookup or no "

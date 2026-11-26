@@ -13,7 +13,6 @@ from django.db.models import (
     JSONField,
     OuterRef,
     Q,
-    Subquery,
     TextField,
     Value,
 )
@@ -26,6 +25,7 @@ from core.analysis.navigation import finding_url
 from core.analysis.operations import OPERATIONS
 from core.analysis.presentation import participant_names, participant_text
 from core.analysis.projection import finding_values, is_timing_only
+from core.analysis.published import SUCCESSFUL, latest_successful_run_id
 from core.analysis.ranking import rank_findings
 from core.analysis.review_signals import classify_review_signal_v1
 from core.evidence.queries import person_evidence, scoped_evidence
@@ -38,7 +38,6 @@ from core.models import (
 )
 from people.models import Person
 
-SUCCESSFUL = ("complete", "partial", "empty")
 PER_PAGE = 25
 VALUE_HEADINGS = {
     "entities",
@@ -299,17 +298,11 @@ def finding_queryset(case, filters, *, person=None, labels=None):
         .exclude(result_detail_projections())
     )
     if filters.get("history") != "all":
-        latest = (
-            AnalysisRun.objects.filter(
-                case=case,
-                result__case=case,
-                status__in=SUCCESSFUL,
-                equivalence_key=OuterRef("result__run__equivalence_key"),
+        queryset = queryset.filter(
+            result__run_id=latest_successful_run_id(
+                case, "result__run__equivalence_key"
             )
-            .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
-            .order_by("-created_at", "-pk")
         )
-        queryset = queryset.filter(result__run_id=Subquery(latest.values("pk")[:1]))
     if filters.get("weak") != "1":
         queryset = queryset.exclude(TIMING_ONLY_FINDINGS)
     if query := filters.get("q"):
@@ -347,11 +340,8 @@ def finding_queryset(case, filters, *, person=None, labels=None):
 
 def resolved_findings(case, findings, *, with_content=False):
     """Resolve one page of citations; request content only for exact passage readers."""
-    from core.analysis.services import (
-        SourceResolutionCache,
-        require_current_geocode_reviews,
-        resolve_inputs,
-    )
+    from core.analysis.address_estimates import require_current_geocode_reviews
+    from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 
     findings = list(findings)
     runs = {

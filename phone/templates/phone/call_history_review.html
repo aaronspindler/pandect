@@ -136,13 +136,7 @@
         {% endif %}
         </form>
       {% endif %}
-      {% if page_obj.paginator.num_pages > 1 %}
-        <nav class="pagination" aria-label="Call history review pages">
-          {% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#call-review-choices">Previous</a>{% endif %}
-          <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-          {% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#call-review-choices">Next</a>{% endif %}
-        </nav>
-      {% endif %}
+      {% include 'ui/components/pagination.html' with page=page_obj label='Call history review pages' query=request.GET anchor='call-review-choices' only %}
     </section>
   {% endif %}
 </div>

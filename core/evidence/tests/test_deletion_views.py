@@ -570,7 +570,7 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         self.assertIn("q=retained", first.context["deletion_links"]["next"])
         self.assertIn("page=2", first.context["deletion_links"]["next"])
         self.assertEqual(first.context["deletion_page"].paginator.count, 125)
-        with patch("core.evidence.views.plan_deletion") as rebuild:
+        with patch("core.evidence.record_views.plan_deletion") as rebuild:
             second = self.client.get(
                 self.url(source) + first.context["deletion_links"]["next"]
             )
@@ -627,7 +627,8 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
             return deletion.load_deletion_review(*args)
 
         with patch(
-            "core.evidence.views.load_deletion_review", publish_before_cache_lookup
+            "core.evidence.record_views.load_deletion_review",
+            publish_before_cache_lookup,
         ):
             second = self.client.get(url + first.context["deletion_links"]["next"])
         self.assertContains(second, "What will be removed has changed", status_code=409)

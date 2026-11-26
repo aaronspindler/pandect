@@ -7,8 +7,8 @@ from django.utils import timezone
 
 from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.services import process_run
 from core.analysis.tests.test_execution import LOCAL
+from core.analysis.worker import process_run
 from core.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationEvidence
 from people.models import Person

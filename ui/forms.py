@@ -70,3 +70,14 @@ class SignedRevisionForm(forms.ModelForm):
         if self.stale:
             self.add_error(None, self.stale_message)
         return cleaned
+
+    def refresh_revision(self):
+        """Keep submitted fields and errors while issuing the current revision."""
+        self.data = self.data.copy()
+        self.data[self.add_prefix("revision")] = self.initial["revision"]
+
+    @property
+    def response_status(self):
+        if self.stale:
+            return 409
+        return 400 if self.is_bound else 200

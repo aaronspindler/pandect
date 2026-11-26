@@ -9,14 +9,11 @@ from django.urls import reverse
 
 from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
-from core.analysis.services import (
-    SourceResolutionCache,
-    process_run,
-    resolve_snapshots,
-    snapshot_sources,
-    start_run,
-)
+from core.analysis.services import start_run
+from core.analysis.source_resolution import SourceResolutionCache, resolve_snapshots
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import source_id
+from core.analysis.worker import process_run
 from core.evidence.deletion import plan_deletion
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin

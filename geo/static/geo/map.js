@@ -339,7 +339,7 @@ window.addEventListener("load", () => {
   map.on("moveend resize", scheduleReplay);
   document.addEventListener("click", (event) => {
     const link = event.target.closest("a[href]");
-    if (!link || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.target || link.hasAttribute("download")) return;
+    if (!link || event.defaultPrevented || !window.PandectPage.isPlainClick(event) || link.target || link.hasAttribute("download")) return;
     const target = new URL(link.href, window.location.href);
     if (target.origin === window.location.origin && (target.pathname !== window.location.pathname || target.search !== window.location.search)) stop();
   });

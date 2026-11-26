@@ -10,8 +10,9 @@ from django.test.utils import CaptureQueriesContext
 
 from core.analysis.form_base import source_choices
 from core.analysis.forms import analysis_form, report_form
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.sources import source_id
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

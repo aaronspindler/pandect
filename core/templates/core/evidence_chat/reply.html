@@ -31,11 +31,7 @@
       <blockquote>{{ citation.quote }}</blockquote>
     {% empty %}This match is unavailable because its source could not be verified.{% endfor %}</li>{% endfor %}
     </ol>
-    {% if matches_page.has_other_pages %}<nav aria-label="Cited matches pages" class="pagination">
-      {% if matches_page.has_previous %}<a class="button button-secondary" href="{% querystring page=matches_page.previous_page_number %}#matches">Previous</a>{% endif %}
-      <span>Page {{ matches_page.number }} of {{ matches_page.paginator.num_pages }}</span>
-      {% if matches_page.has_next %}<a class="button button-secondary" href="{% querystring page=matches_page.next_page_number %}#matches">Next</a>{% endif %}
-    </nav>{% endif %}
+    {% include 'ui/components/pagination.html' with page=matches_page label='Cited matches pages' query=request.GET anchor='matches' only %}
   </section>
   {% endif %}
   {% if gaps_page %}
@@ -47,11 +43,7 @@
         <small>{{ gap.gap }}</small>
       </div></li>{% endfor %}
     </ul>
-    {% if gaps_page.has_other_pages %}<nav aria-label="Coverage gap pages" class="pagination">
-      {% if gaps_page.has_previous %}<a class="button button-secondary" href="{% querystring gaps_page=gaps_page.previous_page_number %}#coverage-gaps">Previous</a>{% endif %}
-      <span>Page {{ gaps_page.number }} of {{ gaps_page.paginator.num_pages }}</span>
-      {% if gaps_page.has_next %}<a class="button button-secondary" href="{% querystring gaps_page=gaps_page.next_page_number %}#coverage-gaps">Next</a>{% endif %}
-    </nav>{% endif %}
+    {% include 'ui/components/pagination.html' with page=gaps_page label='Coverage gap pages' query=request.GET parameter='gaps_page' anchor='coverage-gaps' only %}
   </section>
   {% endif %}
 </div>

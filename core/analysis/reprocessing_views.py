@@ -12,11 +12,16 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
+from core.analysis.automatic import start_evidence_reprocessing
 from core.analysis.bulk import resume_case_analysis
+from core.analysis.errors import AnalysisError, error_message
+from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.reprocessing import start_reprocessing
 from core.analysis.retries import start_failed_retries
-from core.evidence.queries import scoped_evidence
+from core.evidence.navigation import list_params
+from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import KIND_LABELS
+from core.evidence.workspace_views import render_detail
 
 
 class ReprocessingForm(forms.Form):
@@ -131,3 +136,87 @@ def reprocess(request, case_id):
             "active_count": sum(counts.values()),
         },
     )
+
+
+@product_login_required
+@require_POST
+def rerun_all(request, case_id):
+    case = get_case(request.user, case_id, edit=True)
+    form = EvidenceAnalysisForm(request.POST)
+    if form.is_valid():
+        try:
+            _, created = start_reprocessing(
+                request.user,
+                case.pk,
+                submission_id=form.cleaned_data["submission_id"],
+                kinds=list(KIND_LABELS),
+            )
+        except ValidationError as error:
+            messages.error(request, " ".join(error.messages))
+        except DatabaseError:
+            messages.error(request, "Analysis could not be queued. Please try again.")
+        else:
+            messages.success(
+                request,
+                "Analysis requested for all active evidence. "
+                "Follow its progress in Processing."
+                if created
+                else "This analysis request has already been queued.",
+            )
+    else:
+        messages.error(request, "This request expired. Please try again.")
+    return redirect("core:analysis:processing", case_id=case.pk)
+
+
+@product_login_required
+@require_http_methods(["GET", "POST"])
+def process_evidence(request, case_id, kind, evidence_id):
+    case = get_case(request.user, case_id, edit=request.method == "POST")
+    item = get_evidence(case, kind, evidence_id)
+    params = list_params(request)
+    if request.method == "GET" and request.GET.get("results_page"):
+        params["results_page"] = request.GET["results_page"]
+    detail_url = (
+        reverse("core:evidence:detail", args=[case.pk, kind, item.pk])
+        + ("?" + params.urlencode() if params else "")
+        + "#evidence-findings-heading"
+    )
+    if request.method == "GET":
+        return redirect(detail_url)
+    form = EvidenceAnalysisForm(request.POST)
+    if form.is_valid():
+        try:
+            batch, created = start_evidence_reprocessing(
+                request.user,
+                case.pk,
+                kind,
+                item.pk,
+                submission_id=form.cleaned_data["submission_id"],
+            )
+        except (ValidationError, AnalysisError) as error:
+            if isinstance(error, ValidationError):
+                form.add_error(None, error)
+            elif error.code == "source_archived":
+                form.add_error(None, error_message(error.code))
+            else:
+                form.add_error(
+                    None,
+                    "A retained source is unavailable or changed. "
+                    "Review the original and try again.",
+                )
+        else:
+            messages.success(
+                request,
+                "Analysis requested."
+                if created
+                else "This analysis was already requested.",
+            )
+            return redirect(
+                reverse(
+                    "core:analysis:processing",
+                    args=(case.pk,),
+                    query={"batch": batch.pk},
+                    fragment="processing-history",
+                )
+            )
+    return render_detail(request, case, kind, item, analysis_form=form, status=400)

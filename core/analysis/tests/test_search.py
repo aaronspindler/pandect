@@ -13,7 +13,8 @@ from audio.models import AudioEvidence
 from core.analysis.catalogue import project_result
 from core.analysis.navigation import finding_url
 from core.analysis.search import derived_text_matches
-from core.analysis.services import resolve_active_inputs, start_run
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_active_inputs
 from core.analysis.sources import output
 from core.models import AnalysisResult, ExtractedPassage
 from core.testing import EvidenceViewTestMixin

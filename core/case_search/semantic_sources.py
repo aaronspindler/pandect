@@ -9,8 +9,9 @@ from django.urls import reverse
 
 from core.analysis.catalogue import finding_rows
 from core.analysis.navigation import finding_url
-from core.analysis.services import SourceResolutionCache
+from core.analysis.source_resolution import SourceResolutionCache
 from core.evidence.types import KIND_LABELS
+from core.models.search import SOURCE_FIELDS
 from phone.conversations import message_url
 from phone.models import CallEvidenceAttachment
 
@@ -22,7 +23,7 @@ from .retained import (
     valid_sources,
     visible_finding,
 )
-from .sources import dated, sources
+from .sources import dated, original_date_fields, sources
 
 BODY_FIELDS = {
     "text": "body",
@@ -40,6 +41,7 @@ def source_queryset(
     record_type="",
     start=None,
     end=None,
+    through=None,
     exclusions=(),
     related=None,
     title_words=None,
@@ -59,8 +61,8 @@ def source_queryset(
         return queryset
 
     if source in ("text", "message"):
-        return evidence("text" if source == "text" else "text-message")
-    if source == "attachment":
+        queryset = evidence("text" if source == "text" else "text-message")
+    elif source == "attachment":
         clauses = Q(pk__in=[])
         for kind, parent in (("phone-call", "phone_call"), ("facetime", "facetime")):
             clauses |= Q(**{f"{parent}__in": evidence(kind).values("pk")})
@@ -79,18 +81,31 @@ def source_queryset(
         queryset = searchable(queryset, FIELDS["finding"])
         for term in exclusions:
             queryset = queryset.exclude(term_condition(term))
+    if through:
+        field = (
+            "result__created_at"
+            if source in ("extraction", "finding")
+            else "created_at"
+        )
+        queryset = queryset.filter(**{f"{field}__lte": through})
     return queryset
 
 
+def document_source_condition(case, *, prefix="", **filters):
+    """Match index documents whose underlying records remain eligible."""
+    eligible = Q(pk__in=[])
+    for source in SOURCE_FIELDS:
+        originals = source_queryset(case, source, **filters).order_by().values("pk")
+        eligible |= Q(**{f"{prefix}{source}_id__in": originals})
+    return eligible
+
+
 def _evidence_row(case, kind, item):
-    date, date_label = (
-        item.collected_at or item.created_at,
-        "Collected" if item.collected_at else "Added",
+    date, date_label = next(
+        (stamp, label)
+        for field, label in original_date_fields(kind)
+        if (stamp := getattr(item, field)) is not None
     )
-    if occurred := getattr(item, "occurred_at", None):
-        date, date_label = occurred, "Occurred"
-    if observed := getattr(item, "observed_at", None):
-        date, date_label = observed, "Observed"
     url = reverse("core:evidence:detail", args=(case.pk, kind, item.pk))
     if kind == "text-message":
         url = message_url(case, item)
@@ -109,14 +124,9 @@ def _evidence_row(case, kind, item):
 
 def read_sources(case, source, offsets, window, *, through=None, **filters):
     """Read one bounded window per source, with source links and current validity."""
-    queryset = source_queryset(case, source, **filters).filter(pk__in=offsets)
-    if through:
-        field = (
-            "result__created_at"
-            if source in ("extraction", "finding")
-            else "created_at"
-        )
-        queryset = queryset.filter(**{f"{field}__lte": through})
+    queryset = source_queryset(case, source, through=through, **filters).filter(
+        pk__in=offsets
+    )
     position = Case(
         *(When(pk=pk, then=Value(start + 1)) for pk, start in offsets.items())
     )

@@ -3,13 +3,12 @@
 from datetime import datetime
 from uuid import uuid5
 
-from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.http import Http404
 
-from cases.permissions import get_case
+from cases.permissions import get_case, require_verified_email
 from core.analysis.automatic import start_evidence_analysis
 from core.analysis.errors import AnalysisError, error_message
 from core.evidence.queries import scoped_evidence
@@ -51,8 +50,7 @@ def resume_case_analysis(actor, case_id, batch_id):
     )
     if batch is None:
         raise Http404("Analysis batch unavailable.")
-    if not EmailAddress.objects.filter(user=actor, verified=True).exists():
-        raise PermissionDenied
+    require_verified_email(actor)
     if batch.status != CaseAnalysisBatch.Status.FAILED:
         return batch, False
     batch.status = CaseAnalysisBatch.Status.QUEUED
@@ -218,10 +216,7 @@ def prepare_case_analysis_batch(batch_id):
             if batch.status != CaseAnalysisBatch.Status.QUEUED:
                 return batch.status
             case = get_case(batch.requested_by, batch.case_id, edit=True, lock=True)
-            if not EmailAddress.objects.filter(
-                user=batch.requested_by, verified=True
-            ).exists():
-                raise PermissionDenied
+            require_verified_email(batch.requested_by)
             batch = CaseAnalysisBatch.objects.select_for_update().get(pk=batch_id)
             if batch.status != CaseAnalysisBatch.Status.QUEUED:
                 return batch.status

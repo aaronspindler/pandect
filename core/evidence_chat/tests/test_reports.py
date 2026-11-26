@@ -8,7 +8,8 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
-from core.analysis.services import resolve_inputs, snapshot_sources
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.evidence_chat import corpus, reports
 from core.evidence_chat.corpus_navigation import linked_materials
 from core.models import AnalysisResult, AnalysisRun

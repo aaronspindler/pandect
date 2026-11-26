@@ -27,6 +27,7 @@ from core.analysis.operations import PAIR_MESSAGE_OPERATIONS
 from core.analysis.services import start_run
 from core.analysis.sources import source_id
 from core.evidence.queries import scoped_evidence
+from phone.conversations import reported_pair
 
 MODEL_PARAMETERS = {
     "text_topics": {"include_summary": True},
@@ -256,9 +257,7 @@ def prepare_import_analysis(batch, case, messages):
         timed = [message for message in direct if message.occurred_at is not None]
         if timed and not versioned:
             first = direct[0]
-            pair = Q(sender_id=first.sender_id, recipient_id=first.recipient_id) | Q(
-                sender_id=first.recipient_id, recipient_id=first.sender_id
-            )
+            pair = reported_pair(first.sender_id, first.recipient_id)
             for kind in ("phone-call", "facetime"):
                 available = scoped_evidence(case, kind).filter(
                     pair,

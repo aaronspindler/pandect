@@ -29,6 +29,30 @@ def payload_bytes(rows, *fields):
     ]
 
 
+def check_operation_source_limits(case, operation, parameters, selections):
+    from core.analysis.operations import OPERATIONS
+
+    if operation == "text_topics" and parameters.get("_search_generation") == "briefs":
+        # The section reader bounds its substring and verifies one source.
+        if len(selections) != 1:
+            raise ValidationError("A document brief section requires one original.")
+        return
+    specification = OPERATIONS.get(operation)
+    text_ids = (
+        parameters.get("text_source_ids", [])
+        if operation == "question_synthesis"
+        else None
+    )
+    check_material_size(
+        case,
+        selections,
+        text_limit=specification.max_text_characters if specification else None,
+        text_source_ids=[str(value) for value in text_ids]
+        if isinstance(text_ids, list)
+        else None,
+    )
+
+
 def check_material_size(case, selections, *, text_limit=None, text_source_ids=None):
     """Budget bodies, transcripts and retained result JSON that resolution loads."""
     if not 1 <= len(selections) <= settings.PANDECT_ANALYSIS_MAX_SOURCES:

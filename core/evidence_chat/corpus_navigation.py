@@ -7,8 +7,11 @@ from uuid import UUID
 
 from django.db.models import F, Value
 
-from core.evidence.daily_chronology import timestamp_fields
-from core.evidence.source_clocks import date_only_messages, is_date_only_message
+from core.evidence.source_clocks import (
+    date_only_messages,
+    timestamp_fields,
+    timestamp_records,
+)
 from core.evidence.types import KINDS
 from phone.grouping_models import ConversationSessionMember
 from phone.grouping_sources import unique_reply_target
@@ -86,10 +89,9 @@ def _closest_event(case, stamp, before, include_archived, through, filters=None)
                 kind,
                 filters,
             )
-            if kind == "text-message":
-                qs = qs.filter(~is_date_only_message(case))
             candidates.append(
-                qs.filter(**{field + lookup: stamp})
+                timestamp_records(qs, case, kind, field)
+                .filter(**{field + lookup: stamp})
                 .annotate(event_at=F(field), source_kind=Value(kind))
                 .values_list("event_at", "source_kind", "pk")
                 .order_by(order, "pk")[:1]

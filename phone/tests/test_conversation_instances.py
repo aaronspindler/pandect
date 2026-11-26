@@ -12,7 +12,8 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import finding_rows, project_result
 from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
-from core.analysis.services import resolve_inputs, snapshot_sources
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from people.models import Person

@@ -8,7 +8,8 @@ from django.http import Http404
 
 from cases.permissions import get_case
 from core.analysis.errors import AnalysisError
-from core.analysis.services import resolve_inputs, start_run
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_inputs
 from core.evidence.queries import get_evidence
 from core.models import AnalysisRun
 from core.storage import file_integrity, retain_uploaded_originals, staged_file_upload

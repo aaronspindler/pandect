@@ -107,11 +107,7 @@
       }
     }
     function checkAccess(response) {
-      if (stopped) return false;
-      if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-        window.PandectPrivateSession.clearPrivatePage();
-        return false;
-      }
+      if (stopped || window.PandectPrivateSession.clearIfAccessDenied(response)) return false;
       if (!response.ok) throw Error("Update unavailable");
       return window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"));
     }
@@ -273,8 +269,7 @@
       refresh();
     }
     savedControls?.addEventListener("click", event => {
-      if (stopped || !event.target.closest("[data-live-refresh-saved]") || event.button || event.metaKey ||
-          event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (stopped || !event.target.closest("[data-live-refresh-saved]") || !window.PandectPage.isPlainClick(event)) return;
       event.preventDefault();
       refreshSaved = true;
       forceRefresh();

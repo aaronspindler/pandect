@@ -1,7 +1,7 @@
 """Location results use the recorded positions and measurements on the page."""
 
 from core.analysis.presentation import prioritize_measurements, table_rows
-from geo.analysis.deterministic.locations import WEB_MERCATOR_MAX_LATITUDE
+from geo.coordinates import WEB_MERCATOR_MAX_LATITUDE
 
 PRIMARY_FIELDS = {
     "journey_claims": (

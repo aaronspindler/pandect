@@ -58,7 +58,9 @@ class CollectionFragmentTests(EvidenceViewTestMixin, TestCase):
     def test_selected_evidence_filter_skips_the_original_and_findings(self):
         source = self.text()
         self.login("owner")
-        with patch("core.evidence.views.evidence_findings_context") as findings:
+        with patch(
+            "core.evidence.workspace_views.evidence_findings_context"
+        ) as findings:
             response = self.client.get(
                 self.url("detail", source),
                 {"q": "café", "type": "text", "state": "all"},
@@ -79,7 +81,7 @@ class CollectionFragmentTests(EvidenceViewTestMixin, TestCase):
         )
         self.login("viewer")
         with (
-            patch("core.evidence.views._list_context") as collection,
+            patch("core.evidence.workspace_views._list_context") as collection,
             patch("phone.presentation.reader_context") as reader,
         ):
             response = self.client.get(

@@ -6,11 +6,12 @@ import sqlite3
 import stat
 from collections.abc import Sequence
 from contextlib import closing, contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 MAX_BYTES = 64 * 1024 * 1024
 BUSY_TIMEOUT = 0.25
-STALE_HEARTBEAT_SECONDS = 45
+HEARTBEAT_GRACE = timedelta(seconds=45)
 
 
 @contextmanager
@@ -137,7 +138,20 @@ def acknowledge(path: str | Path, event_ids: Sequence[str]) -> None:
                 )
 
 
+def parse_health_timestamp(value):
+    try:
+        parsed = datetime.fromisoformat(value)
+        return parsed.astimezone(UTC) if parsed.tzinfo is not None else None
+    except TypeError, ValueError, OverflowError:
+        return None
+
+
+def heartbeat_is_stale(heartbeat, *, now):
+    return heartbeat is None or now - heartbeat > HEARTBEAT_GRACE
+
+
 def read_health(path: str | Path) -> dict | None:
+    """Read capture health and decode persisted timestamps as UTC instants."""
     with _connect(path) as db:
         if db is None:
             return None
@@ -157,8 +171,8 @@ def read_health(path: str | Path) -> dict | None:
         if row is None:
             return None
         return {
-            "heartbeat_at": row[0],
-            "last_gap_at": row[1],
-            "queued_oldest_at": row[2],
+            "heartbeat_at": parse_health_timestamp(row[0]),
+            "last_gap_at": parse_health_timestamp(row[1]),
+            "queued_oldest_at": parse_health_timestamp(row[2]),
             "queued_count": row[3],
         }

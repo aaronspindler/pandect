@@ -164,9 +164,9 @@ class RequestCaptureTests(SimpleTestCase):
         self.assertEqual(
             spool.read_health(self.path),
             {
-                "heartbeat_at": NOW.isoformat(),
-                "last_gap_at": NOW.isoformat(),
-                "queued_oldest_at": NOW.isoformat(),
+                "heartbeat_at": NOW,
+                "last_gap_at": NOW,
+                "queued_oldest_at": NOW,
                 "queued_count": 1,
             },
         )
@@ -206,8 +206,12 @@ class RequestCaptureTests(SimpleTestCase):
             spool.write_batch(second_writer, [second_event], later, later)
             spool.write_batch(first_writer, [first_event], earlier, earlier)
         self.assertEqual(spool.read_batch(self.path, 10), [second_event, first_event])
-        self.assertEqual(spool.read_health(self.path)["last_gap_at"], later)
-        self.assertEqual(spool.read_health(self.path)["heartbeat_at"], later)
+        self.assertEqual(
+            spool.read_health(self.path)["last_gap_at"], NOW + timedelta(seconds=1)
+        )
+        self.assertEqual(
+            spool.read_health(self.path)["heartbeat_at"], NOW + timedelta(seconds=1)
+        )
 
 
 class RequestAccessLoggerTests(SimpleTestCase):

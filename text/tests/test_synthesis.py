@@ -12,14 +12,11 @@ from django.urls import reverse
 
 from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
-from core.analysis.services import (
-    process_run,
-    resolve_inputs,
-    resolve_snapshots,
-    snapshot_sources,
-    start_run,
-)
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_inputs, resolve_snapshots
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import source_id
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
@@ -222,7 +219,7 @@ class SynthesisTests(EvidenceViewTestMixin, TestCase):
         note = self.make_text(body="x" * 64001)
         choice = {"kind": "text", "id": str(note.pk)}
         with (
-            patch("core.analysis.services.resolve_snapshots") as hydrate,
+            patch("core.analysis.source_resolution.resolve_snapshots") as hydrate,
             self.assertRaisesMessage(ValidationError, "64,000 characters"),
         ):
             self.start(
@@ -294,7 +291,8 @@ class SynthesisDependencyTests(EvidenceViewTestMixin, TestCase):
         with (
             CaptureQueriesContext(connection) as queries,
             patch(
-                "core.analysis.services.resolve_snapshots", wraps=resolve_snapshots
+                "core.analysis.source_resolution.resolve_snapshots",
+                wraps=resolve_snapshots,
             ) as resolved,
         ):
             resolve_inputs(root.run, self.case)
@@ -314,7 +312,8 @@ class SynthesisDependencyTests(EvidenceViewTestMixin, TestCase):
         with (
             self.assertNumQueries(4),  # One size preflight plus three lookups.
             patch(
-                "core.analysis.services.resolve_snapshots", wraps=resolve_snapshots
+                "core.analysis.source_resolution.resolve_snapshots",
+                wraps=resolve_snapshots,
             ) as resolved,
         ):
             resolve_inputs(root.run, self.case)

@@ -11,7 +11,7 @@ from core.analysis.catalogue import project_result
 from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
 from core.analysis.projection import finding_values
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.models import (
     AnalysisFinding,
     AnalysisFindingSource,

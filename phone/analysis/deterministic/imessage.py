@@ -21,6 +21,13 @@ from django.utils.dateparse import parse_datetime
 from cases.permissions import get_case
 from core.analysis.errors import AnalysisError
 from core.analysis.sources import output
+from core.csv_import import (
+    BoundedCSVRecords,
+    BoundedCSVStream,
+    CSVByteLimitExceeded,
+    CSVRecordLimitExceeded,
+    utc_candidates,
+)
 from core.evidence.queries import scoped_evidence
 from core.models import AnalysisRun
 from core.storage import canonical_bytes, private_file
@@ -153,15 +160,7 @@ def _timestamp(raw, zone):
         raise ValueError("Message Date is missing or invalid.")
     if value.tzinfo is not None:
         return value.astimezone(UTC)
-    candidates = {
-        candidate.astimezone(UTC)
-        for fold in (0, 1)
-        if (candidate := value.replace(tzinfo=zone, fold=fold))
-        .astimezone(UTC)
-        .astimezone(zone)
-        .replace(tzinfo=None)
-        == value
-    }
+    candidates = utc_candidates(value, zone)
     if len(candidates) != 1:
         raise ValueError(
             "Message Date is ambiguous or does not exist in this timezone."
@@ -218,53 +217,6 @@ def _people(parameters, case, *, roles=None):
     return people
 
 
-class _BoundedReader(io.RawIOBase):
-    """Hash original storage bytes within the message CSV import limit."""
-
-    def __init__(self, original):
-        self.original = original
-        self.size = 0
-        self.digest = hashlib.sha256()
-        self.limit = import_file_limit()
-
-    def readable(self):
-        return True
-
-    def readinto(self, buffer):
-        chunk = self.original.read(min(len(buffer), self.limit - self.size + 1))
-        self.size += len(chunk)
-        if self.size > self.limit:
-            raise AnalysisError("imessage_import_limit")
-        self.digest.update(chunk)
-        buffer[: len(chunk)] = chunk
-        return len(chunk)
-
-
-class _CSVLines:
-    """Track exact decoded character offsets and bound logical CSV records."""
-
-    def __init__(self, text, *, offset=0, byte_offset=None):
-        self.text = text
-        self.offset = offset
-        self.byte_offset = byte_offset
-        self.record_chars = 0
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        line = self.text.readline(MAX_RECORD_CHARS + 1)
-        if not line:
-            raise StopIteration
-        self.record_chars += len(line)
-        if self.record_chars > MAX_RECORD_CHARS:
-            raise AnalysisError("imessage_import_limit")
-        self.offset += len(line)
-        if self.byte_offset is not None:
-            self.byte_offset += len(line.encode("utf-8"))
-        return line
-
-
 def _raw_rows(source, *, review=None, checkpoint=None):
     """Yield logical records with their profile and verify file integrity at EOF."""
     if source.item.byte_size > import_file_limit():
@@ -284,14 +236,19 @@ def _raw_rows(source, *, review=None, checkpoint=None):
                     byte_offset = 3 if original.read(3) == b"\xef\xbb\xbf" else 0
                     original.seek(0)
                     review["source_marker"] = marker
-            bounded = _BoundedReader(original)
+            bounded = BoundedCSVStream(original, byte_limit=import_file_limit())
             with io.TextIOWrapper(
                 io.BufferedReader(bounded),
                 encoding="utf-8" if checkpoint else "utf-8-sig",
                 newline="",
             ) as text:
-                lines = _CSVLines(text, offset=offset, byte_offset=byte_offset)
-                reader = csv.reader(lines, strict=True)
+                records = BoundedCSVRecords(
+                    text,
+                    record_limit=MAX_RECORD_CHARS,
+                    offset=offset,
+                    byte_offset=byte_offset,
+                )
+                reader = iter(records)
                 header = review["headers"] if checkpoint else next(reader, [])
                 header_names = frozenset(header)
                 parser_version = PARSER_BY_HEADERS.get(header_names)
@@ -300,9 +257,8 @@ def _raw_rows(source, *, review=None, checkpoint=None):
                 if review is not None and byte_offset is not None:
                     review["headers"] = header
                 while True:
-                    lines.record_chars = 0
-                    start = lines.offset
-                    byte_start = lines.byte_offset
+                    start = records.offset
+                    byte_start = records.byte_offset
                     cells = next(reader, None)
                     if cells is None:
                         break
@@ -320,7 +276,7 @@ def _raw_rows(source, *, review=None, checkpoint=None):
                     yield (
                         number,
                         start,
-                        lines.offset,
+                        records.offset,
                         dict(zip(header, cells, strict=True)),
                         parser_version,
                     )
@@ -337,6 +293,8 @@ def _raw_rows(source, *, review=None, checkpoint=None):
                     original, path
                 ):
                     raise AnalysisError("imessage_source_changed")
+    except (CSVByteLimitExceeded, CSVRecordLimitExceeded) as error:
+        raise AnalysisError("imessage_import_limit") from error
     except csv.Error as error:
         code = (
             "imessage_import_limit"

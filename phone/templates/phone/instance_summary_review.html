@@ -12,7 +12,7 @@
   {% if bulk %}
     {% if review_page.has_other_pages %}
       <p>Review up to {{ sessions_per_review }} saved sessions at a time. Requests cover eligible sessions on this page.</p>
-      <nav class="pagination" aria-label="Session review pages">{% if review_page.has_previous %}<a class="button button-secondary" href="{% querystring review_page=review_page.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ review_page.number }} of {{ review_page.paginator.num_pages }}</span>{% if review_page.has_next %}<a class="button button-secondary" href="{% querystring review_page=review_page.next_page_number %}">Next</a>{% endif %}</nav>
+      {% include 'ui/components/pagination.html' with page=review_page label='Session review pages' query=request.GET parameter='review_page' only %}
     {% endif %}
     {% if instances %}
       <p>Request a separate summary for each included session. Saved summaries are kept.</p>

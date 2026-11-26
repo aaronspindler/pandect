@@ -81,10 +81,7 @@ window.PandectPage((signal) => {
         signal: controller.signal, credentials: "same-origin", cache: "no-store", redirect: "manual",
       });
       if (revision !== generation || stale() || controller.signal.aborted) return;
-      if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-        window.PandectPrivateSession.clearPrivatePage();
-        return;
-      }
+      if (window.PandectPrivateSession.clearIfAccessDenied(response)) return;
       if (!response.ok || response.headers.get("X-Pandect-Live") !== "collection") throw Error("unavailable");
       if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
       const fragment = new DOMParser().parseFromString(await response.text(), "text/html");
@@ -174,7 +171,7 @@ window.PandectPage((signal) => {
     results.removeAttribute("aria-busy");
   }, {signal});
   document.addEventListener("click", (event) => {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (event.defaultPrevented || !window.PandectPage.isPlainClick(event)) return;
     const pageLink = event.target.closest(".pagination a, [data-collection-pagination] a");
     if (!accessLost && window.PandectWorkspace && pageLink && !pageLink.target &&
         (results.contains(pageLink) || pageLink.closest("[data-collection-pagination]"))) {
@@ -186,7 +183,7 @@ window.PandectPage((signal) => {
       return;
     }
     const link = event.target.closest("[data-refresh-results]");
-    if (!link || accessLost || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!link || accessLost) return;
     // A newly populated collection needs its full search and creation toolbar.
     if (!form && ["people", "vehicles", "cases"].includes(results.dataset.collectionKind)) {
       if (!window.PandectWorkspace) return;

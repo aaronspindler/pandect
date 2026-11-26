@@ -25,16 +25,13 @@ from core.analysis.approval import revoke_case_execution
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import project_result
 from core.analysis.navigation import finding_url
-from core.analysis.services import (
-    cancel_run,
-    process_run,
-    resolve_inputs,
-    snapshot_sources,
-    start_run,
-)
+from core.analysis.services import cancel_run, start_run
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
 from core.analysis.tests.test_topic_recovery import LOCAL
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from geo.analysis.external.geocoding import Geocoder

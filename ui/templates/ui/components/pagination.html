@@ -1,0 +1,10 @@
+{% load pagination %}
+{% if page.has_other_pages %}
+{% with page_key=parameter|default:'page' %}
+<nav class="pagination" aria-label="{{ label }}">
+  {% if page.has_previous %}<a class="button button-secondary" href="{% querystring query page.previous_page_number|page_parameter:page_key %}{% if anchor %}#{{ anchor }}{% endif %}">Previous{% if item_label %} {{ item_label }}{% endif %}</a>{% endif %}
+  <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a class="button button-secondary" href="{% querystring query page.next_page_number|page_parameter:page_key %}{% if anchor %}#{{ anchor }}{% endif %}">Next{% if item_label %} {{ item_label }}{% endif %}</a>{% endif %}
+</nav>
+{% endwith %}
+{% endif %}

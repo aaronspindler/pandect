@@ -21,7 +21,9 @@ from PIL import Image, ImageDraw
 from playwright.sync_api import expect, sync_playwright
 
 from cases.models import Case
-from core.analysis.services import process_run, set_address_estimate, start_run
+from core.analysis.address_estimates import set_address_estimate
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from geo.analysis.external.geocoding import Geocoder
 from geo.models import LocationEvidence, PointOfInterest, VehicleLocationEvidence
 from geo.testing import LOCAL_GEOCODER

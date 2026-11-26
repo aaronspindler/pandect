@@ -3,7 +3,8 @@ from datetime import UTC, datetime, timedelta
 from django.core.files.base import ContentFile
 from django.test import TestCase
 
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport

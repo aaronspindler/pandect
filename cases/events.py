@@ -7,7 +7,6 @@ from contextlib import suppress
 from io import BytesIO
 
 import psycopg
-from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -17,6 +16,7 @@ from django.db import DatabaseError, close_old_connections, connections
 from django.http import Http404
 from django.urls import Resolver404, resolve
 
+from accounts.verification import has_verified_email
 from cases.permissions import get_case_with_role
 
 HEARTBEAT_SECONDS = 15
@@ -35,11 +35,7 @@ def subscription_scope(request, case_id):
     try:
         SessionMiddleware(lambda request: None).process_request(request)
         user = get_user(request)
-        if (
-            user.is_authenticated
-            and user.is_active
-            and EmailAddress.objects.filter(user=user, verified=True).exists()
-        ):
+        if user.is_authenticated and user.is_active and has_verified_email(user):
             try:
                 _, role = get_case_with_role(user, case_id)
             except Http404:

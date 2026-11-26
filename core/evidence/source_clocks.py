@@ -10,8 +10,26 @@ from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 
 from core.evidence.queries import scoped_evidence
-from core.evidence.types import CALL_KINDS
+from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, LOCATION_KINDS
 from phone.conversations import imported_contexts
+
+
+def timestamp_fields(kind, category):
+    if category in ("all", "observed"):
+        if kind in COMMUNICATION_KINDS:
+            yield "occurred_at", "Occurred"
+        elif kind in LOCATION_KINDS:
+            yield "observed_at", "Observed"
+    if category in ("all", "acquired"):
+        yield "collected_at", "Collected"
+
+
+def timestamp_records(queryset, case, kind, field):
+    """Include known times while excluding date-only stored placeholders."""
+    queryset = queryset.filter(**{f"{field}__isnull": False})
+    if kind == "text-message" and field == "occurred_at":
+        queryset = queryset.filter(~is_date_only_message(case))
+    return queryset
 
 
 def set_call_interval(row, start, duration):

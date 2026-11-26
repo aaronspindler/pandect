@@ -5,7 +5,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.testing import EvidenceViewTestMixin
 from geo.models import PersonLocationEvidence
 from people.models import Person

@@ -11,10 +11,11 @@ from core.analysis.approval import approve_scopes
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import transfer_scope
-from core.analysis.services import process_run, resolve_inputs
+from core.analysis.source_resolution import resolve_inputs
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
+from core.analysis.worker import process_run
 from core.models import CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from phone.grouping_jobs import grouping_scope, start_grouping

@@ -7,7 +7,9 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from core.analysis.catalogue import project_result
 from core.analysis.navigation import finding_url
-from core.analysis.services import process_run, snapshot_sources, start_run
+from core.analysis.services import start_run
+from core.analysis.source_selection import snapshot_sources
+from core.analysis.worker import process_run
 from core.evidence.time_claims import time_claims_page
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin

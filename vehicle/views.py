@@ -169,8 +169,7 @@ def vehicle_edit(request, case_id, vehicle_id):
             return form_saved(request, "Vehicle details saved.", url)
         if form.stale:
             latest_vehicle = Vehicle.objects.get(pk=vehicle.pk, case=case)
-            form.data = form.data.copy()
-            form.data["revision"] = form.initial["revision"]
+            form.refresh_revision()
     return render_quick_form(
         request,
         "vehicle/form.html",
@@ -182,7 +181,7 @@ def vehicle_edit(request, case_id, vehicle_id):
             "creating": False,
             "list_query": list_query(request),
         },
-        status=409 if form.stale else 400 if request.method == "POST" else 200,
+        status=form.response_status,
     )
 
 

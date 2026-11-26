@@ -6,7 +6,8 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from cases.models import CaseMembership
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.models import AnalysisReview, AnalysisRun
 from geo.analysis.external.geocoding import Geocoder
 from geo.testing import LOCAL_GEOCODER

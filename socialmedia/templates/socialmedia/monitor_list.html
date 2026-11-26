@@ -17,6 +17,6 @@
     <a class="record-row" href="{% url 'instagram:detail' case.pk monitor.pk %}"><div><strong>@{{ monitor.target }}</strong><p>{{ monitor.get_status_display }} · {% if monitor.source == 'synthetic' %}Synthetic{% else %}Instagram{% endif %} · Every {{ monitor.interval_hours }} hour{{ monitor.interval_hours|pluralize }}{% if monitor.next_check_at %} · Next check {{ monitor.next_check_at|date:'j M Y, H:i T' }}{% endif %}</p></div></a>
     {% endfor %}
   </div>
-  {% include 'socialmedia/monitor_pagination.html' with label='Monitor pages' %}
+  {% include 'ui/components/pagination.html' with page=page_obj label='Monitor pages' query=request.GET only %}
 {% else %}<section class="empty-state"><h2>No monitors in this case</h2><p>Monitors track changes in followers and accounts followed between checks.</p></section>{% endif %}
 {% endblock %}

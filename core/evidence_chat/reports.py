@@ -2,13 +2,12 @@
 
 from datetime import timedelta
 
-from django.db.models import Case, F, Func, IntegerField, OuterRef, Q, Subquery, When
+from django.db.models import Case, F, Func, IntegerField, OuterRef, Subquery, When
 from django.db.models.functions import Cast, Coalesce
 from django.urls import reverse
 
-from core.analysis.catalogue import SUCCESSFUL
+from core.analysis.published import successful_results
 from core.analysis.report_index import TIMING_FIELDS
-from core.models import AnalysisResult
 from phone.analysis.saved_timing import INLINE_MEMBERS, timing_members
 
 from . import corpus
@@ -19,12 +18,7 @@ MAX_REPORTS = 3
 
 
 def _results(case):
-    return AnalysisResult.objects.filter(
-        case=case,
-        run__case=case,
-        run__operation="comm_patterns",
-        run__status__in=SUCCESSFUL,
-    ).filter(Q(run__previous_run__isnull=True) | Q(run__previous_run__case=case))
+    return successful_results(case).filter(run__operation="comm_patterns")
 
 
 def _metrics(results):

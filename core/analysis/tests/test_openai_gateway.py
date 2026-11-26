@@ -16,10 +16,11 @@ from core.analysis.execution import (
     gateway_execution,
     snapshot_execution,
 )
-from core.analysis.services import authorize_run, process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import approve_case_execution, external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG, error, response
+from core.analysis.worker import authorize_run, process_run
 from core.models import AnalysisRun, GatewayRequest
 from core.testing import EvidenceViewTestMixin
 from phone.models import TextMessageEvidence

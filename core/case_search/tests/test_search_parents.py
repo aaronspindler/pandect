@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.case_search.grammar import parse_query
 from core.case_search.parent_index import index_parent, prepare_parents, scan_parents
 from core.case_search.parents import (

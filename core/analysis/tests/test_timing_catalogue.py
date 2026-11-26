@@ -15,7 +15,7 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from core.analysis.catalogue import catalogue_page, project_result
 from core.analysis.projection import finding_values, is_timing_only
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.models import (
     AnalysisFindingSource,
     AnalysisResult,

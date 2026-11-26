@@ -32,7 +32,7 @@
       <span class="badge">{{ run.progress_label }}</span>
     </a>
     {% empty %}<p class="muted">{% if batch.status == 'queued' %}Checks will appear as preparation continues.{% else %}No analysis checks were queued.{% endif %}</p>{% endfor %}
-    {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Message analysis pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
+    {% include 'ui/components/pagination.html' with page=page_obj label='Message analysis pages' query=request.GET only %}
   </section>
   {% if not live_pending %}</details>{% endif %}
 </div>

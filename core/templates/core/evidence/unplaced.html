@@ -43,11 +43,7 @@
       </div></li>
       {% empty %}<li class="empty-state">No undated originals match these filters.</li>{% endfor %}
     </ul>
-    {% if originals.has_other_pages %}<nav class="pagination" aria-label="Undated original pages">
-      {% if originals.has_previous %}<a class="button button-secondary" href="{% querystring originals_page=originals.previous_page_number %}#undated-heading">Previous originals</a>{% endif %}
-      <span>Page {{ originals.number }} of {{ originals.paginator.num_pages }}</span>
-      {% if originals.has_next %}<a class="button button-secondary" href="{% querystring originals_page=originals.next_page_number %}#undated-heading">Next originals</a>{% endif %}
-    </nav>{% endif %}
+    {% include 'ui/components/pagination.html' with page=originals label='Undated original pages' query=request.GET parameter='originals_page' anchor='undated-heading' item_label='originals' only %}
   </section>
   {% endif %}
   <section class="content-section" aria-labelledby="unplaced-dates">
@@ -67,11 +63,7 @@
       </div></li>
       {% empty %}<li class="empty-state">No retained time claims match these filters.</li>{% endfor %}
     </ul>
-    {% if claims.has_other_pages %}<nav class="pagination" aria-label="Time claim pages">
-      {% if claims.has_previous %}<a class="button button-secondary" href="{% querystring page=claims.previous_page_number %}#unplaced-dates">Previous claims</a>{% endif %}
-      <span>Page {{ claims.number }} of {{ claims.paginator.num_pages }}</span>
-      {% if claims.has_next %}<a class="button button-secondary" href="{% querystring page=claims.next_page_number %}#unplaced-dates">Next claims</a>{% endif %}
-    </nav>{% endif %}
+    {% include 'ui/components/pagination.html' with page=claims label='Time claim pages' query=request.GET anchor='unplaced-dates' item_label='claims' only %}
   </section>
   {% endif %}
 </div>

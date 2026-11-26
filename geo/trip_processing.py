@@ -4,7 +4,6 @@ from collections import defaultdict
 from datetime import datetime
 from uuid import uuid4
 
-from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Exists, F, Max, Min, OuterRef, Q, Subquery, Window
@@ -14,6 +13,7 @@ from django.http import Http404
 from django.urls import reverse
 from django.utils import timezone
 
+from accounts.verification import has_verified_email
 from cases.permissions import case_role, get_case
 from core.evidence.queries import scoped_evidence
 from geo.trip_models import (
@@ -30,10 +30,7 @@ READABLE_METHODS = ("vehicle-trips.v1", METHOD_VERSION)
 
 
 def _verified_editor(actor, case):
-    return (
-        case_role(case, actor) in ("owner", "editor")
-        and EmailAddress.objects.filter(user=actor, verified=True).exists()
-    )
+    return case_role(case, actor) in ("owner", "editor") and has_verified_email(actor)
 
 
 def _vehicles(case, identifiers):
@@ -455,6 +452,16 @@ def _trip_source_rows(case, trip):
     ).order_by("memberships__ordinal")
 
 
+def versioned_trip_memberships(case, trip):
+    """Scope a selected trip's source edges to matching retained versions."""
+    return trip.sources.filter(
+        case=case,
+        input__case=case,
+        input__generation_id=trip.generation_id,
+        input__sha256=F("input__observation__sha256"),
+    ).order_by("ordinal")
+
+
 def geometry_source_page(case, trip, cursor, size):
     """Revalidate only the requested contiguous slice of a current trip."""
     if trip.generation.method_version != METHOD_VERSION:
@@ -469,15 +476,14 @@ def geometry_source_page(case, trip, cursor, size):
     )
     rows = [
         membership.input
-        for membership in memberships.filter(
+        for membership in versioned_trip_memberships(case, trip)
+        .filter(
             ordinal__gt=cursor,
-            input__case=case,
-            input__generation_id=trip.generation_id,
             input__ordinal=F("ordinal"),
             input__observation__in=originals,
-            input__observation__sha256=F("input__sha256"),
             input__snapshot__is_archived=False,
-        ).select_related("input")[:size]
+        )
+        .select_related("input")[:size]
     ]
     start = max(first, cursor + 1)
     if [row.ordinal for row in rows] != list(range(start, min(start + size, last + 1))):

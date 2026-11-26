@@ -6,7 +6,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
@@ -18,7 +18,8 @@ from core.analysis.sources import Source, output, source_id
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import KINDS, LOCATION_KINDS
 from core.models import AnalysisFinding, AnalysisReview, AnalysisRun
-from geo.analysis.deterministic.locations import distance_m, number
+from geo.analysis.deterministic.observations import number
+from geo.coordinates import distance_m
 
 MAX_CANDIDATES = 25
 MAX_SELECTION = 12
@@ -42,11 +43,54 @@ def sighting_reviews(case, result):
     return result.reviews.filter(case=case, item_index__isnull=True)
 
 
+def validate_current_sighting(run, case, sources=None):
+    """Current decisions use active sources and the exact selected comparisons."""
+    from core.analysis.address_estimates import require_current_geocode_reviews
+    from core.analysis.source_resolution import resolve_inputs
+
+    if sources is None:
+        sources = resolve_inputs(run, case, require_current_review=False)
+    if any(source.item.is_archived for source in sources):
+        raise AnalysisError("source_archived")
+    require_current_geocode_reviews(run, sources, exact_revision=True)
+    if (
+        not run._state.adding
+        and AnalysisRun.objects.filter(
+            case=case,
+            previous_run=run,
+            operation=run.operation,
+            status=AnalysisRun.Status.COMPLETE,
+            result__case=case,
+        ).exists()
+    ):
+        raise AnalysisError("sighting_proposal_superseded")
+    result_ids = {ref["result_id"] for ref in run.parameters.get("finding_refs", [])}
+    if not result_ids:
+        return
+    newer = (
+        AnalysisRun.objects.filter(
+            case=case,
+            equivalence_key=OuterRef("equivalence_key"),
+            status__in=("complete", "partial", "empty"),
+            result__case=case,
+        )
+        .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
+        .filter(
+            Q(created_at__gt=OuterRef("created_at"))
+            | Q(created_at=OuterRef("created_at"), pk__gt=OuterRef("pk"))
+        )
+    )
+    if (
+        AnalysisRun.objects.filter(case=case, result__pk__in=result_ids)
+        .filter(Exists(newer))
+        .exists()
+    ):
+        raise AnalysisError("sighting_comparison_superseded")
+
+
 @transaction.atomic
 def review_sighting(actor, case_id, run_id, *, decision=None, revision=None):
     """Append a decision only against the reviewed revision and current sources."""
-    from core.analysis.services import validate_current_sighting
-
     case = get_case(actor, case_id, edit=True, lock=True)
     run = get_object_or_404(sighting_runs(case), pk=run_id, result__case=case)
     result = run.result
@@ -74,7 +118,7 @@ def review_outcome(review):
 
 def saved_group(case, run, *, cache=None):
     """Read a retained proposal only when its exact sources still resolve."""
-    from core.analysis.services import SourceResolutionCache, resolve_inputs
+    from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 
     result = getattr(run, "result", None)
     if (
@@ -187,7 +231,7 @@ class Selection:
     """Load exact findings once and track the inputs needed to reproduce them."""
 
     def __init__(self, case, sources=None):
-        from core.analysis.services import SourceResolutionCache
+        from core.analysis.source_resolution import SourceResolutionCache
 
         self.case = case
         self.originals = {}
@@ -220,11 +264,10 @@ class Selection:
         return self.originals[key]
 
     def finding(self, result_id, item_index, methods):
-        from core.analysis.catalogue import SUCCESSFUL, raw_finding_item
-        from core.analysis.services import (
-            require_current_geocode_reviews,
-            resolve_inputs,
-        )
+        from core.analysis.address_estimates import require_current_geocode_reviews
+        from core.analysis.catalogue import raw_finding_item
+        from core.analysis.published import SUCCESSFUL
+        from core.analysis.source_resolution import resolve_inputs
 
         try:
             key = (str(UUID(str(result_id))), int(item_index))

@@ -21,10 +21,6 @@ from config.access import product_login_required
 from core.analysis.errors import AnalysisError
 from core.analysis.important import has_available_citations, retained_finding_url
 from core.analysis.navigation import finding_url
-from core.analysis.services import (
-    SourceResolutionCache,
-    validate_current_sighting,
-)
 from core.analysis.sightings import (
     ANCHOR_KINDS,
     MAX_CANDIDATES,
@@ -37,7 +33,9 @@ from core.analysis.sightings import (
     sighting_reviews,
     sighting_runs,
     start_sighting,
+    validate_current_sighting,
 )
+from core.analysis.source_resolution import SourceResolutionCache
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import KIND_LABELS
 from core.important.navigation import return_params

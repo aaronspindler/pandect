@@ -4,7 +4,7 @@ import re
 from datetime import UTC, date, datetime, time, timedelta
 
 from django.core.exceptions import ValidationError
-from django.db.models import CharField, Count, F, Q, Value
+from django.db.models import CharField, Count, F, Func, Q, Value
 from django.http import Http404
 
 from core.evidence.types import FILE_KINDS, KINDS
@@ -67,6 +67,16 @@ def scoped_evidence(case, kind):
     except KeyError:
         raise Http404("Evidence not found.") from None
     return same_case_evidence(model.objects.filter(case=case))
+
+
+def text_sha256(field):
+    """Hash stored text as UTF-8 without loading the full value into Python."""
+    return Func(
+        Func(Func(F(field), Value("UTF8"), function="convert_to"), function="sha256"),
+        Value("hex"),
+        function="encode",
+        output_field=CharField(),
+    )
 
 
 def local_date_range(field, *, start=None, end=None):

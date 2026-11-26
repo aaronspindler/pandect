@@ -10,7 +10,8 @@ from django.urls import reverse
 
 from core.analysis.catalogue import project_result
 from core.analysis.operations import get_operation
-from core.analysis.services import resolve_inputs, snapshot_sources
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.models import AnalysisFindingSource, AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

@@ -10,7 +10,8 @@ from django.test import SimpleTestCase, TestCase
 
 from core.analysis.diagnostics import log_analysis_failure
 from core.analysis.errors import AnalysisError
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.models import AnalysisResult
 from core.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
@@ -111,7 +112,7 @@ class ProcessingFailureLoggingTests(EvidenceViewTestMixin, TestCase):
 
         with (
             patch(
-                "core.analysis.services.get_operation",
+                "core.analysis.worker.get_operation",
                 return_value=SimpleNamespace(
                     function=operation, version=run.method_version
                 ),
@@ -141,7 +142,7 @@ class ProcessingFailureLoggingTests(EvidenceViewTestMixin, TestCase):
             with self.subTest(code=code):
                 run = self.start()
                 with (
-                    patch("core.analysis.services._authorize_run", side_effect=error),
+                    patch("core.analysis.worker._authorize_run", side_effect=error),
                     self.assertLogs("core.analysis.failures", level="ERROR") as logs,
                 ):
                     self.assertEqual(process_run(str(run.pk)), code)
@@ -159,7 +160,7 @@ class ProcessingFailureLoggingTests(EvidenceViewTestMixin, TestCase):
 
         with (
             patch(
-                "core.analysis.services.AnalysisResult.objects.create",
+                "core.analysis.worker.AnalysisResult.objects.create",
                 side_effect=fail_after_insert,
             ),
             self.assertLogs("core.analysis.failures", level="ERROR") as logs,
@@ -176,7 +177,7 @@ class ProcessingFailureLoggingTests(EvidenceViewTestMixin, TestCase):
         run = self.start()
         with (
             patch(
-                "core.analysis.services._authorize_run",
+                "core.analysis.worker._authorize_run",
                 side_effect=RuntimeError(PRIVATE_TEXT),
             ),
             patch(

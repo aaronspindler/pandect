@@ -2,7 +2,6 @@
 
 from uuid import UUID, uuid4
 
-from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
@@ -11,20 +10,20 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from cases.permissions import get_case
+from cases.permissions import get_case, require_verified_email
 from core.analysis.catalogue import archived_finding_sources
 from core.analysis.errors import AnalysisError
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KINDS
 from core.models import AnalysisResult, ChatMatch, ChatTurn, EvidenceChat
 
-from . import ai, corpus, decisions_approval, jobs, retrieval_route
+from . import ai, checkpoints, corpus, decisions_approval, retrieval_route
+from .search_scope import review_restart_code
 
 
 def _edit_case(actor, case_id):
     case = get_case(actor, case_id, edit=True, lock=True)
-    if not EmailAddress.objects.filter(user=actor, verified=True).exists():
-        raise PermissionDenied("Verify your email before asking a case question.")
+    require_verified_email(actor, "Verify your email before asking a case question.")
     return case
 
 
@@ -122,7 +121,7 @@ def submit_turn(
                 "This submission reference has already been used."
             ) from None
         raise
-    jobs.enqueue_turn(turn)
+    checkpoints.enqueue_turn(turn)
     return turn
 
 
@@ -140,7 +139,7 @@ def retry_turn(actor, case_id, chat_id, turn_id, *, expected_route=None):
         return turn
     if turn.include_archived:
         raise ValidationError("Ask a new question to use active evidence.")
-    if code := jobs.review_restart_code(turn):
+    if code := review_restart_code(turn):
         raise AnalysisError(code)
     if turn.chat.turns.filter(ordinal__gt=turn.ordinal).exists():
         raise ValidationError("Ask the question again at the end of this chat.")
@@ -165,7 +164,7 @@ def retry_turn(actor, case_id, chat_id, turn_id, *, expected_route=None):
     turn.error_code = ""
     turn.completed_at = None
     turn.save(update_fields=["status", "delivery_token", "error_code", "completed_at"])
-    jobs.enqueue_turn(turn)
+    checkpoints.enqueue_turn(turn)
     return turn
 
 
@@ -185,7 +184,7 @@ def recover_interrupted_delivery(turn_id, reviewed_token):
     ai.check_execution(turn, case)
     turn.delivery_token = uuid4()
     turn.save(update_fields=["delivery_token"])
-    jobs.enqueue_turn(turn)
+    checkpoints.enqueue_turn(turn)
 
 
 def _citation(case, source, ref, *, read=None):
@@ -209,7 +208,7 @@ def inspect_turn(turn, *, read=None):
 
     if turn.status != "complete":
         return {}
-    if turn.chat.case_id != turn.case_id or jobs.review_restart_code(turn):
+    if turn.chat.case_id != turn.case_id or review_restart_code(turn):
         return None
     if not recalled_sources_available(turn, read or corpus.read_window):
         return None

@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.apps import apps
@@ -51,6 +52,8 @@ def admin_url(model, action, obj=None):
 
 
 class AdminInspectionTests(TestCase):
+    confirm_chat_deletion = {"post": "yes", "confirm": "yes"}
+
     @classmethod
     def setUpTestData(cls):
         user_model = get_user_model()
@@ -256,12 +259,22 @@ class AdminInspectionTests(TestCase):
         self.assertContains(response, f'href="{delete_url}"')
         self.assertNotContains(response, 'name="_save"')
         response = self.client.get(delete_url)
-        self.assertContains(response, "Chat reply 1")
-        self.assertContains(response, str(note))
+        self.assertContains(response, "Deletion summary")
+        counts = dict(response.context["model_count"])
+        for model in (
+            ChatTurn,
+            ChatSource,
+            GatewayRequest,
+            ImportantItem,
+            ImportantNote,
+        ):
+            self.assertEqual(counts[model._meta.verbose_name_plural], 1)
+        self.assertEqual(counts["chat matches"], 1)
+        self.assertNotContains(response, str(note))
         self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
 
         self.assertRedirects(
-            self.client.post(delete_url, {"post": "yes"}),
+            self.client.post(delete_url, self.confirm_chat_deletion),
             reverse("admin:index"),
         )
         for obj in (self.chat, self.turn, source, match, usage, mark, note):
@@ -271,11 +284,93 @@ class AdminInspectionTests(TestCase):
         entry = LogEntry.objects.get(object_id=str(self.chat.pk), action_flag=DELETION)
         self.assertEqual(entry.object_repr, str(self.chat.pk))
 
+    def test_chat_delete_counts_sources_without_loading_them(self):
+        ChatSource.objects.bulk_create(
+            [
+                ChatSource(case=self.case, turn=self.turn, key=str(index), locator={})
+                for index in range(2000)
+            ]
+        )
+        self.grant_chat_admin_permissions(self.owner)
+        self.client.force_login(self.owner)
+        delete_url = admin_url(EvidenceChat, "delete", self.chat)
+
+        with patch.object(
+            ChatSource, "from_db", side_effect=AssertionError("Source loaded")
+        ):
+            response = self.client.get(delete_url)
+            self.assertContains(
+                response, '<th scope="row">Chat sources</th><td>2000</td>', html=True
+            )
+            self.assertContains(response, "Permanently delete chat")
+            self.assertNotContains(response, '<ul id="deleted-objects">')
+            response = self.client.post(delete_url, {"post": "yes"})
+            self.assertContains(response, "Confirm permanent deletion to continue.")
+            self.assertContains(response, 'name="confirm"')
+            self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
+            self.assertRedirects(
+                self.client.post(delete_url, self.confirm_chat_deletion),
+                reverse("admin:index"),
+            )
+            self.assertFalse(ChatSource.objects.filter(turn=self.turn).exists())
+
+    def test_chat_delete_collects_matches_through_either_relation(self):
+        other_chat = EvidenceChat.objects.create(case=self.case, created_by=self.owner)
+        other_turn = ChatTurn.objects.create(
+            case=self.case,
+            chat=other_chat,
+            asked_by=self.owner,
+            ordinal=1,
+            submission_id=uuid4(),
+            status=ChatTurn.Status.COMPLETE,
+        )
+        source = ChatSource.objects.create(case=self.case, turn=self.turn, locator={})
+        other_source = ChatSource.objects.create(
+            case=self.case, turn=other_turn, locator={}
+        )
+        for turn, match_source, start in (
+            (other_turn, source, 0),
+            (self.turn, other_source, 0),
+            (other_turn, other_source, 1),
+        ):
+            ChatMatch.objects.create(
+                case=self.case,
+                turn=turn,
+                source=match_source,
+                start=start,
+                end=start + 1,
+            )
+        self.grant_chat_admin_permissions(self.owner)
+        self.client.force_login(self.owner)
+        delete_url = admin_url(EvidenceChat, "delete", self.chat)
+
+        foreign_match = ChatMatch.objects.create(
+            case=self.other_case, turn=other_turn, source=source, start=1, end=2
+        )
+        self.assertContains(
+            self.client.post(delete_url, self.confirm_chat_deletion),
+            "Related records have inconsistent case links",
+        )
+        self.assertTrue(ChatSource.objects.filter(pk=source.pk).exists())
+        foreign_match.delete()
+
+        response = self.client.get(delete_url)
+        self.assertEqual(dict(response.context["model_count"])["chat matches"], 2)
+        self.assertRedirects(
+            self.client.post(delete_url, self.confirm_chat_deletion),
+            reverse("admin:index"),
+        )
+        self.assertEqual(list(ChatMatch.objects.values_list("start", flat=True)), [1])
+        self.assertTrue(ChatSource.objects.filter(pk=other_source.pk).exists())
+        self.assertTrue(EvidenceChat.objects.filter(pk=other_chat.pk).exists())
+
     def test_chat_delete_requires_model_permission_and_case_ownership(self):
         delete_url = admin_url(EvidenceChat, "delete", self.chat)
         change_url = admin_url(EvidenceChat, "change", self.chat)
         self.client.force_login(self.owner)
-        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 403)
+        self.assertEqual(
+            self.client.post(delete_url, self.confirm_chat_deletion).status_code, 403
+        )
 
         self.owner.user_permissions.add(
             Permission.objects.get(
@@ -283,7 +378,9 @@ class AdminInspectionTests(TestCase):
             )
         )
         self.assertEqual(self.client.get(delete_url).status_code, 403)
-        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 403)
+        self.assertEqual(
+            self.client.post(delete_url, self.confirm_chat_deletion).status_code, 403
+        )
 
         self.grant_chat_admin_permissions(self.viewer)
         self.client.force_login(self.viewer)
@@ -295,13 +392,20 @@ class AdminInspectionTests(TestCase):
                     self.client.get(change_url), f'href="{delete_url}"'
                 )
                 self.assertEqual(
-                    self.client.post(delete_url, {"post": "yes"}).status_code, 403
+                    self.client.post(
+                        delete_url, self.confirm_chat_deletion
+                    ).status_code,
+                    403,
                 )
         self.membership.delete()
-        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 302)
+        self.assertEqual(
+            self.client.post(delete_url, self.confirm_chat_deletion).status_code, 302
+        )
 
         self.client.force_login(self.operator)
-        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 302)
+        self.assertEqual(
+            self.client.post(delete_url, self.confirm_chat_deletion).status_code, 302
+        )
         self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())
 
     def test_chat_delete_checks_for_active_replies_on_confirmation(self):
@@ -312,7 +416,7 @@ class AdminInspectionTests(TestCase):
         for status in (ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING):
             with self.subTest(status=status):
                 ChatTurn.objects.filter(pk=self.turn.pk).update(status=status)
-                response = self.client.post(delete_url, {"post": "yes"})
+                response = self.client.post(delete_url, self.confirm_chat_deletion)
                 self.assertContains(
                     response, "Wait for the current reply or approved extraction"
                 )
@@ -347,7 +451,7 @@ class AdminInspectionTests(TestCase):
         self.client.force_login(self.owner)
         delete_url = admin_url(EvidenceChat, "delete", self.chat)
 
-        response = self.client.post(delete_url, {"post": "yes"})
+        response = self.client.post(delete_url, self.confirm_chat_deletion)
         self.assertContains(
             response, "Wait for the current reply or approved extraction"
         )
@@ -357,7 +461,8 @@ class AdminInspectionTests(TestCase):
         run.status = AnalysisRun.Status.FAILED
         run.save(update_fields=("status",))
         self.assertRedirects(
-            self.client.post(delete_url, {"post": "yes"}), reverse("admin:index")
+            self.client.post(delete_url, self.confirm_chat_deletion),
+            reverse("admin:index"),
         )
         self.assertFalse(ChatAnalysisProposal.objects.filter(pk=proposal.pk).exists())
         self.assertTrue(AnalysisRun.objects.filter(pk=run.pk).exists())
@@ -368,7 +473,7 @@ class AdminInspectionTests(TestCase):
         self.grant_chat_admin_permissions(self.owner)
         self.client.force_login(self.owner)
         delete_url = admin_url(EvidenceChat, "delete", self.chat)
-        response = self.client.post(delete_url, {"post": "yes"})
+        response = self.client.post(delete_url, self.confirm_chat_deletion)
         self.assertContains(response, "Related records have inconsistent case links")
         self.assertNotContains(response, str(self.turn.pk))
         self.assertTrue(EvidenceChat.objects.filter(pk=self.chat.pk).exists())

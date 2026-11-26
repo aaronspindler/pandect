@@ -21,9 +21,10 @@ from core.analysis.automatic import (
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import configured_external_executions
-from core.analysis.services import cancel_run, process_run, start_run
+from core.analysis.services import cancel_run, start_run
 from core.analysis.testing import approve_case_execution
 from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.worker import process_run
 from core.evidence.deletion import plan_deletion
 from core.evidence.retention import set_evidence_archive
 from core.evidence_chat import ai, jobs, proposals, services

@@ -12,7 +12,7 @@ from core.evidence.types import COMMUNICATION_KINDS as COMMUNICATIONS
 from core.evidence.types import KINDS
 from core.evidence.types import LOCATION_KINDS as LOCATIONS
 from document.analysis import deterministic as documents
-from geo.analysis.deterministic import journey_claims, locations
+from geo.analysis.deterministic import journey_claims, locations, movement
 from geo.analysis.external import geocoding, geographic_context
 from image.analysis import ai as image_ai
 from image.analysis import metadata as image_metadata
@@ -273,17 +273,17 @@ OPERATIONS = {
     ),
     "candidate_visits": Operation(
         "Inspect candidate visits and frequent places",
-        locations.candidate_visits,
+        movement.candidate_visits,
         LOCATIONS,
     ),
     "candidate_trips": Operation(
         "Inspect candidate journeys and drives",
-        locations.candidate_trips,
+        movement.candidate_trips,
         LOCATIONS,
     ),
     "movement_routines": Operation(
         "Compare recurring movement patterns",
-        locations.movement_routines,
+        movement.movement_routines,
         LOCATIONS,
     ),
     "colocation": Operation(
@@ -291,7 +291,7 @@ OPERATIONS = {
     ),
     "travel_discrepancies": Operation(
         "Review unusual location transitions",
-        locations.travel_discrepancies,
+        movement.travel_discrepancies,
         LOCATIONS,
     ),
     "location_conflicts": Operation(

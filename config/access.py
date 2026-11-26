@@ -2,7 +2,6 @@
 
 from functools import wraps
 
-from allauth.account.models import EmailAddress
 from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.contrib import messages
@@ -11,6 +10,7 @@ from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect
 from django.utils.deprecation import MiddlewareMixin
 
+from accounts.verification import has_verified_email
 from cases.permissions import get_case
 from core.evidence.uploads import CASE_FILE_FORMS, admin_accepts_file, file_limit
 
@@ -38,7 +38,7 @@ def product_access_response(request):
         if invitation:
             return redirect("account_login")
         return redirect_to_login(request.get_full_path())
-    if not EmailAddress.objects.filter(user=request.user, verified=True).exists():
+    if not has_verified_email(request.user):
         if wants_json(request):
             return JsonResponse(
                 {

@@ -17,11 +17,11 @@ from django.http import Http404
 
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url
-from core.analysis.services import resolve_active_inputs
+from core.analysis.published import published_passages
+from core.analysis.source_resolution import resolve_active_inputs
 from core.evidence.queries import scoped_evidence
 from core.evidence.search import content_excerpt
 from core.evidence.types import CALL_KINDS, FILE_KINDS, KINDS
-from core.models import ExtractedPassage
 
 
 def _active_passages(case, query):
@@ -40,14 +40,7 @@ def _active_passages(case, query):
                 is_archived=True,
             )
         )
-    return ExtractedPassage.objects.filter(
-        ~archived_input,
-        case=case,
-        result__case=case,
-        result__run__case=case,
-        result__run__status__in=("complete", "partial"),
-        text__icontains=query,
-    )
+    return published_passages(case).filter(~archived_input, text__icontains=query)
 
 
 def derived_content_condition(queryset, *, case, kind, query):

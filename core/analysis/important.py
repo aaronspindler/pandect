@@ -4,17 +4,18 @@ from django.core.exceptions import ValidationError
 from django.http import Http404
 from django.urls import reverse
 
+from core.analysis.address_estimates import require_current_geocode_reviews
 from core.analysis.errors import AnalysisError
 from core.analysis.findings import finding_row
 from core.analysis.navigation import finding_url
 from core.analysis.projection import is_timing_only
-from core.analysis.services import (
-    SourceResolutionCache,
-    require_current_geocode_reviews,
-    resolve_inputs,
+from core.analysis.sightings import (
+    review_outcome,
+    saved_group,
+    sighting_reviews,
     validate_current_sighting,
 )
-from core.analysis.sightings import review_outcome, saved_group, sighting_reviews
+from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 from core.evidence.time_claims import unavailable_time_claim
 
 

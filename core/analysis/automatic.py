@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
-from cases.permissions import get_case
+from cases.permissions import get_case, get_case_for_verified_user
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
 from core.evidence.queries import get_evidence
@@ -235,10 +235,8 @@ def follow_up_extraction(run, result, *, reuse=None):
         from django.core.exceptions import PermissionDenied
         from django.http import Http404
 
-        from core.case_search.indexing import authorize
-
         try:
-            authorize(request.requested_by_id, run.case_id, edit=True)
+            get_case_for_verified_user(request.requested_by_id, run.case_id, edit=True)
         except PermissionDenied, Http404:
             return
     selections = [

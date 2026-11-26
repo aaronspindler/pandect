@@ -1,0 +1,11 @@
+{% partialdef heading %}{% if final %}Importing messages{% else %}Preparing message review{% endif %}{% endpartialdef %}
+<section aria-labelledby="import-progress-heading">
+  {% if standalone %}
+    <h1 id="import-progress-heading">{% partial heading %}</h1>
+  {% else %}
+    <h2 id="import-progress-heading">{% partial heading %}</h2>
+  {% endif %}
+  <p role="status">{{ run.progress_label }}</p>
+  {% include 'core/analysis/run_progress.html' %}
+  <p>You can return later while processing continues.</p>
+</section>

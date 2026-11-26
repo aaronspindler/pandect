@@ -18,9 +18,10 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.form_base import source_choices
 from core.analysis.operations import get_operation
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import external_grant_kwargs, image_bytes
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -760,7 +761,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
                 if stage == "queued":
                     archive(source)
                 with patch(
-                    "core.analysis.services.get_operation",
+                    "core.analysis.worker.get_operation",
                     return_value=replace(operation, function=analyze),
                 ) as resolve_operation:
                     self.assertEqual(process_run(run.pk), "source_archived")
@@ -860,7 +861,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         submission_id = str(uuid4())
         with patch(
-            "core.analysis.views.start_evidence_reprocessing",
+            "core.analysis.reprocessing_views.start_evidence_reprocessing",
             side_effect=AnalysisError("source_changed"),
         ):
             response = self.client.post(

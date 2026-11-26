@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from core.analysis.services import process_run
+from core.analysis.worker import process_run
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from geo.daily_chronology import attach_daily_location_details, daily_location_rows

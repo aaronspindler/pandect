@@ -11,8 +11,8 @@ from core.analysis.navigation import finding_url
 from core.analysis.services import start_run
 from core.evidence.queries import scoped_evidence
 from core.models import AnalysisReview, AnalysisRun
-from geo.analysis.deterministic.locations import coordinate
 from geo.analysis.external.geocoding import MAX_LOOKUPS, Geocoder
+from geo.coordinates import WEB_MERCATOR_MAX_LATITUDE, coordinate
 
 
 def local_geocoder_ready():
@@ -162,7 +162,7 @@ def address_estimates(case, rows):
                 except ValueError:
                     state["label"] = "Address estimate has invalid coordinates"
                     continue
-                if abs(latitude) > 85.05112878:
+                if abs(latitude) > WEB_MERCATOR_MAX_LATITUDE:
                     state["label"] = "Address estimate outside map display range"
                     continue
                 label = (

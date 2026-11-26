@@ -1,0 +1,7 @@
+<table>
+  <caption>Records to delete</caption>
+  <thead><tr><th scope="col">Record type</th><th scope="col">Count</th></tr></thead>
+  <tbody>
+    {% for label, count in record_counts %}<tr><th scope="row">{{ label|capfirst }}</th><td>{{ count }}</td></tr>{% endfor %}
+  </tbody>
+</table>

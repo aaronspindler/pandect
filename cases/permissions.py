@@ -1,8 +1,11 @@
 """Current case authorization shared by investigator-facing entry points."""
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import F, FilteredRelation, Q
 from django.http import Http404
+
+from accounts.verification import has_verified_email
 
 from .models import Case, CaseMembership
 
@@ -28,6 +31,20 @@ def case_role(case, user):
 def get_case(user, case_id, *, edit=False, owner=False, lock=False):
     case, _ = get_case_with_role(user, case_id, edit=edit, owner=owner, lock=lock)
     return case
+
+
+def require_verified_email(user, message=""):
+    if not has_verified_email(user):
+        raise PermissionDenied(message)
+
+
+def get_case_for_verified_user(user_id, case_id, *, edit=False, lock=False):
+    """Reload an active, verified actor before accessing a case by ID."""
+    actor = get_user_model().objects.filter(pk=user_id, is_active=True).first()
+    if actor is None:
+        raise PermissionDenied
+    require_verified_email(actor)
+    return get_case(actor, case_id, edit=edit, lock=lock)
 
 
 def get_case_with_role(user, case_id, *, edit=False, owner=False, lock=False):

@@ -9,8 +9,10 @@ from django.utils import timezone
 
 from core.case_search.sources import name
 from core.evidence.queries import scoped_evidence
+from core.evidence.source_clocks import timestamp_fields
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, LOCATION_KINDS
 from people.models import Person
+from phone.conversations import reported_pair
 
 KINDS = {
     "text messages": ["text-message"],
@@ -180,21 +182,18 @@ def day_bounds(filters):
     return bounds
 
 
-def _clock(kind):
-    if kind in COMMUNICATION_KINDS:
-        return "occurred_at"
-    return "observed_at" if kind in LOCATION_KINDS else "collected_at"
+def count_clock(kind):
+    """Use the primary recorded clock, including when its value is missing."""
+    field, _ = next(timestamp_fields(kind, "all"))
+    return field
 
 
 def count_candidates(rows, kind, filters):
     """Freeze only eligible matches and unknown dates for a scoped count."""
     if parties := filters.get("parties"):
-        a, b = parties
-        rows = rows.filter(
-            Q(sender_id=a, recipient_id=b) | Q(sender_id=b, recipient_id=a)
-        )
+        rows = rows.filter(reported_pair(*parties))
     if "day" in filters:
-        clock = _clock(kind)
+        clock = count_clock(kind)
         date_range = day_bounds(filters)
         bounds = Q(**{clock + "__gte": date_range["start"]})
         if "end" in date_range:
@@ -212,14 +211,11 @@ def evaluate(case, sources, filters):
             continue
         qs = scoped_evidence(case, kind).filter(pk__in=ids)
         if "parties" in filters:
-            a, b = filters["parties"]
-            qs = qs.filter(
-                Q(sender_id=a, recipient_id=b) | Q(sender_id=b, recipient_id=a)
-            )
+            qs = qs.filter(reported_pair(*filters["parties"]))
         if "day" not in filters:
             result.update((pk, "match") for pk in qs.values_list("pk", flat=True))
             continue
-        date_field = _clock(kind)
+        date_field = count_clock(kind)
         zone = ZoneInfo(filters["timezone"])
         day = date.fromisoformat(filters["day"])
         for pk, timestamp in qs.values_list("pk", date_field):

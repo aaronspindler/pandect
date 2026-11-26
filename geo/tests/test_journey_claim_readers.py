@@ -9,8 +9,9 @@ from django.urls import reverse
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.sources import source_id
+from core.analysis.worker import process_run
 from core.models import AnalysisResult
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -233,7 +234,10 @@ class ComparisonReaderTests(EvidenceViewTestMixin, TestCase):
         )
 
     def assert_withheld(self, run):
-        from core.analysis.services import SourceResolutionCache, resolve_inputs
+        from core.analysis.source_resolution import (
+            SourceResolutionCache,
+            resolve_inputs,
+        )
 
         self.login("viewer")
         detail, passage, download = self.comparison_urls(run)

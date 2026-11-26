@@ -11,11 +11,9 @@ from django.utils import timezone
 
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import project_result
-from core.analysis.services import (
-    process_run,
-    snapshot_sources,
-    start_run,
-)
+from core.analysis.services import start_run
+from core.analysis.source_selection import snapshot_sources
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationImport

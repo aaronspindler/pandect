@@ -9,7 +9,8 @@ from playwright.sync_api import expect
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.navigation import finding_url
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.models import ImportantItem
 from text.models import TextEvidence
 

@@ -6,7 +6,7 @@ from django.urls import include, path
 
 from accounts.views import timezone_settings
 from cases.activity import stream_unavailable
-from cases.views import invitation_accept
+from cases.collaboration_views import invitation_accept
 from request_activity.views import request_activity
 from socialmedia.monitor_views import connection_settings
 

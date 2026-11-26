@@ -48,7 +48,6 @@
   .case-map-marker span { border-color:CanvasText; background:Highlight; color:HighlightText; forced-color-adjust:none; }
 }
 .trip-path-canvas { position:absolute; pointer-events:none; }
-.map-prepare { margin-bottom:1rem; }
 .case-map-endpoint span { background:#0066cc; color:#fff; }
 @media (forced-colors:active) {
   .case-map-endpoint span { background:Highlight; color:HighlightText; }

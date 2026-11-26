@@ -21,12 +21,7 @@
   {% if source_error %}<p class="notice" role="alert">{{ source_error }}</p>{% endif %}
   {% if final and form.errors %}{% include 'ui/components/form_errors.html' with form=form %}{% endif %}
   {% if run.status == 'queued' or run.status == 'running' %}
-    <section aria-labelledby="import-progress-heading">
-      <h2 id="import-progress-heading">{% if final %}Importing messages{% else %}Preparing message review{% endif %}</h2>
-      <p role="status">{{ run.progress_label }}</p>
-      {% include 'core/analysis/run_progress.html' %}
-      <p>You can return later while processing continues.</p>
-    </section>
+    {% include 'phone/imessage_preparation.html' with run=run final=final only %}
   {% elif run.status == 'failed' or run.status == 'cancelled' or run.status == 'unsupported' %}
     <p class="notice" role="alert">{{ processing_error|default:'This CSV could not be imported with the selected interpretation.' }} The original remains retained.</p>
     <p><a href="{{ processing_details_url }}">Open processing details and recovery</a></p>
@@ -108,7 +103,7 @@
   {% if rows %}<details class="disclosure" id="imessage-message-rows"{% if metrics.unresolved_rows or show_rows %} open{% endif %}><summary>{% if excluded_only %}Excluded message rows{% else %}Message rows — ready and excluded{% endif %}</summary><p>Showing {{ rows.start_index }}–{{ rows.end_index }} of {{ rows.paginator.count }} rows. Attachments remain source references; their files are not imported.</p>
     {% for row in rows %}<details class="import-observation"><summary>Row {{ row.values.source_row }} · {{ row.values.direction }} · {% if row.values.unresolved_reason %}Excluded{% if excluded_only %} · {{ row.values.unresolved_reason }}{% endif %}{% else %}Ready{% endif %}</summary>{% if row.values.unresolved_reason and not excluded_only %}<p class="notice">{{ row.values.unresolved_reason }}</p>{% endif %}<p>{{ row.values.raw_timestamp|default:'Time not supplied' }} · {{ preview.parameters.timezone }}</p><div class="original-text">{{ row.text }}</div><dl class="metadata-grid">{% for label,value in row.values.source_context.raw_fields.items %}{% if value %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endif %}{% endfor %}</dl></details>{% endfor %}
   </details>{% endif %}
-  {% if rows.has_other_pages %}<nav class="pagination" aria-label="Message review pages">{% if rows.has_previous %}<a class="button button-secondary" href="{% querystring page=rows.previous_page_number %}#imessage-message-rows">Previous</a>{% endif %}<span>Page {{ rows.number }} of {{ rows.paginator.num_pages }}</span>{% if rows.has_next %}<a class="button button-secondary" href="{% querystring page=rows.next_page_number %}#imessage-message-rows">Next</a>{% endif %}</nav>{% endif %}
+  {% include 'ui/components/pagination.html' with page=rows label='Message review pages' query=request.GET anchor='imessage-message-rows' only %}
   {% if can_edit and document and not document.is_archived and not published %}<p><a href="{% url 'phone:imessage_upload' case.pk %}?document={{ document.pk }}">Prepare another review from this CSV</a></p>{% endif %}
 </div>
 {% endpartialdef %}

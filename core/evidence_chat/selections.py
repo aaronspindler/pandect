@@ -15,9 +15,10 @@ from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.models import ChatSelectionMember, ChatTurn
 from phone import recorded_messages
+from phone.conversations import reported_pair
 
 from . import corpus
-from .engine_counts import _clock
+from .engine_counts import count_clock
 
 # Imported event fields depend on their retained export as well as the event.
 IMPORT_DOCUMENT = {
@@ -46,13 +47,10 @@ def _populations(case, spec):
                 search_document__icontains=phrase, body__contains=phrase
             )
         if pair := spec.get("pair"):
-            a, b = pair
-            rows = rows.filter(
-                Q(sender_id=a, recipient_id=b) | Q(sender_id=b, recipient_id=a)
-            )
+            rows = rows.filter(reported_pair(*pair))
         if since := spec.get("after"):
             rows = rows.filter(created_at__gt=since)
-        clock = _clock(kind)
+        clock = count_clock(kind)
         if spec.get("start") or spec.get("end"):
             bounds = Q()
             if spec.get("start"):
@@ -175,7 +173,7 @@ def freeze(turn, spec):
                     "owner_id",
                     "kind_value",
                     "pk",
-                    _clock(kind),
+                    count_clock(kind),
                     "calendar_only",
                     "is_forward",
                     "version",
@@ -210,7 +208,7 @@ def current_membership(turn, spec):
         return False
     for kind, rows in populations(turn, spec):
         actual = rows.order_by().values_list(
-            "pk", _clock(kind), "calendar_only", "is_forward", "version"
+            "pk", count_clock(kind), "calendar_only", "is_forward", "version"
         )
         prior = (
             frozen.filter(kind=kind)
@@ -376,7 +374,7 @@ def page(turn, number, group):
                 "occurred_at": "Occurrence",
                 "observed_at": "Observation",
                 "collected_at": "Collection",
-            }[_clock(item.kind)],
+            }[count_clock(item.kind)],
             "uncertain": spec.get("count_day")
             and (item.event_at is None or item.date_only),
         }
@@ -427,7 +425,7 @@ def answer_for_fields(turn, selection):
         offset = 0
         quote = f"Type: {KIND_LABELS[row.kind]}"
         if row.event_at and not row.date_only:
-            clock = _clock(row.kind)
+            clock = count_clock(row.kind)
             label = {
                 "observed_at": "Observed at",
                 "occurred_at": "Occurred",

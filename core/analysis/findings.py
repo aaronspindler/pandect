@@ -30,7 +30,7 @@ from core.analysis.presentation import (
 )
 from core.analysis.projection import is_ai_suggestion, is_timing_only
 from core.analysis.ranking import rank_findings
-from core.analysis.services import (
+from core.analysis.source_resolution import (
     SourceResolutionCache,
     resolve_active_inputs,
     resolve_inputs,

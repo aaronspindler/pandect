@@ -14,16 +14,17 @@ from django.utils import timezone
 
 from core.analysis.sources import Source
 from geo.analysis.deterministic.locations import (
-    candidate_trips,
-    candidate_visits,
     colocation,
-    distance_m,
     location_conflicts,
     location_quality,
-    movement_routines,
     normalize_addresses,
     proximity,
     spatial_groups,
+)
+from geo.analysis.deterministic.movement import (
+    candidate_trips,
+    candidate_visits,
+    movement_routines,
     travel_discrepancies,
 )
 from geo.analysis.external.geocoding import (
@@ -34,6 +35,7 @@ from geo.analysis.external.geocoding import (
 )
 from geo.analysis.presentation import map_points
 from geo.analysis_forms import GeoAnalysisForm
+from geo.coordinates import distance_m
 
 START = datetime(2026, 10, 1, 10, tzinfo=UTC)
 CASE = UUID("00000000-0000-4000-8000-000000000001")

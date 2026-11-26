@@ -11,10 +11,10 @@ from django.utils.html import escape
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.form_base import SOURCE_PAGE_SIZE
-from core.analysis.services import process_run
 from core.analysis.sources import source_id
 from core.analysis.testing import preview_image_bytes
 from core.analysis.tests.test_execution import LOCAL
+from core.analysis.worker import process_run
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence

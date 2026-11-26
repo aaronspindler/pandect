@@ -2,16 +2,18 @@
 
 import re
 from datetime import datetime
-from functools import reduce
+from functools import partial, reduce
 from operator import or_
 
 from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db.models import F
 
+from core.analysis.errors import AnalysisError
 from core.models import ChatSource, ChatTurn
 from core.models.chat import chat_topic_vector
 
 from .corpus_search import terms_for
+from .search_scope import preceding_review_clarification, review_restart_code
 
 TURN_NUMBER = re.compile(r"\b(?:question|answer|reply|turn)\s*#?\s*(\d{1,8})\b", re.I)
 MAX_DEPENDENCIES = 32
@@ -86,6 +88,161 @@ def recalled_sources_available(turn, read):
     return len(locators) == len(ids) and all(
         read(turn.case, locator, 0, 1) is not None for locator in locators
     )
+
+
+def _full_reply_context(previous, turn, hints, read, dependencies):
+    """Resolve a small sample in the same order as the exhaustive match list."""
+    from . import corpus
+
+    if review_restart_code(previous) or not recalled_sources_available(previous, read):
+        return ""
+    hits = (
+        previous.hits.filter(
+            case_id=turn.case_id,
+            source__turn=previous,
+            source__case_id=turn.case_id,
+            source__status="match",
+        )
+        .select_related("source")
+        .order_by("source__record_key", "source__key", "start", "end")[:6]
+    )
+    excerpts = []
+    for position, hit in enumerate(hits, 1):
+        ref = corpus.cite(
+            turn.case,
+            hit.source.locator,
+            hit.start,
+            hit.quote,
+            include_archived=turn.include_archived,
+            read=read,
+        )
+        if ref:
+            dependencies.append(hit.source_id)
+            if hints is not None:
+                hints.append((hit.source.locator, hit.start))
+            excerpts.append(
+                f"Match {position} · {ref['label'][:100]} · {ref['quote'][:150]}"
+            )
+    return "\n".join(excerpts)[:600]
+
+
+def read_context_window(turn, case, locator, start, size, *, include_archived=False):
+    """Keep refreshed context stamps on the active turn's checkpoint."""
+    from . import corpus
+
+    key = f"{locator['key']}@{locator['version']}"
+    recorded = locator.get("verified_body")
+    checkpoint = turn.plan.get("context_bodies", {}).get(key)
+    if checkpoint and (not recorded or checkpoint["revision"] > recorded["revision"]):
+        locator = locator | {"verified_body": checkpoint}
+    window = corpus.read_window(
+        case, locator, start, size, include_archived=include_archived, review=True
+    )
+    if window and (stamp := window.get("verified_body")) and stamp != recorded:
+        turn.plan.setdefault("context_bodies", {})[key] = stamp
+    return window
+
+
+def _ordinary_reply_context(previous, turn, hints, read, *, recalled):
+    from .services import inspect_turn
+
+    answer = inspect_turn(previous, read=read)
+    if answer is None:
+        return None
+    topic = answer.get("clarification") or " ".join(
+        x["text"] for x in answer.get("claims", [])[:2]
+    )
+    if recalled and answer.get("lead"):
+        topic = f"{topic[:220]} Suggested next check: {answer['lead'][:150]}".strip()
+    if topic and any(
+        read(turn.case, source.locator, 0, 1) is None
+        for source in previous.sources.filter(case=turn.case).iterator()
+    ):
+        return ""
+    if topic and hints is not None:
+        refs = [
+            ref
+            for claim in previous.answer.get("claims", [])[:2]
+            for ref in claim["citations"][:2]
+        ]
+        locators = dict(
+            previous.sources.filter(
+                case=turn.case, key__in=[r["key"] for r in refs]
+            ).values_list("key", "locator")
+        )
+        hints.extend(
+            (locators[r["key"]], r["start"]) for r in refs if r["key"] in locators
+        )
+    return topic[:400]
+
+
+def reply_context(turn, *, hints=None):
+    turns = history_turns(turn, select=hints is not None)
+    history = {}
+    source_ids = set()
+    read = partial(read_context_window, turn)
+    recalled_turn = turn.plan.get("recalled_turn")
+    # Give explicitly recalled and recent context first use of the source budget.
+    for previous in sorted(
+        turns, key=lambda row: (str(row.pk) == recalled_turn, row.ordinal), reverse=True
+    ):
+        recalled = str(previous.pk) == recalled_turn
+        # Hold hints until we know all dependencies of the topic fit the budget.
+        pointers = (
+            [] if hints is not None and (recalled or previous == turns[-1]) else None
+        )
+        dependencies = []
+        if previous.mode == "full":
+            topic = _full_reply_context(previous, turn, pointers, read, dependencies)
+            if recalled and not topic:
+                continue
+        else:
+            topic = _ordinary_reply_context(
+                previous, turn, pointers, read, recalled=recalled
+            )
+            if topic is None:
+                continue
+            if topic:
+                dependencies.extend(
+                    previous.sources.filter(case_id=turn.case_id).values_list(
+                        "pk", flat=True
+                    )[: MAX_DEPENDENCIES + 1]
+                )
+        if topic:
+            dependencies.extend(previous.plan.get("recalled_sources", ()))
+
+        combined = source_ids.union(str(pk) for pk in dependencies)
+        if len(combined) > MAX_DEPENDENCIES:
+            continue
+        source_ids = combined
+        entry = {"question": previous.question[:300], "reply_context": topic}
+        if recalled:
+            entry["earlier_turn"] = previous.ordinal
+        history[previous.ordinal] = entry
+        if pointers:
+            hints.extend(pointers)
+    # Pin the sources of all reused reply context, including inherited sources.
+    if source_ids or "recalled_sources" in turn.plan:
+        ids = sorted(source_ids)
+        if turn.plan.setdefault("recalled_sources", ids) != ids:
+            raise AnalysisError("source_changed")
+    if history:
+        turn.plan["history_sources_pinned"] = True
+    return [history[ordinal] for ordinal in sorted(history)]
+
+
+def review_clarification(turn, history):
+    """Allow a reply to continue only the immediately preceding clarification."""
+    if not history or not history[-1]["reply_context"]:
+        return None
+    previous = preceding_review_clarification(turn)
+    if previous and (
+        history[-1]["question"] == previous.question[:300]
+        and history[-1]["reply_context"]
+        == previous.answer.get("clarification", "")[:400]
+    ):
+        return previous
+    return None
 
 
 def updated_materials(turn, previous, after, filters):

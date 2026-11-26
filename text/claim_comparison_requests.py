@@ -7,7 +7,7 @@ import re
 from django.core.exceptions import ValidationError
 
 from core.analysis.errors import AnalysisError
-from core.analysis.services import snapshot_and_resolve_sources
+from core.analysis.source_selection import snapshot_and_resolve_sources
 from text.analysis.claim_comparison import (
     COMPARISON_KINDS,
     MAX_SOURCES,

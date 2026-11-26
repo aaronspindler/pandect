@@ -1,10 +1,6 @@
 window.PandectPage((signal) => {
   "use strict";
 
-  function ordinaryClick(event) {
-    return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
-  }
-
   function enableMessageSelection(workspace, transcript) {
     const panel = workspace.querySelector("[data-message-panel]");
     const initialDay = new URL(location.href).searchParams.get("day");
@@ -60,7 +56,7 @@ window.PandectPage((signal) => {
     }
 
     workspace.addEventListener("click", (event) => {
-      if (!ordinaryClick(event)) return;
+      if (!window.PandectPage.isPlainClick(event)) return;
       const close = event.target.closest("[data-message-close]");
       if (close) {
         event.preventDefault();
@@ -140,10 +136,7 @@ window.PandectPage((signal) => {
             redirect: "manual",
             signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
           });
-          if (response.type === "opaqueredirect" || [401, 403, 404].includes(response.status)) {
-            window.PandectPrivateSession.clearPrivatePage();
-            return;
-          }
+          if (window.PandectPrivateSession.clearIfAccessDenied(response)) return;
           if (!response.ok) throw new Error("Page unavailable");
           if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
           const page = new DOMParser().parseFromString(await response.text(), "text/html");
@@ -216,7 +209,7 @@ window.PandectPage((signal) => {
       }, { rootMargin: "200px 0px" });
       signal.addEventListener("abort", () => observer.disconnect(), {once: true});
       link.addEventListener("click", (event) => {
-        if (failed || !ordinaryClick(event)) return;
+        if (failed || !window.PandectPage.isPlainClick(event)) return;
         event.preventDefault();
         load(true);
       }, {signal});

@@ -15,10 +15,11 @@ from cases.models import Case, CaseMembership
 from core.analysis.approval import revoke_case_execution
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.worker import process_run
 from core.models import AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

@@ -24,7 +24,7 @@ def finding_text(item):
 
 
 def records_for_selection(sources, parameters):
-    from core.analysis.services import SourceResolutionCache, resolve_inputs
+    from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 
     question = parameters.get("question", "")
     if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:

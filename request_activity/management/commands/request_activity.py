@@ -12,8 +12,9 @@ from time import monotonic
 from django.core.management.base import BaseCommand, CommandError
 
 from request_activity.spool import (
-    STALE_HEARTBEAT_SECONDS,
     acknowledge,
+    heartbeat_is_stale,
+    parse_health_timestamp,
     read_batch,
     read_health,
 )
@@ -44,18 +45,10 @@ def _write_heartbeat(spool):
             temporary_path.unlink(missing_ok=True)
 
 
-def _timestamp(value):
-    try:
-        parsed = datetime.fromisoformat(value)
-        return parsed.astimezone(UTC) if parsed.tzinfo is not None else None
-    except TypeError, ValueError:
-        return None
-
-
 def _read_ingest_heartbeat(spool):
     try:
         with _heartbeat_path(spool).open() as marker:
-            return _timestamp(marker.read(80))
+            return parse_health_timestamp(marker.read(80))
     except OSError:
         return None
 
@@ -160,24 +153,20 @@ class Command(BaseCommand):
 
     def _report_health(self, spool):
         try:
-            capture = read_health(str(spool)) or {}
+            capture = read_health(spool) or {}
         except OSError, sqlite3.Error:
             capture = {}
         now = datetime.now(UTC)
-        capture_heartbeat = _timestamp(capture.get("heartbeat_at"))
         ingest_heartbeat = _read_ingest_heartbeat(spool)
-        gap = _timestamp(capture.get("last_gap_at"))
-        oldest = _timestamp(capture.get("queued_oldest_at"))
+        gap = capture.get("last_gap_at")
+        oldest = capture.get("queued_oldest_at")
         queued = capture.get("queued_count")
         problems = []
         for component, heartbeat in (
-            ("capture", capture_heartbeat),
+            ("capture", capture.get("heartbeat_at")),
             ("ingest", ingest_heartbeat),
         ):
-            if (
-                heartbeat is None
-                or (now - heartbeat).total_seconds() > STALE_HEARTBEAT_SECONDS
-            ):
+            if heartbeat_is_stale(heartbeat, now=now):
                 problems.append(f"{component} heartbeat is absent or stale")
         if gap and (now - gap).total_seconds() <= RECENT_GAP_SECONDS:
             problems.append("a capture gap occurred recently")

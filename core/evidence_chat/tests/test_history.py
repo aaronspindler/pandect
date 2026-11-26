@@ -8,7 +8,8 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.analysis.tests.test_execution import LOCAL
-from core.evidence_chat import ai, engine, jobs, services
+from core.evidence_chat import ai, engine, jobs, services, turn_retrieval
+from core.evidence_chat.history import reply_context
 from core.evidence_chat.tests.test_engine import decision
 from core.models import ChatTurn, EvidenceChat
 from core.testing import EvidenceViewTestMixin
@@ -114,7 +115,9 @@ class ConversationRecallTests(EvidenceViewTestMixin, TestCase):
 
         with (
             patch.object(ai, "infer", side_effect=answer),
-            patch.object(jobs, "_rank", wraps=jobs._rank) as rank,
+            patch.object(
+                turn_retrieval, "rank_windows", wraps=turn_retrieval.rank_windows
+            ) as rank,
         ):
             self.finish(turn)
         self.assertEqual(turn.status, "complete", turn.error_code)
@@ -129,7 +132,7 @@ class ConversationRecallTests(EvidenceViewTestMixin, TestCase):
         # A clarification may use the older topic even if none of its evidence
         # is selected in this turn's own shortlist.
         with (
-            patch.object(jobs, "_rank", return_value=[]),
+            patch.object(turn_retrieval, "rank_windows", return_value=[]),
             patch.object(ai, "infer", return_value=decision("ask", "Which entry?")),
         ):
             self.finish(published)
@@ -138,7 +141,7 @@ class ConversationRecallTests(EvidenceViewTestMixin, TestCase):
         self.assertIsNotNone(services.inspect_turn(published))
         continuation = self.ask("What happened next?", old.chat_id)
         with (
-            patch.object(jobs, "_rank", return_value=[]),
+            patch.object(turn_retrieval, "rank_windows", return_value=[]),
             patch.object(
                 ai, "infer", return_value=decision("ask", "Which subsequent event?")
             ),
@@ -166,7 +169,7 @@ class ConversationRecallTests(EvidenceViewTestMixin, TestCase):
             self.fail("Stale memory reached inference")
 
         with (
-            patch.object(jobs, "_rank", return_value=[]),
+            patch.object(turn_retrieval, "rank_windows", return_value=[]),
             patch.object(ai, "infer", side_effect=archive_then_authorize),
         ):
             self.finish(active)
@@ -189,7 +192,7 @@ class ConversationRecallTests(EvidenceViewTestMixin, TestCase):
         )
         unrelated = self.saved_turn(foreign, 1, "Fallow confidential")
         latest.plan["history_turns"] = [str(unrelated.pk)]
-        self.assertEqual(jobs._history(latest), [])
+        self.assertEqual(reply_context(latest), [])
         unrelated.plan["recalled_sources"] = [
             str(old.sources.get(evidence_id=item.pk).pk)
         ]

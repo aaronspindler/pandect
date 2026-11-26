@@ -10,7 +10,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url, result_navigation
-from core.analysis.services import resolve_active_inputs
+from core.analysis.source_resolution import resolve_active_inputs
 from core.evidence.types import COMMUNICATION_KINDS
 from core.models import AnalysisResult
 from geo.trip_processing import saved_trips

@@ -3,7 +3,6 @@
 from datetime import datetime
 from uuid import uuid4
 
-from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
@@ -12,6 +11,7 @@ from django.db.models import F, Q
 from django.http import Http404
 from django.utils import timezone
 
+from accounts.verification import has_verified_email
 from cases.permissions import get_case
 from core.evidence.queries import scoped_evidence
 from geo.analysis.deterministic.trips import CHUNK_SIZE, Segmenter, _snapshot
@@ -41,7 +41,7 @@ def _authorize(generation, *, lock=False, geocode=False):
     except get_user_model().DoesNotExist:
         raise Http404 from None
     case = get_case(actor, generation.case_id, edit=True, lock=lock)
-    if not EmailAddress.objects.filter(user=actor, verified=True).exists():
+    if not has_verified_email(actor):
         raise PermissionDenied
     if (
         generation.vehicle.case_id != case.pk

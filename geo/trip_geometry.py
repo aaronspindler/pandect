@@ -13,7 +13,10 @@ from cases.models import CaseActivity
 from core.analysis.navigation import finding_url
 from core.evidence.queries import scoped_evidence
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
-from geo.analysis.deterministic.locations import WEB_MERCATOR_MAX_LATITUDE, coordinate
+from geo.coordinates import (
+    WEB_MERCATOR_MAX_LATITUDE,
+    coordinate,
+)
 from geo.map_geocoding import local_geocoder_ready
 from geo.trip_models import VehicleTrip
 

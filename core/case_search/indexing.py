@@ -6,7 +6,6 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 from allauth.account.models import EmailAddress
-from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
@@ -15,7 +14,11 @@ from django.http import Http404
 from django.tasks import task
 from django.utils import timezone
 
-from cases.permissions import get_case
+from cases.permissions import (
+    get_case,
+    get_case_for_verified_user,
+    require_verified_email,
+)
 from core.analysis.errors import AnalysisError, error_message
 from core.case_search.approval import search_approval_current
 from core.case_search.semantic_model import (
@@ -30,7 +33,12 @@ from core.case_search.semantic_model import (
 from core.case_search.semantic_model import (
     identity as embedding_identity,
 )
-from core.case_search.semantic_sources import BODY_FIELDS, load_windows, source_queryset
+from core.case_search.semantic_sources import (
+    BODY_FIELDS,
+    document_source_condition,
+    load_windows,
+    source_queryset,
+)
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KINDS
 from core.models import CaseSearchIndex, SearchDocument, SearchPassage
@@ -58,11 +66,7 @@ LABELS = {
 
 
 def _active_documents(case):
-    eligible = Q(pk__in=[])
-    for source in SOURCE_FIELDS:
-        rows = source_queryset(case, source).order_by().values("pk")
-        eligible |= Q(**{f"{source}_id__in": rows})
-    return SearchDocument.objects.filter(eligible, case=case)
+    return SearchDocument.objects.filter(document_source_condition(case), case=case)
 
 
 def search_index_status(case, *, count_passages=True):
@@ -156,8 +160,7 @@ def _resume_short_documents(case, identity):
 @transaction.atomic
 def prepare_case_search(case, user, *, retry=False, interrupted_token=None):
     case = get_case(user, case.pk, edit=True, lock=True)
-    if not EmailAddress.objects.filter(user=user, verified=True).exists():
-        raise PermissionDenied
+    require_verified_email(user)
     identity = profile()
     if not identity or (is_external() and not search_approval_current(case)):
         return False
@@ -287,22 +290,14 @@ def result_published(result):
             add_sources(result.case_id, source, ids)
 
 
-def authorize(user_id, case_id, *, edit=False, lock=False):
-    actor = get_user_model().objects.filter(pk=user_id, is_active=True).first()
-    if (
-        actor is None
-        or not EmailAddress.objects.filter(user_id=user_id, verified=True).exists()
-    ):
-        raise PermissionDenied
-    return get_case(actor, case_id, edit=edit, lock=lock)
-
-
 class Superseded(Exception):
     pass
 
 
 def _authorize(index, *, lock=False):
-    case = authorize(index.requested_by_id, index.case_id, edit=True, lock=lock)
+    case = get_case_for_verified_user(
+        index.requested_by_id, index.case_id, edit=True, lock=lock
+    )
     if index.profile != profile():
         raise AnalysisError("execution_changed")
     if is_external():

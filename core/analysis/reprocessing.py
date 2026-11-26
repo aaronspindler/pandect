@@ -5,14 +5,13 @@ from datetime import timedelta
 from functools import partial
 from uuid import uuid5
 
-from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import F, Q
 from django.http import Http404
 
-from cases.permissions import get_case
+from cases.permissions import get_case, require_verified_email
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
     GEOGRAPHIC,
@@ -30,7 +29,8 @@ from core.analysis.history import (
     wording_selection,
 )
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import snapshot_sources, start_run
+from core.analysis.services import start_run
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import source_id
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
@@ -775,10 +775,7 @@ def follow_up_reprocessing(run, result, *, batch_id=None):
     failure = ""
     try:
         case = get_case(batch.requested_by, batch.case_id, edit=True, lock=True)
-        if not EmailAddress.objects.filter(
-            user=batch.requested_by, verified=True
-        ).exists():
-            raise PermissionDenied
+        require_verified_email(batch.requested_by)
         if batch.scope.get("analysis_version") != ANALYSIS_VERSION:
             validate_reprocessing_executions(batch)
     except (AnalysisError, Http404, PermissionDenied) as error:

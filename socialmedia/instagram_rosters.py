@@ -9,6 +9,39 @@ MAX_MEMBERS = 10_000
 MAX_PAGES = 200
 
 
+class RosterLimitExceeded(ValueError):
+    pass
+
+
+class RosterMembers:
+    """Accumulate reported accounts while rejecting conflicting identity claims."""
+
+    def __init__(self, *, limit):
+        self._limit = limit
+        self._entries = {}
+        self._handles_by_id = {}
+
+    def __len__(self):
+        return len(self._entries)
+
+    def add(self, handle, identifier):
+        key = handle.lower()
+        previous_id = self._entries.get(key, {}).get("id", "")
+        if identifier and (
+            (previous_id and identifier != previous_id)
+            or self._handles_by_id.get(identifier, key) != key
+        ):
+            raise ValueError("inconsistent_observation")
+        if key not in self._entries and len(self) >= self._limit:
+            raise RosterLimitExceeded
+        if identifier:
+            self._handles_by_id[identifier] = key
+        self._entries[key] = {"handle": handle, "id": identifier or previous_id}
+
+    def rows(self):
+        return [self._entries[key] for key in sorted(self._entries)]
+
+
 def validate_handle(value):
     if (
         not isinstance(value, str)
@@ -30,22 +63,14 @@ def validate_identifier(value):
 def normalize_members(rows):
     if not isinstance(rows, list) or len(rows) > MAX_MEMBERS:
         raise ValueError("invalid_observation")
-    entries = {}
-    handles_by_id = {}
+    members = RosterMembers(limit=MAX_MEMBERS)
     for row in rows:
         if not isinstance(row, dict):
             raise ValueError("invalid_observation")
         handle = validate_handle(row.get("handle"))
-        key = handle.lower()
         identifier = validate_identifier(row.get("id"))
-        previous_id = entries.get(key, {}).get("id", "")
-        if identifier:
-            if previous_id and identifier != previous_id:
-                raise ValueError("inconsistent_observation")
-            if handles_by_id.setdefault(identifier, key) != key:
-                raise ValueError("inconsistent_observation")
-        entries[key] = {"handle": handle, "id": identifier or previous_id}
-    return [entries[key] for key in sorted(entries)]
+        members.add(handle, identifier)
+    return members.rows()
 
 
 def validate_endpoint_coverage(roster, entry_count):

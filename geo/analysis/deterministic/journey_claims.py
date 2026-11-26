@@ -10,14 +10,16 @@ from django.core.exceptions import ValidationError
 
 from core.analysis.sources import output
 from core.evidence.types import CALL_KINDS, FILE_KINDS, LOCATION_KINDS
-from geo.analysis.deterministic.locations import (
-    _position_kind,
-    _subject,
-    _time,
+from geo.analysis.deterministic.locations import normalize_address
+from geo.analysis.deterministic.observations import (
+    number,
+    observed_time,
+    position_kind,
+    subject_key,
+)
+from geo.coordinates import (
     coordinate,
     distance_m,
-    normalize_address,
-    number,
 )
 
 MAX_COMPARISONS = 1000
@@ -286,14 +288,14 @@ def _association(plan, sample, changed):
         )
     if status == "unresolved":
         return UNRESOLVED, "The passage's meaning remains unresolved."
-    if _subject(sample) not in plan.subjects:
+    if subject_key(sample) not in plan.subjects:
         return (
             UNRESOLVED,
             "The claim and observation do not explicitly identify the same subject.",
         )
     if plan.fields.get("time_basis", "unresolved") == "unresolved" or not plan.window:
         return UNRESOLVED, "The claim's time or timezone remains unresolved."
-    observed = _time(sample)
+    observed = observed_time(sample)
     if not observed:
         return UNRESOLVED, "The sample lacks a recorded observation time."
     start, end = plan.window
@@ -404,13 +406,13 @@ def _items(plans, samples, memberships):
             if len(readings[key]) > 1:
                 label = UNRESOLVED
                 reason = "This passage has competing interpretations. " + reason
-            observed_at = _time(sample)
+            observed_at = observed_time(sample)
             details = {
                 **values,
-                "Observation subject": _subject(sample) or "Unlinked observation",
+                "Observation subject": subject_key(sample) or "Unlinked observation",
                 "Observed at": observed_at.isoformat() if observed_at else "Unknown",
                 "Recorded place": sample.item.address or "No reported address",
-                "Position origin": _position_kind(sample),
+                "Position origin": position_kind(sample),
             }
             if sample.coordinates is not None:
                 details["Sample coordinates"] = list(sample.coordinates)

@@ -9,8 +9,8 @@ import math
 from importlib.metadata import version
 
 from core.parser_contract import ParserFailure
+from geo.coordinates import EARTH_RADIUS_M
 
-EARTH_RADIUS_M = 6_371_008.8
 MAX_ELEMENTS = 10_000
 MAX_FEATURES = 2_000
 MAX_VERTICES = 50_000

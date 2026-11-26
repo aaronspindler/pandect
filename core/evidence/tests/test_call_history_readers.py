@@ -6,7 +6,8 @@ from django.test import TestCase
 
 from core.analysis.automatic import start_call_history_analysis
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.services import resolve_snapshots, snapshot_sources
+from core.analysis.source_resolution import resolve_snapshots
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import Source
 from core.evidence.queries import person_evidence, scoped_evidence
 from core.evidence_chat.corpus import original_metadata

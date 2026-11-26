@@ -18,7 +18,9 @@ from cases.models import CaseMembership
 from core.analysis.catalogue import CatalogueForm, catalogue_page, project_result
 from core.analysis.operations import get_operation
 from core.analysis.projection import equivalence_key, identifier_key
-from core.analysis.services import process_run, snapshot_sources, start_run
+from core.analysis.services import start_run
+from core.analysis.source_selection import snapshot_sources
+from core.analysis.worker import process_run
 from core.models import (
     AnalysisFinding,
     AnalysisFindingSource,

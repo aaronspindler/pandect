@@ -9,7 +9,7 @@ from playwright.sync_api import expect
 
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
-from core.analysis.services import process_run
+from core.analysis.worker import process_run
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from geo.trip_jobs import process_trips
 from geo.trip_processing import prepare_case_trips, saved_trips

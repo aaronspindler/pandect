@@ -78,7 +78,7 @@
     </li>
     {% endfor %}
   </ol>
-  {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Trip pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring map_params page=page_obj.previous_page_number %}#trip-list">Previous trips</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring map_params page=page_obj.next_page_number %}#trip-list">Next trips</a>{% endif %}</nav>{% endif %}
+  {% include 'ui/components/pagination.html' with page=page_obj label='Trip pages' query=map_params anchor='trip-list' item_label='trips' only %}
   {% else %}
   <div class="empty-state compact-empty">
     <h3>{% if form.errors %}Check the trip selection{% elif form.vehicle_id.value %}No trips for this vehicle{% else %}No trips available yet{% endif %}</h3>

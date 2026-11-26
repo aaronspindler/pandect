@@ -6,7 +6,8 @@ from django.urls import reverse
 from django.utils.html import escape
 
 from core.analysis.errors import AnalysisError
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from geo.models import PersonLocationEvidence
@@ -375,7 +376,7 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
 
     def test_exact_selected_suggestion_supplies_quote_and_type(self):
         from core.analysis.catalogue import project_result
-        from core.analysis.services import snapshot_sources
+        from core.analysis.source_selection import snapshot_sources
         from core.models import AnalysisResult
 
         inputs = snapshot_sources(
@@ -435,8 +436,8 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
 
         from django.core.exceptions import ValidationError
 
-        from core.analysis.services import snapshot_sources
         from core.analysis.source_limits import check_material_size
+        from core.analysis.source_selection import snapshot_sources
         from core.models import AnalysisResult
 
         choice = {"kind": "text", "id": str(self.source.pk)}
@@ -444,7 +445,7 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
         with self.settings(PANDECT_ANALYSIS_MAX_BYTES=8):
             with self.assertRaisesMessage(ValidationError, "input limit"):
                 check_material_size(self.case, snapshots)
-            with patch("core.analysis.services.resolve_snapshots") as hydrate:
+            with patch("core.analysis.source_resolution.resolve_snapshots") as hydrate:
                 response = self.post(action="prepare", **self.picked)
                 self.assertContains(response, "input limit")
                 hydrate.assert_not_called()
@@ -493,7 +494,7 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         from core.analysis.form_base import source_choices
-        from core.analysis.services import snapshot_sources
+        from core.analysis.source_selection import snapshot_sources
         from core.models import AnalysisResult, ExtractedPassage
         from image.models import ImageEvidence
 

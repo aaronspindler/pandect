@@ -12,7 +12,7 @@ from django.utils import timezone
 from core.analysis.catalogue import finding_queryset
 from core.analysis.ranking import rank_findings
 from core.analysis.review_signals import REVIEW_SIGNALS
-from core.analysis.services import snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.tests import test_catalogue
 from core.models import AnalysisFinding
 from core.testing import EvidenceViewTestMixin

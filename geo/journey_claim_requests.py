@@ -11,7 +11,7 @@ from django.http import Http404
 from cases.permissions import get_case
 from core.analysis.errors import AnalysisError
 from core.analysis.manual import start_selected_analysis
-from core.analysis.services import snapshot_and_resolve_sources
+from core.analysis.source_selection import snapshot_and_resolve_sources
 from core.analysis.sources import selection, source_id
 from core.evidence.types import KIND_LABELS
 from geo.journey_claim_checks import check_source_integrity

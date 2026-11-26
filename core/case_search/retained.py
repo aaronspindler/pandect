@@ -15,22 +15,17 @@ from core.analysis.catalogue import (
 )
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url
-from core.analysis.services import SourceResolutionCache, resolve_inputs
+from core.analysis.published import published_passages
+from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 from core.evidence.search import content_excerpt
 from core.evidence.types import KINDS
-from core.models import ExtractedPassage
 
 from .documents import FIELDS, searchable, term_condition
 from .sources import dated, sources
 
 
 def retained_passages(case, kind="", *, originals=None):
-    queryset = ExtractedPassage.objects.filter(
-        case=case,
-        result__case=case,
-        result__run__case=case,
-        result__run__status__in=("complete", "partial"),
-    )
+    queryset = published_passages(case)
     if kind:
         if kind not in KINDS:
             return queryset.none()
@@ -227,15 +222,16 @@ def valid_sources(run, case, cache=None):
         )
     except AnalysisError, Http404:
         inputs = ()
-    return {
-        (
-            src.kind,
-            src.item.pk,
-            src.item.sha256,
-            src.attachment.pk if src.attachment else None,
-        ): src.item
-        for src in inputs
-    }
+    return {resolved_source_identity(src): src.item for src in inputs}
+
+
+def resolved_source_identity(source):
+    return (
+        source.kind,
+        source.item.pk,
+        source.item.sha256,
+        source.attachment.pk if source.attachment else None,
+    )
 
 
 def passage_identity(passage):

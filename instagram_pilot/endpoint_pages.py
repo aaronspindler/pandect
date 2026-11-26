@@ -3,8 +3,14 @@
 import re
 from time import monotonic
 
-from instagram_pilot.live_roster import HANDLE, MAX_MEMBERS, LiveBrowserError
-from socialmedia.instagram_rosters import MAX_PAGES
+from instagram_pilot.live_roster import LiveBrowserError
+from socialmedia.instagram_rosters import (
+    MAX_MEMBERS,
+    MAX_PAGES,
+    RosterLimitExceeded,
+    RosterMembers,
+    validate_handle,
+)
 
 ACCOUNT_ID = re.compile(r"[1-9][0-9]{0,127}", re.ASCII)
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -28,13 +34,7 @@ def validate_api_status(data):
 def _member(row):
     if not isinstance(row, dict):
         raise ValueError
-    handle = row.get("username")
-    if (
-        not isinstance(handle, str)
-        or not HANDLE.fullmatch(handle)
-        or handle in {".", ".."}
-    ):
-        raise ValueError
+    handle = validate_handle(row.get("username"))
     identifiers = set()
     for field in ("pk", "pk_id", "id"):
         value = row.get(field)
@@ -54,17 +54,14 @@ def read_endpoint_pages(
     fetch_page, *, expected_count, deadline, before_load, initial_page=None
 ):
     """Fetch until the endpoint declares an end, checking any exact profile count."""
-    members = {}
-    handles_by_id = {}
+    members = RosterMembers(limit=MAX_MEMBERS)
     seen_cursors = set()
     cursor = None
     pages = 0
 
     def result(reason):
         return {
-            "members": [
-                {"handle": handle, "id": members[handle]} for handle in sorted(members)
-            ],
+            "members": members.rows(),
             "complete": reason == "",
             "reason": reason,
             "page_count": pages,
@@ -99,19 +96,11 @@ def read_endpoint_pages(
         for row in rows:
             try:
                 handle, identifier = _member(row)
+                members.add(handle, identifier)
+            except RosterLimitExceeded:
+                return result("row_limit")
             except ValueError:
                 return result("unavailable")
-            previous_id = members.get(handle, "")
-            if identifier and (
-                (previous_id and previous_id != identifier)
-                or handles_by_id.get(identifier, handle) != handle
-            ):
-                return result("unavailable")
-            if handle not in members and len(members) >= MAX_MEMBERS:
-                return result("row_limit")
-            members[handle] = identifier or previous_id
-            if identifier:
-                handles_by_id[identifier] = handle
 
         more = page.get("has_more")
         next_cursor = page.get("next_max_id")

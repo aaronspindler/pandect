@@ -10,7 +10,8 @@ from django.test import TestCase, override_settings
 
 from core.analysis.catalogue import project_result
 from core.analysis.execution import configured_external_executions
-from core.analysis.services import resolve_inputs, snapshot_sources
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.testing import approve_case_execution
 from core.analysis.tests.test_gateway import response
 from core.analysis.tests.test_openai_gateway import OPENAI, openai_reply

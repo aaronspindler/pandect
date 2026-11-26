@@ -12,17 +12,19 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils.crypto import constant_time_compare
 
+from cases.permissions import get_case_for_verified_user
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import execution_confirmation
-from core.case_search.indexing import authorize
 from core.models import ChatTurn
 
-from . import ai, corpus, jobs
+from . import ai, checkpoints, corpus, full_review
 from .corpus_search import matching_rows, terms_for
+from .passage_windows import WINDOW
 from .sampling import topic_query
 from .search_budget import timed_query
 from .search_scope import (
     DATE,
+    FULL_REVIEW_VERSION,
     QUOTED_TEXT,
     TYPE,
     normalize_date_filters,
@@ -136,7 +138,7 @@ def _lexical_rows(rows, surface, kind, scope):
 def check_parent(turn):
     from .services import inspect_turn
 
-    case = authorize(turn.asked_by_id, turn.case_id, edit=True)
+    case = get_case_for_verified_user(turn.asked_by_id, turn.case_id, edit=True)
     if not offer(turn) or turn.chat.case_id != case.pk or turn.status != "complete":
         raise Http404
     if turn.review_of_id:
@@ -154,7 +156,7 @@ def _workload(rows, length=None):
         count = rows.count()
         return count, count
     windows = Greatest(
-        1.0, Ceil((length - jobs.OVERLAP) * 1.0 / (jobs.WINDOW - jobs.OVERLAP))
+        1.0, Ceil((length - full_review.OVERLAP) * 1.0 / (WINDOW - full_review.OVERLAP))
     )
     totals = rows.aggregate(entries=Count("pk"), windows=Sum(windows, default=0))
     return totals["entries"], int(totals["windows"])
@@ -172,7 +174,9 @@ def estimate(parent, actor):
     else:
         scope = _scope(parent)
         scope.update(
-            versions={} if scope["snapshot"] else jobs._versions(parent.case),
+            versions={}
+            if scope["snapshot"]
+            else checkpoints.evidence_versions(parent.case),
             through=parent.started_at.isoformat(),
             requested_by=str(parent.asked_by_id),
         )
@@ -194,7 +198,7 @@ def estimate(parent, actor):
         )
     # Four short excerpts fit per classification call. Long records, a repeated
     # transport attempt or a failed delivery may use more of the approved limit.
-    expected = ceil(windows / jobs.REVIEW_BATCH) + 1
+    expected = ceil(windows / full_review.REVIEW_BATCH) + 1
     scope.update(count=count, limit=MAX_REQUESTS)
     token = execution_confirmation(
         "chat.approve.deeper-review",
@@ -214,7 +218,7 @@ def estimate(parent, actor):
 def approve(actor, case_id, chat_id, parent_id, question, token, request_limit):
     from .services import _require_idle
 
-    case = authorize(actor.pk, case_id, edit=True, lock=True)
+    case = get_case_for_verified_user(actor.pk, case_id, edit=True, lock=True)
     parent = get_object_or_404(
         ChatTurn.objects.select_related("case", "chat"),
         pk=parent_id,
@@ -262,11 +266,11 @@ def approve(actor, case_id, chat_id, parent_id, question, token, request_limit):
         plan={
             "stage": "prepare_deeper_review",
             "deep_scope": scope | {"limit": request_limit},
-            "review_version": jobs.FULL_REVIEW_VERSION,
+            "review_version": FULL_REVIEW_VERSION,
             "timezone": parent.plan.get("timezone", "UTC"),
         },
     )
-    jobs.enqueue_turn(child)
+    checkpoints.enqueue_turn(child)
     return child
 
 
@@ -288,7 +292,7 @@ def parent_for(turn):
     for actor in {str(parent.asked_by_id), turn.plan["deep_scope"]["requested_by"]} - {
         str(turn.asked_by_id)
     }:
-        authorize(actor, turn.case_id, edit=True)
+        get_case_for_verified_user(actor, turn.case_id, edit=True)
     return parent
 
 
@@ -302,12 +306,15 @@ def manifest_rows(turn):
             .values_list("locator", "cursor")
             .iterator(chunk_size=200)
         ):
-            source = jobs._row(turn, locator, "pending")
+            source = checkpoints.source_row(turn, locator, "pending")
             source.cursor = cursor
             yield source
         return
     if (
-        (scope["versions"] and jobs._versions(turn.case) != scope["versions"])
+        (
+            scope["versions"]
+            and checkpoints.evidence_versions(turn.case) != scope["versions"]
+        )
         or parent.started_at.isoformat() != scope["through"]
         or any(scope.get(key) != value for key, value in _scope(parent).items())
     ):
@@ -319,7 +326,7 @@ def manifest_rows(turn):
         review=True,
         selected_rows=_rows(parent, scope),
     ):
-        yield jobs._row(turn, locator, "pending")
+        yield checkpoints.source_row(turn, locator, "pending")
 
 
 def reserve_request(turn, purpose):
@@ -344,12 +351,12 @@ def reserve_request(turn, purpose):
 
 @transaction.atomic
 def finish_at_limit(turn):
-    case = jobs._authorize(turn, lock=True)
-    unread = turn.sources.filter(case=case, status__in=jobs.PENDING_REVIEW)
+    case = checkpoints.authorize_turn(turn, lock=True)
+    unread = turn.sources.filter(case=case, status__in=full_review.PENDING_REVIEW)
     remaining = unread.update(
         status="unread",
         gap="This entry was unfinished at the approved generation limit.",
     )
     turn.gaps += remaining
     turn.plan.update(stage="verify", unreviewed=remaining, approved_limit_reached=True)
-    jobs._continue(turn)
+    checkpoints.continue_turn(turn)

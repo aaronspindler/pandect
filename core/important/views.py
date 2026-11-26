@@ -18,7 +18,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.catalogue import archived_finding_sources, raw_finding_item
 from core.analysis.important import finding_target
-from core.analysis.services import SourceResolutionCache
+from core.analysis.source_resolution import SourceResolutionCache
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS
 from core.models import ImportantItem, ImportantNote

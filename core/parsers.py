@@ -38,8 +38,8 @@ PARSER_MODULES = {
 }
 
 
-def read_source(source):
-    """Read through storage, checking the applicable original file-byte hash."""
+def read_source(source, *, maximum=None):
+    """Read retained bytes through case-scoped storage and verify their digest."""
     from django.conf import settings
 
     from core.analysis.errors import AnalysisError
@@ -49,7 +49,9 @@ def read_source(source):
     original = getattr(record, "file", None)
     if not original:
         raise AnalysisError("retained_file_required")
-    maximum = min(MAX_BYTES, settings.PANDECT_ANALYSIS_MAX_BYTES)
+    if maximum is None:
+        maximum = settings.PANDECT_ANALYSIS_MAX_BYTES
+    maximum = min(MAX_BYTES, maximum)
     if getattr(record, "byte_size", maximum + 1) > maximum:
         raise AnalysisError("input_limit")
     expected = record.audio_sha256 if source.attachment is not None else record.sha256

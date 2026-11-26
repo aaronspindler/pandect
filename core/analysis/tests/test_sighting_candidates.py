@@ -8,12 +8,14 @@ from django.test import TestCase
 
 from core.analysis.catalogue import project_result
 from core.analysis.operations import get_operation
-from core.analysis.services import resolve_snapshots, snapshot_sources, validate_output
+from core.analysis.result_validation import validate_output
 from core.analysis.sightings import (
     build_sighting_group,
     candidate_links,
     prepare_proposal,
 )
+from core.analysis.source_resolution import resolve_snapshots
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import output, source_item
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceTestMixin

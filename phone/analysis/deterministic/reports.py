@@ -21,6 +21,7 @@ from core.analysis.reporting import (
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from people.models import Person
+from phone.conversations import reported_pair
 from phone.presentation import call_party_labels
 
 
@@ -66,8 +67,7 @@ def call_report(
         )
         if other_participant_id:
             queryset = queryset.filter(
-                Q(sender_id=participant_id, recipient_id=other_participant_id)
-                | Q(sender_id=other_participant_id, recipient_id=participant_id)
+                reported_pair(participant_id, other_participant_id)
             )
         elif participant_id:
             queryset = queryset.filter(

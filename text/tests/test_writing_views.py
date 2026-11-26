@@ -7,8 +7,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
-from core.analysis.services import process_run
 from core.analysis.sources import source_id
+from core.analysis.worker import process_run
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

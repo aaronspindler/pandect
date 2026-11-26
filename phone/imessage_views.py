@@ -28,7 +28,7 @@ from phone.analysis.deterministic.imessage import (
     message_import_roles,
     read_import_page,
 )
-from phone.conversations import conversation_url
+from phone.conversations import conversation_url, reported_pair
 from phone.imessage_forms import (
     IMessageConfirmForm,
     IMessagePersonForm,
@@ -225,11 +225,7 @@ def _first_reused_message(messages, case, document, run):
         return None
     return (
         _reviewed_source_messages(messages, case, document, run)
-        .filter(
-            Q(sender_id=account_id, recipient_id=correspondent_id)
-            | Q(sender_id=correspondent_id, recipient_id=account_id),
-            is_archived=False,
-        )
+        .filter(reported_pair(account_id, correspondent_id), is_archived=False)
         .first()
     )
 

@@ -14,9 +14,10 @@ from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase, DrainableBrowserLiveServerThread
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
 from core.analysis.sources import source_id
 from core.analysis.tests.test_execution import LOCAL
+from core.analysis.worker import process_run
 from core.models import AnalysisRun, CaseAnalysisBatch
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from geo.trip_jobs import process_trips

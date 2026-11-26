@@ -18,19 +18,17 @@ from django.utils import timezone
 from PIL import Image
 
 from cases.models import Case, CaseMembership
+from core.analysis.address_estimates import set_address_estimate
 from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
 from core.analysis.estimate_dependencies import verified_estimate_uses
 from core.analysis.operations import get_operation
-from core.analysis.services import (
-    process_run,
-    resolve_inputs,
-    set_address_estimate,
-    start_run,
-)
+from core.analysis.services import start_run
+from core.analysis.source_resolution import resolve_inputs
 from core.analysis.sources import output
 from core.analysis.testing import external_grant_kwargs, local_ocr_response
 from core.analysis.testing import preview_image_bytes as image_bytes
+from core.analysis.worker import process_run
 from core.models import (
     AnalysisArtifact,
     AnalysisResult,
@@ -79,7 +77,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
                     [{"kind": "image", "id": str(original.pk)}],
                 )
                 with patch(
-                    "core.analysis.services.get_operation",
+                    "core.analysis.worker.get_operation",
                     return_value=replace(operation, function=Mock(return_value=result)),
                 ):
                     self.assertEqual(process_run(run.pk), code)
@@ -229,7 +227,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         bare = dict(baseline.data)
         del bare["visible_structure"]
         limit = len(json.dumps(bare).encode()) + 100
-        with patch("core.analysis.services.MAX_RESULT_BYTES", limit):
+        with patch("core.analysis.result_validation.MAX_RESULT_BYTES", limit):
             _, run, result, _ = self.processed_ocr(image=original)
         self.assertEqual(run.status, "partial")
         self.assertNotIn("visible_structure", result.data)
@@ -508,7 +506,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         with (
             patch("image.analysis.ai.run_parser", return_value=local_ocr_response()),
             patch(
-                "core.analysis.services.AnalysisArtifact.save",
+                "core.analysis.worker.AnalysisArtifact.save",
                 side_effect=ValidationError("Synthetic publication failure"),
             ),
         ):

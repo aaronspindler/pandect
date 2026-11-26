@@ -8,8 +8,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.services import process_run, snapshot_sources
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.tests.test_execution import LOCAL
+from core.analysis.worker import process_run
 from core.case_search.generation import enqueue_generation, set_policy, settings_rows
 from core.case_search.generation_briefs import SECTION_CHARS
 from core.case_search.indexing import evidence_archive_changed, result_published

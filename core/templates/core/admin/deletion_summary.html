@@ -2,13 +2,7 @@
   <h2 id="deletion-summary-heading">Deletion summary</h2>
   {% if inventory_changed %}<p role="alert">{{ inventory_changed }}</p>{% endif %}
   <p><strong>{{ deletion_plan.counts.records }} record{{ deletion_plan.counts.records|pluralize }} and {{ deletion_plan.counts.files|default:0 }} stored file{{ deletion_plan.counts.files|pluralize }} will be deleted.</strong></p>
-  <table>
-    <caption>Records to delete</caption>
-    <thead><tr><th scope="col">Record type</th><th scope="col">Count</th></tr></thead>
-    <tbody>
-      {% for label, count in deletion_record_counts %}<tr><th scope="row">{{ label }}</th><td>{{ count }}</td></tr>{% endfor %}
-    </tbody>
-  </table>
+  {% include "core/admin/deletion_record_counts.html" with record_counts=deletion_record_counts only %}
   <table>
     <caption>Affected cases</caption>
     <thead><tr><th scope="col">Case</th><th scope="col">What will be deleted</th></tr></thead>

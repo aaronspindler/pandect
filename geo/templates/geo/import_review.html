@@ -4,7 +4,7 @@
 {% load import_checks tz %}
 {% if not batch.completed_at %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef import_pages %}
-  {% if page_obj.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Vehicle location import pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
+  {% include 'ui/components/pagination.html' with page=page_obj label='Vehicle location import pages' query=request.GET only %}
 {% endpartialdef %}
 {% partialdef live inline %}
 {% get_current_timezone as current_timezone %}

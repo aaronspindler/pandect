@@ -66,13 +66,7 @@
         {% endwith %}
       {% endfor %}
     </ul>
-    {% if runs.has_other_pages %}
-      <nav class="pagination" aria-label="Saved analysis pages">
-        {% if runs.has_previous %}<a class="button button-secondary" href="{% querystring writing_page=runs.previous_page_number %}#writing-history">Previous analyses</a>{% endif %}
-        <span>Page {{ runs.number }} of {{ runs.paginator.num_pages }}</span>
-        {% if runs.has_next %}<a class="button button-secondary" href="{% querystring writing_page=runs.next_page_number %}#writing-history">Next analyses</a>{% endif %}
-      </nav>
-    {% endif %}
+    {% include 'ui/components/pagination.html' with page=runs label='Saved analysis pages' query=request.GET parameter='writing_page' anchor='writing-history' item_label='analyses' only %}
   {% else %}<p class="muted">No writing analyses have been saved here.</p>{% endif %}
 </section>
 {% endblock %}

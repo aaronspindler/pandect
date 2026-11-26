@@ -13,7 +13,8 @@ from django.urls import reverse
 from core.analysis.forms import analysis_form
 from core.analysis.operations import get_operation
 from core.analysis.readiness import configuration_readiness, source_readiness
-from core.analysis.services import process_run, start_run
+from core.analysis.services import start_run
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

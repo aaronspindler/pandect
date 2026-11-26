@@ -10,7 +10,7 @@ def validate_references(run, sources, case, *, cache=None, depth=0):
     """Read-side dependency checks without loading retained result payloads."""
     from uuid import UUID
 
-    from core.analysis.services import SourceResolutionCache, resolve_inputs
+    from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 
     cache = cache or SourceResolutionCache(case)
     if cache.case.pk != case.pk:

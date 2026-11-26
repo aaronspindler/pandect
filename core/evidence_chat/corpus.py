@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.db.models import Case, CharField, Exists, F, Func, OuterRef, Q, Value, When
+from django.db.models import Case, CharField, Exists, F, OuterRef, Q, Value, When
 from django.db.models.functions import Length, Substr
 from django.http import Http404
 from django.urls import reverse
@@ -16,9 +16,14 @@ from core.analysis.catalogue import finding_queryset, raw_finding_item
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url
 from core.analysis.projection import is_ai_suggestion
-from core.analysis.services import SourceResolutionCache, resolve_inputs
-from core.case_search.retained import retained_passages
-from core.evidence.queries import scoped_evidence
+from core.analysis.published import PASSAGE_OPERATIONS
+from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
+from core.case_search.retained import (
+    passage_identity,
+    resolved_source_identity,
+    retained_passages,
+)
+from core.evidence.queries import scoped_evidence, text_sha256
 from core.evidence.types import (
     CALL_KINDS,
     COMMUNICATION_KINDS,
@@ -34,7 +39,6 @@ from phone.presentation import call_party_labels, message_destination
 from text.analysis.synthesis import finding_text
 
 MAX_WINDOW = 8192
-EXTRACTIONS = ("native_text", "ocr", "plate_ocr", "transcription")
 RELATIONS = {
     **dict.fromkeys(COMMUNICATION_KINDS, ("sender", "recipient")),
     **dict.fromkeys(CALL_KINDS, ("sender", "recipient", "import_row__batch")),
@@ -96,7 +100,7 @@ def rows(
     else:
         if surface == "passage":
             qs = retained_passages(case).filter(
-                result__run__operation__in=EXTRACTIONS, text__regex=r"\S"
+                result__run__operation__in=PASSAGE_OPERATIONS, text__regex=r"\S"
             )
         else:
             qs = (
@@ -142,20 +146,11 @@ def rows(
     return qs.order_by("pk")
 
 
-def _body_digest(field):
-    return Func(
-        Func(Func(F(field), Value("UTF8"), function="convert_to"), function="sha256"),
-        Value("hex"),
-        function="encode",
-        output_field=CharField(),
-    )
-
-
 def clipped(queryset, field, start=0, size=0, *, review=False, verified_body=None):
     """Read the digest, length, and bounded excerpt in the same SQL snapshot."""
     if not field:
         return queryset
-    digest = _body_digest(field)
+    digest = text_sha256(field)
     length = Length(field)
     if review:
         # The evidence triggers advance this revision on any INSERT, UPDATE,
@@ -503,15 +498,9 @@ def result_sources(case, run, include_archived):
 
 
 def _passage_original(passage, sources):
+    identity = passage_identity(passage)
     return next(
-        (
-            s.item
-            for s in sources
-            if s.kind == passage.kind
-            and s.item.pk == passage.evidence_id
-            and s.item.sha256 == passage.evidence_sha256
-            and (s.attachment.pk if s.attachment else None) == passage.attachment_id
-        ),
+        (s.item for s in sources if resolved_source_identity(s) == identity),
         None,
     )
 

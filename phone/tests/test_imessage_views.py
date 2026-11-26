@@ -15,7 +15,8 @@ from cases.models import CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.import_checks import imported_sources
-from core.analysis.services import process_run, resolve_inputs
+from core.analysis.source_resolution import resolve_inputs
+from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence

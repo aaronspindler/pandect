@@ -5,13 +5,14 @@ import hashlib
 import io
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 
+from core.csv_import import BoundedCSVRecords, CSVRecordLimitExceeded, utc_candidates
 from core.storage import canonical_bytes
 
 HEADERS = ("Call type", "Date", "Duration", "Number", "Contact", "Location", "Service")
@@ -42,26 +43,6 @@ class ParsedCall:
     issue: str = ""
 
 
-class _RecordLines:
-    """Limit each logical record before the CSV reader allocates its cells."""
-
-    def __init__(self, stream):
-        self.stream = stream
-        self.record_chars = 0
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        line = self.stream.readline(MAX_RECORD_CHARS + 1)
-        if not line:
-            raise StopIteration
-        self.record_chars += len(line)
-        if self.record_chars > MAX_RECORD_CHARS:
-            raise ValidationError("The CSV contains an oversized record.")
-        return line
-
-
 def import_file_limit():
     return min(MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES)
 
@@ -78,11 +59,7 @@ def _timestamp(raw, zone):
         if not TIMESTAMP_PATTERN.fullmatch(raw):
             raise ValueError
         local = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
-        candidates = set()
-        for fold in (0, 1):
-            utc = local.replace(tzinfo=zone, fold=fold).astimezone(UTC)
-            if utc.astimezone(zone).replace(tzinfo=None) == local:
-                candidates.add(utc)
+        candidates = utc_candidates(local, zone)
     except ValueError, OverflowError:
         raise ValueError(
             "Date must be a valid local timestamp such as 2025-02-10 15:30:00."
@@ -160,14 +137,11 @@ def parse_call_history(content, timezone_name):
         raise ValidationError("Choose a CSV within the call history import size limit.")
     try:
         with io.StringIO(content.decode("utf-8-sig"), newline="") as stream:
-            lines = _RecordLines(stream)
-            reader = csv.reader(lines, strict=True)
-            header = next(reader, [])
+            records = iter(BoundedCSVRecords(stream, record_limit=MAX_RECORD_CHARS))
+            header = next(records, [])
             if len(header) != len(HEADERS) or set(header) != set(HEADERS):
                 raise ValidationError("Use the seven-column call history CSV export.")
-            lines.record_chars = 0
-            for number, cells in enumerate(reader, 2):
-                lines.record_chars = 0
+            for number, cells in enumerate(records, 2):
                 if number > MAX_ROWS + 1:
                     raise ValidationError(
                         "Import up to 20,000 call history rows at a time."
@@ -181,5 +155,7 @@ def parse_call_history(content, timezone_name):
                         "The CSV contains an oversized field or null character."
                     )
                 yield _parse_row(number, header, cells, zone)
+    except CSVRecordLimitExceeded:
+        raise ValidationError("The CSV contains an oversized record.") from None
     except UnicodeDecodeError, csv.Error:
         raise ValidationError("Use a well-formed UTF-8 CSV.") from None
