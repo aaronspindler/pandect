@@ -575,7 +575,7 @@ def _save_population(turn, selection):
         snapshot = selections.freeze(turn, selection)
     spec = selection | {"snapshot": snapshot}
     members = selections.totals(
-        selections.snapshot_rows(turn, spec), only_timed=spec.get("count_day")
+        selections.snapshot_rows(turn, snapshot), only_timed=spec.get("count_day")
     )
     parties = _party_labels(turn.case, selection)
     expected = {
@@ -614,7 +614,7 @@ def execute(turn, selection, ask=""):
         members = selection["membership"]
         parties = selection["parties"]
         rows = recorded_messages.from_snapshot(
-            turn.case, selections.snapshot_rows(turn, selection)
+            turn.case, selections.snapshot_rows(turn, selection["snapshot"])
         )
         matches = recorded_messages.representatives(rows, selection)
     field, phrase = selection["field"], selection["phrase"]

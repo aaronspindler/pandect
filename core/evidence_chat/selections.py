@@ -94,9 +94,7 @@ def populations(turn, spec):
                         document + "__archive_changed_at__lte": spec["through"],
                     }
                 )
-            earlier = ChatSelectionMember.objects.filter(
-                turn__in=snapshot_owner(turn, previous), kind=kind
-            )
+            earlier = snapshot_rows(turn, previous).filter(kind=kind)
             rows = rows.filter(recent).exclude(pk__in=earlier.values("evidence_id"))
         yield kind, rows
 
@@ -117,10 +115,11 @@ def snapshot_owner(turn, snapshot):
     return rows
 
 
-def snapshot_rows(turn, spec):
-    return ChatSelectionMember.objects.filter(
-        turn__in=snapshot_owner(turn, spec["snapshot"])
-    )
+def snapshot_rows(turn, snapshot):
+    # The snapshot belongs to one verified turn. A scalar subquery lets
+    # PostgreSQL check that owner once before looking up its members.
+    owner_id = snapshot_owner(turn, snapshot).order_by().values("pk")[:1]
+    return ChatSelectionMember.objects.filter(turn_id=owner_id)
 
 
 def snapshot_owner_exists(turn, spec):
@@ -139,7 +138,7 @@ def member_ids(turn):
         return None
     if turn.status != "complete" or not recorded.available(turn):
         raise AnalysisError("source_changed")
-    members = snapshot_rows(turn, spec)
+    members = snapshot_rows(turn, spec["snapshot"])
     if spec.get("count_day"):
         members = members.filter(date_only=False, event_at__isnull=False)
     return members.order_by("kind", "evidence_id").values_list("kind", "evidence_id")
@@ -206,7 +205,7 @@ def totals(rows, *, only_timed=False):
 
 def current_membership(turn, spec):
     """Compare frozen and current identities, versions, and source clocks in SQL."""
-    frozen = snapshot_rows(turn, spec)
+    frozen = snapshot_rows(turn, spec["snapshot"])
     if not snapshot_owner(turn, spec["snapshot"]).exists():
         return False
     for kind, rows in populations(turn, spec):
@@ -336,7 +335,7 @@ def page(turn, number, group):
     spec = turn.plan.get("recorded_selection", {})
     if not spec.get("snapshot") or turn.status != "complete":
         return None
-    members = snapshot_rows(turn, spec).order_by("kind", "evidence_id")
+    members = snapshot_rows(turn, spec["snapshot"]).order_by("kind", "evidence_id")
     if group:
         if spec.get("count_day"):
             members = members.filter(event_at__isnull=False, date_only=False)
@@ -399,7 +398,7 @@ def answer_for_fields(turn, selection):
     """Group or compare mixed originals at their respective recorded clocks."""
     from . import engine
 
-    members = snapshot_rows(turn, selection)
+    members = snapshot_rows(turn, selection["snapshot"])
     if selection.get("count_day"):
         members = members.filter(event_at__isnull=False, date_only=False)
     coverage = selection["coverage"]

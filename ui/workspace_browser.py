@@ -114,13 +114,27 @@ class WorkspaceBrowserTests(BrowserTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, editor)
                 case_people = self.url("people:list", case_id=self.case.pk)
-                page.goto(case_people)
+                activity = self.url("cases:activity", case_id=self.case.pk)
+                # Hold the first activity request across a change of role. A
+                # returning tab must also check changes made after that read.
+                pending = []
+
+                def hold_activity(route, _request, pending=pending):
+                    pending.append(route)
+
+                page.route(activity, hold_activity, times=1)
+                with page.expect_request(activity):
+                    page.goto(case_people)
                 expect(page.get_by_role("link", name="Add person")).to_be_visible()
+                initial = pending.pop()
+                editor_snapshot = initial.fetch()
+                self.assertEqual(editor_snapshot.json()["role"], "editor")
                 self.db(
                     CaseMembership.objects.filter(pk=membership.pk).update,
                     role="viewer",
                 )
                 page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+                initial.fulfill(response=editor_snapshot)
                 expect(
                     page.get_by_role("heading", name="Your session or access changed")
                 ).to_be_focused()

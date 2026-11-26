@@ -342,21 +342,27 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(field).to_have_value("complete")
 
     def test_hidden_tabs_failures_manual_retry_and_revocation(self):
+        activity_url = self.url("cases:activity", case_id=self.case.pk)
         for engine in self.engines:
             run_id = self.queue()
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, self.viewer)
+                page.clock.install()
                 page.goto(
                     self.url(
                         "core:analysis:detail", case_id=self.case.pk, run_id=run_id
                     )
+                )
+                expect(page.locator("#processing-activity-count")).to_have_text(
+                    "1 queued"
                 )
                 requests = []
                 page.on(
                     "request",
                     lambda request, requests=requests: (
                         requests.append(request)
-                        if request.headers.get("x-pandect-live")
+                        if request.url == activity_url
+                        or request.headers.get("x-pandect-live")
                         else None
                     ),
                 )
@@ -365,7 +371,6 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     "{configurable: true, value: true}); "
                     "document.dispatchEvent(new Event('visibilitychange'))"
                 )
-                page.clock.install()
                 page.clock.run_for(6000)
                 self.assertEqual(requests, [])
                 self.db(AnalysisRun.objects.filter(pk=run_id).update, status="running")

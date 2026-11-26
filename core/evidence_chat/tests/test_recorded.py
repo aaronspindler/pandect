@@ -5,6 +5,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -94,6 +95,12 @@ class RecordedFieldTests(EvidenceViewTestMixin, TestCase):
                 ],
                 batch_size=500,
             )
+            # This TestCase's uncommitted imports are invisible to autovacuum.
+            # Give the planner the current population at both test sizes.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "ANALYZE phone_textmessageevidence, core_chatselectionmember"
+                )
 
         add_rows(1000, phrase)
         add_rows(1000, "Unrelated entry")
@@ -108,7 +115,7 @@ class RecordedFieldTests(EvidenceViewTestMixin, TestCase):
         ):
             first, answer = self.ask(f'Who all did Iris say "{phrase}" to?')
             self.assertEqual(first.mode, "ordinary")
-            self.assertEqual(len(answer["claims"]), 2)
+            self.assertEqual(len(answer["claims"]), 2, answer)
             self.assertTrue(
                 any("marked as forwarded" in c["text"] for c in answer["claims"])
             )

@@ -2321,6 +2321,13 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(marker).to_have_class(
                     re.compile(r"\bobservation-marker-candidate\b")
                 )
+                # A result panel can finish laying out without a window resize.
+                map_region.evaluate("canvas => canvas.style.maxWidth = '10rem'")
+                map_region.scroll_into_view_if_needed()
+                expect(marker).to_be_in_viewport()
+                map_region.evaluate(
+                    "canvas => canvas.style.removeProperty('max-width')"
+                )
                 for width, height, label in (
                     (1440, 900, "desktop"),
                     (1440, 1024, "tall-desktop"),

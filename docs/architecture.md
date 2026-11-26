@@ -255,7 +255,9 @@ including bulk writes. Each new evidence or processing model registers the
 collections it affects in a migration. A transactional notification wakes a
 shared PostgreSQL listener in each ASGI web worker. The same-origin
 `/events/cases/<uuid>/` endpoint sends an invalidation signal to visible,
-authorized case tabs. The browser reconciles current counts and revisions on
+authorized case tabs. The browser checks current counts, revisions and case
+access when a tab becomes visible. If an earlier check is still running, the
+tab requests a fresh snapshot after it finishes. It also reconciles on stream
 connection and after changes. Existing authorized HTML fragments use
 `X-Pandect-Live: 1` for progress and `X-Pandect-Live: collection` for
 collection results. Lists offer an in-place refresh while processing status
