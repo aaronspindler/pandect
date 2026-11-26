@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from time import monotonic
@@ -53,7 +54,7 @@ class DenseCaseQualification(EvidenceViewTestMixin, TestCase):
             )
         infer = ai.infer
         rows = []
-        rare = {}
+        sources = {}
         index = 0
         for topic, count in (*CASES, ("Inventory", 100000 - sum(n for _, n in CASES))):
             for offset in range(count):
@@ -78,8 +79,9 @@ class DenseCaseQualification(EvidenceViewTestMixin, TestCase):
                 )
                 item.sha256 = sha256(item.original_bytes()).hexdigest()
                 rows.append(item)
-                if exception:
-                    rare[topic] = item.pk
+                if offset == 0 or exception:
+                    role = "observer" if exception else "dispatch"
+                    sources.setdefault(topic, {})[role] = (item.pk, str(item.sender))
                 if len(rows) == 500:
                     TextMessageEvidence.objects.bulk_create(rows)
                     rows = []
@@ -89,10 +91,12 @@ class DenseCaseQualification(EvidenceViewTestMixin, TestCase):
 
         for topic, count in CASES:
             with self.subTest(topic=topic):
-                self.exercise_topic(topic, count, rare[topic], infer if live else None)
+                self.exercise_topic(
+                    topic, count, sources[topic], infer if live else None
+                )
         self.assertFalse(AnalysisRun.objects.exists())
 
-    def exercise_topic(self, topic, count, rare, infer):
+    def exercise_topic(self, topic, count, sources, infer):
         def answer(turn, authorize, prompt, schema):
             nonlocal prompt_bytes
             prompt_bytes += len(prompt.encode())
@@ -114,7 +118,7 @@ class DenseCaseQualification(EvidenceViewTestMixin, TestCase):
                 f"Compare the {topic} arrival accounts.",
                 topic,
                 "interpret",
-                rare,
+                sources,
                 model,
                 lambda: prompt_bytes,
             )
@@ -136,7 +140,7 @@ class DenseCaseQualification(EvidenceViewTestMixin, TestCase):
                     f"Compare the {topic} arrival accounts type:text-message",
                     topic,
                     "interpret",
-                    rare,
+                    sources,
                     model,
                     lambda: prompt_bytes,
                 )
@@ -180,13 +184,18 @@ class DenseCaseQualification(EvidenceViewTestMixin, TestCase):
             for claim in reply["claims"]:
                 for citation in claim["citations"]:
                     self.assertIn(topic, citation["quote"], claim)
-            for clock, person in (("08:10", "observer"), ("09:25", "dispatch")):
+            for clock, role in (("08:10", "observer"), ("09:25", "dispatch")):
+                # The claim may identify an account by its words or its
+                # recorded sender. Both require the exact original citation.
+                original_id, sender = expected[role]
+                attribution = rf"\b(?:{role}|{re.escape(sender)})\b"
                 self.assertTrue(
                     any(
-                        claim_supports(claim["text"], clock, person)
+                        claim_supports(claim["text"], clock, attribution)
                         and any(
                             clock in ref["quote"]
-                            and (clock != "08:10" or str(expected) in ref["url"])
+                            and role in ref["quote"].casefold()
+                            and str(original_id) in ref["url"]
                             for ref in claim["citations"]
                         )
                         for claim in reply["claims"]
