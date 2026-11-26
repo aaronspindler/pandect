@@ -5,15 +5,14 @@ from uuid import UUID
 
 from allauth.account.models import EmailAddress
 from django.db.models import Value
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
 from core.analysis.source_selection import snapshot_sources
-from core.evidence.retention import set_evidence_archive
 from core.evidence_chat import corpus
-from core.evidence_chat.corpus import cite, discover, rank, read_window
+from core.evidence_chat.corpus import cite, discover, read_window
 from core.models import AnalysisResult, AnalysisRun, ExtractedPassage
 from core.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
@@ -66,23 +65,13 @@ class CorpusTests(EvidenceTestMixin, TestCase):
         target = "Café Quayside"
         long_body = "earlier entries\n" * 500 + target
         message = self.create_evidence(TextMessageEvidence, body=long_body)
-        other = self.create_evidence(description="only-seen-in-annotations")
+        self.create_evidence(description="only-seen-in-annotations")
         self.create_evidence(case=self.other_case, body=target)
-        with (
-            override_settings(PANDECT_SEARCH_EMBEDDING_PROVIDER="openai-gateway"),
-            patch("core.evidence_chat.corpus_search.related_results") as hosted,
-        ):
-            hits = rank(
-                self.case, "What did the messages say about Quayside?", user=self.owner
-            )
-            self.assertTrue(hits)
-            loc, offset = next(
-                (loc, pos) for loc, pos in hits if loc["evidence_id"] == str(message.pk)
-            )
-            self.assertIn(target, read_window(self.case, loc, offset)["text"])
-            annotations = rank(self.case, "only-seen-in-annotations", user=self.owner)
-            self.assertFalse(annotations)
-            hosted.assert_not_called()
+        loc = next(
+            loc
+            for loc in discover(self.case, False)
+            if loc["evidence_id"] == str(message.pk)
+        )
         position = long_body.index(target)
         ref = cite(self.case, loc, position, target)
         self.assertIn("#message-", ref["url"])
@@ -91,7 +80,7 @@ class CorpusTests(EvidenceTestMixin, TestCase):
         self.assertNotIn(
             "only-seen-in-annotations", str(list(discover(self.case, False)))
         )
-        self.assertNotIn(str(other.pk), [r["evidence_id"] for r, _ in hits])
+
         message.is_archived = True
         message.archive_changed_by = self.owner
 
@@ -160,32 +149,6 @@ class CorpusTests(EvidenceTestMixin, TestCase):
         file.file.storage.delete(file.file.name)
         self.assertIsNone(read_window(self.case, sources[str(file.pk)]))
 
-    @override_settings(PANDECT_SEARCH_EMBEDDING_PROVIDER="local")
-    def test_private_meaning_passage_uses_live_local_source(self):
-        item = self.create_evidence(body="First line. " * 60 + "Unload the van here.")
-        outsider = self.create_evidence(case=self.other_case)
-        offset = item.body.index("Unload")
-        related = [
-            {
-                "source": ("text", key),
-                "kind": "text",
-                "start": offset,
-                "excerpt": "Unload",
-            }
-            for key in (item.pk, outsider.pk)
-        ]
-        with patch(
-            "core.evidence_chat.corpus_search.related_results",
-            return_value=(related, ""),
-        ) as meaning:
-            hits = rank(self.case, "Where was freight delivered?", user=self.owner)
-        self.assertTrue(meaning.call_args.kwargs["include_source"])
-        self.assertNotIn("allow_external", meaning.call_args.kwargs)
-        ((loc, start),) = hits
-        self.assertEqual(loc["pk"], str(item.pk))
-        self.assertGreater(start, 0)
-        self.assertIn("Unload the van", read_window(self.case, loc, start)["text"])
-
     def test_file_coverage_requires_a_passage_within_the_review_scope(self):
         first = self.create_evidence(DocumentEvidence, title="First log")
         second = self.create_evidence(DocumentEvidence, title="Second log")
@@ -230,7 +193,6 @@ class CorpusTests(EvidenceTestMixin, TestCase):
 
     def test_partial_page_and_finding_refs_require_intact_original(self):
         document = self.create_evidence(DocumentEvidence)
-        before_results = timezone.now()
         inputs = snapshot_sources(self.case, [{"kind": "document", "id": document.pk}])
         run = AnalysisRun.objects.create(
             case=self.case,
@@ -294,31 +256,6 @@ class CorpusTests(EvidenceTestMixin, TestCase):
         self.assertIn("Derived finding", finding["label"])
         self.assertEqual(finding["record_key"], loc["record_key"])
 
-        def updates(after):
-            return {
-                item["key"]
-                for item, _ in rank(
-                    self.case,
-                    "Friday",
-                    user=self.owner,
-                    after=after,
-                    through=timezone.now(),
-                )
-            }
-
-        # Later analysis can cite an earlier input. It becomes eligible again
-        # after a restoration even though its publication time stays fixed.
-        self.assertEqual(updates(before_results), {loc["key"], finding["key"]})
-        after_results = timezone.now()
-        self.assertFalse(updates(after_results))
-        for archived in (True, False):
-            set_evidence_archive(
-                self.owner, self.case.pk, "document", document.pk, archived=archived
-            )
-            self.assertEqual(
-                updates(after_results),
-                set() if archived else {loc["key"], finding["key"]},
-            )
         document.file.storage.delete(document.file.name)
         self.assertIsNone(read_window(self.case, loc))
         self.assertIsNone(read_window(self.case, finding))

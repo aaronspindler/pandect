@@ -4,6 +4,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from cases.models import CaseMembership
+from core.case_search.hosted import NOTICES, HostedSearchError
+from core.case_search.tests.fixtures import indexed
 from core.testing import EvidenceViewTestMixin
 from phone.models import TextMessageEvidence
 
@@ -11,6 +13,7 @@ from phone.models import TextMessageEvidence
 class CollectionFragmentTests(EvidenceViewTestMixin, TestCase):
     def test_collection_fragments_share_authorized_filters_and_pagination(self):
         source = self.text()
+        self.enterContext(indexed(self.case, [("original", "text", source.pk)]))
         routes = (
             (reverse("cases:case_list"), {}, "cases"),
             (reverse("people:list", args=[self.case.pk]), {}, "people"),
@@ -55,8 +58,40 @@ class CollectionFragmentTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(routes[0][0], HTTP_X_PANDECT_LIVE="collection")
         self.assertNotContains(response, self.case.name)
 
+    def test_unavailable_search_is_explained_in_each_replaceable_collection(self):
+        source = self.text()
+        self.login("viewer")
+        targets = [
+            (reverse("people:list", args=[self.case.pk]), {}),
+            (reverse("vehicle:list", args=[self.case.pk]), {}),
+            (reverse("core:analysis:browse", args=[self.case.pk]), {}),
+            (self.url("list"), {"type": "image", "view": "gallery"}),
+            (self.url("list"), {}),
+            (self.url("detail", source), {}),
+        ]
+        for code in ("search_disabled", "search_unavailable"):
+            if code == "search_unavailable":
+                self.enterContext(indexed(self.case, []))
+                self.enterContext(
+                    patch(
+                        "core.case_search.cloudflare.request",
+                        side_effect=HostedSearchError(code),
+                    )
+                )
+            for url, params in targets:
+                for headers in ({}, {"X-Pandect-Live": "collection"}):
+                    with self.subTest(url=url, code=code, headers=headers):
+                        response = self.client.get(
+                            url, params | {"q": "dispatch"}, headers=headers
+                        )
+                        self.assertContains(response, NOTICES[code], count=1)
+                        self.assertNotContains(response, "No matching ")
+                        cleared = self.client.get(url, params, headers=headers)
+                        self.assertNotContains(cleared, NOTICES[code])
+
     def test_selected_evidence_filter_skips_the_original_and_findings(self):
         source = self.text()
+        self.enterContext(indexed(self.case, [("original", "text", source.pk)]))
         self.login("owner")
         with patch(
             "core.evidence.workspace_views.evidence_findings_context"

@@ -38,12 +38,8 @@ def _authorize_run(run, *, lock=False):
     actor = get_user_model().objects.get(pk=run.requested_by_id)
     case = get_case(actor, run.case_id, edit=True, lock=lock)
     require_verified_email(actor, "Verify your email before processing.")
-    if feature := run.parameters.get("_search_generation"):
-        from core.case_search.generation import approved_policy
-
-        if actor.pk != case.owner_id:
-            raise AnalysisError("access_removed")
-        approved_policy(case, feature, run.parameters.get("_generation_revision"))
+    if run.parameters.get("_search_generation"):
+        raise AnalysisError("execution_changed")
     status = AnalysisRun.objects.values_list("status", flat=True).get(pk=run.pk)
     if status in FINISHED:
         raise AnalysisError("processing_cancelled")
@@ -125,24 +121,13 @@ def process_run(run_id):
 
         purpose = requires_inference(run.operation, run.parameters)
         client = GatewayClient(run, authorize)
-        if purpose and execution is not None and execution["backend"] == "local":
-            from core.analysis.local import LocalClient
-
-            client = LocalClient(
-                authorize,
-                execution,
-                authorize_metadata=lambda: authorize_run(run, check_sources=False),
-            )
         kwargs = {}
         specification = OPERATIONS[run.operation]
-        if specification.inference == "transcription":
+        if specification.inference in {"transcription", "vision"}:
             kwargs["client"] = client
         if specification.authorize_worker or specification.geographic:
             kwargs["authorize"] = authorize
-        if purpose == "text" and (
-            run.external_processing
-            or (execution is not None and execution["backend"] == "local")
-        ):
+        if purpose == "text":
             kwargs["infer"] = client.infer
         parameters = dict(run.parameters)
         if specification.geographic:
@@ -216,18 +201,15 @@ def process_run(run_id):
                         if run.external_processing
                         else {}
                     ),
-                    **(
-                        {"local_usage": client.usage}
-                        if execution is not None
-                        and execution["backend"] == "local"
-                        and purpose
-                        else {}
-                    ),
                 },
             )
             from core.analysis.catalogue import project_result
 
             project_result(result)
+            if run.operation == "narrative_relationships":
+                from core.relationships import publish_relationships
+
+                publish_relationships(result, sources)
             totals = {kind: 0 for kind in AnalysisArtifact.Kind.values}
             reference_keys = set()
             prepared_findings = set()

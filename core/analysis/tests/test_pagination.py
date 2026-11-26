@@ -148,6 +148,17 @@ class CollectionPaginationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(last.context["form"].retained_sources[0][0], selected)
         self.assertContains(last, f'type="hidden" name="sources" value="{selected}"')
         added = last.context["form"].source_page[-1][0]
+        from core.case_search.discovery import Discovery
+
+        def lookup(case, actor, query):
+            results = Discovery()
+            if query == records[250].title:
+                results.evidence["text"].add(str(records[250].pk))
+            return results
+
+        self.enterContext(
+            patch("core.case_search.discovery.discover", side_effect=lookup)
+        )
         with patch("core.analysis.submission_views.start_selected_analysis") as start:
             searched = self.client.post(
                 url,
@@ -172,9 +183,7 @@ class CollectionPaginationTests(EvidenceViewTestMixin, TestCase):
                 },
             )
             self.assertContains(empty, "No suitable sources")
-            self.assertNotContains(
-                empty, 'href="?operation=entities">Clear title filter'
-            )
+            self.assertNotContains(empty, 'href="?operation=entities">Clear search')
             cleared = self.client.post(
                 url,
                 post

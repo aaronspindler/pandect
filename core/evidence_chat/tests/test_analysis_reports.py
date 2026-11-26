@@ -1,7 +1,5 @@
-import os
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from time import monotonic
 from uuid import uuid4
 
 from django.db import connection
@@ -10,11 +8,9 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
-from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import Source, source_id
 from core.evidence.deletion import execute_deletion, plan_deletion
 from core.evidence_chat import corpus, services
-from core.evidence_chat.analysis_reports import analysis_materials
 from core.evidence_chat.checkpoints import source_row
 from core.evidence_chat.reports import timing_materials
 from core.models import (
@@ -45,65 +41,6 @@ class SavedAnalysisTests(EvidenceTestMixin, TestCase):
         )
         project_result(result)
         return result
-
-    def test_methods_publish_searchable_measurements_even_without_findings(self):
-        original = self.create_evidence()
-        inputs = snapshot_sources(self.case, [{"kind": "text", "id": original.pk}])
-        result = self.save_report(
-            "style_profiles",
-            inputs,
-            {"unique_words": 47, "vocabulary_ratio": 0.25, "executor_tokens": 16000},
-        )
-        self.assertFalse(result.findings.exists())
-        through = timezone.now()
-        source = {"surface": "original", "kind": "text", "pk": str(original.pk)}
-        (report,) = analysis_materials(
-            self.case, "unique words", through=through, sources=[source]
-        )
-        self.assertEqual(report.locator["result_id"], str(result.pk))
-        self.assertIn("Unique words: 47", report.text)
-        self.assertIn(
-            "Vocabulary ratio (unique words / total words): 0.25", report.text
-        )
-        self.assertNotIn("16000", report.text)
-        self.assertIn("Method version: 2", report.text)
-        self.assertEqual(
-            corpus.read_window(self.case, report.locator)["text"], report.text
-        )
-        self.assertIsNone(corpus.read_window(self.other_case, report.locator))
-        newer = self.save_report(
-            "style_profiles", inputs, {"unique_words": 48}, status="partial"
-        )
-        (after,) = analysis_materials(
-            self.case,
-            "",
-            through=timezone.now(),
-            after=through,
-            sources=[report.locator],
-            methods=["style_profiles"],
-        )
-        self.assertEqual(after.locator["pk"], str(newer.pk))
-        self.assertIn("partial", after.locator["gap"])
-        self.assertIn("47", corpus.read_window(self.case, report.locator)["text"])
-        empty = self.save_report("entities", inputs, {"occurrences": 0}, status="empty")
-        (empty_report,) = analysis_materials(
-            self.case, "identifiers", through=timezone.now()
-        )
-        self.assertEqual(empty_report.locator["result_id"], str(empty.pk))
-        self.assertIn("Outcome: No findings", empty_report.text)
-        self.assertIn("Occurrences: 0", empty_report.text)
-        self.assertEqual(
-            analysis_materials(self.other_case, "identifiers", through=timezone.now()),
-            [],
-        )
-        original.is_archived = True
-        original.archive_changed_at = timezone.now()
-        original.archive_changed_by = self.owner
-        original.save()
-        self.assertEqual(
-            analysis_materials(self.case, "writing style", through=timezone.now()), []
-        )
-        self.assertIsNone(corpus.read_window(self.case, empty_report.locator))
 
     def test_large_timing_report_reuses_verified_manifest_and_follows_uncited_members(
         self,
@@ -240,70 +177,3 @@ class SavedAnalysisTests(EvidenceTestMixin, TestCase):
         self.assertFalse(ChatTurn.objects.filter(pk=turn.pk).exists())
         self.assertFalse(AnalysisReportIndex.objects.filter(result=result.pk).exists())
         self.assertIsNone(corpus.read_window(self.case, report.locator))
-
-    def test_sparse_measurement_search_reads_bounded_candidates_among_saved_results(
-        self,
-    ):
-        from core.analysis.report_index import measurements_v1
-        from core.evidence_chat.qualification import database_counters
-
-        item = self.create_evidence()
-        inputs = snapshot_sources(self.case, [{"kind": "text", "id": item.pk}])
-        exact = self.save_report("style_profiles", inputs, {"unique_words": 93})
-        costs = []
-        for extra in (100, 2900):
-            runs = [
-                AnalysisRun(
-                    case=self.case,
-                    requested_by=self.owner,
-                    status="complete",
-                    operation="entities",
-                    method_version="1",
-                    inputs=inputs,
-                    equivalence_key=sha256(
-                        f"entity-run-{len(costs)}-{n}".encode()
-                    ).hexdigest(),
-                )
-                for n in range(extra)
-            ]
-            AnalysisRun.objects.bulk_create(runs, batch_size=300)
-            results = [
-                AnalysisResult(
-                    case=self.case, run=run, data={"metrics": {"occurrences": i}}
-                )
-                for i, run in enumerate(runs)
-            ]
-            AnalysisResult.objects.bulk_create(results, batch_size=300)
-            AnalysisReportIndex.objects.bulk_create(
-                [
-                    AnalysisReportIndex(
-                        result=row,
-                        text=measurements_v1("entities", row.data["metrics"]),
-                    )
-                    for row in results
-                ],
-                batch_size=300,
-            )
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "ANALYZE core_analysisreportindex, core_analysisresult, "
-                    "core_analysisrun"
-                )
-            before = database_counters()
-            started = monotonic()
-            with CaptureQueriesContext(connection) as captured:
-                (hit,) = analysis_materials(
-                    self.case, "unique words", through=timezone.now(), automatic=True
-                )
-            elapsed = monotonic() - started
-            after = database_counters()
-            self.assertEqual(hit.locator["result_id"], str(exact.pk))
-            costs.append((len(captured), {k: after[k] - v for k, v in before.items()}))
-            if os.getenv("PANDECT_QUALIFY_CHAT") == "1":
-                print(
-                    f"Saved report search after adding {extra}: "
-                    f"{elapsed:.3f}s, {costs[-1]}"
-                )
-        self.assertEqual(costs[0][0], costs[1][0])
-        for _, counters in costs:
-            self.assertLess(counters["rows_read"], 450, costs)

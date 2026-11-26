@@ -21,7 +21,7 @@ class ChatServiceTests(EvidenceViewTestMixin, TestCase):
         super().setUp()
         route = patch(
             "core.evidence_chat.ai.turn_execution",
-            return_value=({"location": "local"}, ""),
+            return_value=({"location": "external", "backend": "gateway"}, "synthetic"),
         )
         route.start()
         self.addCleanup(route.stop)

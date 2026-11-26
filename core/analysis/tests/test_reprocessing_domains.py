@@ -9,14 +9,12 @@ from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from cases.models import Case
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.execution import configured_external_executions
 from core.analysis.reprocessing import start_reprocessing
 from core.analysis.testing import approve_case_execution, image_bytes, wav_bytes
-from core.analysis.tests.test_direct_ai import DIRECT_AI, OPENAI_DIRECT
-from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
+from core.analysis.tests.test_openai_gateway import OPENAI
 from core.analysis.worker import process_run
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
@@ -25,7 +23,6 @@ from geo.tests.test_geographic_context import MAP_SETTINGS
 from phone.models import CallEvidenceAttachment
 
 
-@override_settings(PANDECT_LOCAL_AI=LOCAL)
 class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
     def source(self, kind, **overrides):
         values = {
@@ -64,7 +61,9 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
     def start(self, kinds, *, approved=False):
         if approved:
             approve_case_execution(
-                self.case, self.users["owner"], configured_external_executions()
+                self.case,
+                self.users["owner"],
+                configured_external_executions(self.case),
             )
         batch, _ = start_reprocessing(
             self.users["owner"],
@@ -83,11 +82,9 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                 return
         self.fail("Reprocessing did not finish preparing its selected domains")
 
-    @override_settings(PANDECT_AI_GATEWAY=OPENAI_DIRECT, PANDECT_DIRECT_AI=DIRECT_AI)
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
     def test_audio_only_routes_require_transcription_on_the_selected_backend(self):
         self.source("audio")
-        self.case.ai_backend = Case.AIBackend.GATEWAY
-        self.case.save(update_fields=("ai_backend",))
         batch = self.start(("audio",), approved=True)
         self.drain(batch)
         self.assertEqual(
@@ -95,17 +92,9 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertNotIn("content_events:gateway", batch.scope["executions"])
 
-        self.case.ai_backend = Case.AIBackend.LOCAL
-        self.case.save(update_fields=("ai_backend",))
-        batch = self.start(("audio",), approved=True)
-        self.drain(batch)
-        self.assertEqual(
-            batch.runs.get(operation="transcription").parameters["backend"], "local"
-        )
-        self.assertIn("content_events:local", batch.scope["executions"])
-        self.assertNotIn("content_events:gateway", batch.scope["executions"])
-
-    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
+    @override_settings(
+        PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG | {"stored_key_providers": ["openai"]}
+    )
     def test_all_domains_include_files_messages_and_every_call_recording(self):
         sources = {kind: self.source(kind) for kind in KINDS}
         attachments = {}
@@ -150,7 +139,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                     and run.inputs[0]["attachment_id"] == str(addition.pk)
                 ]
                 self.assertEqual(
-                    [run.parameters["backend"] for run in transcriptions], ["local"]
+                    [run.parameters["backend"] for run in transcriptions], ["gateway"]
                 )
                 self.assertTrue(
                     any(
@@ -173,7 +162,9 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                     )
                 )
 
-    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
+    @override_settings(
+        PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG | {"stored_key_providers": ["openai"]}
+    )
     def test_new_call_transcript_receives_exact_communication_followups(self):
         call = self.source("phone-call")
         addition = CallEvidenceAttachment.objects.create(
@@ -182,8 +173,6 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             phone_call=call,
             file=ContentFile(wav_bytes(), name="call.wav"),
         )
-        self.case.ai_backend = Case.AIBackend.GATEWAY
-        self.case.save(update_fields=("ai_backend",))
         batch = self.start(("phone-call",), approved=True)
         self.drain(batch)
         transcription = batch.runs.get(operation="transcription")
@@ -317,6 +306,6 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
         ):
             self.drain(batch)
         self.assertEqual(batch.processed_sources, 60)
-        self.assertEqual(batch.unavailable_sources, 180)
-        self.assertEqual(len(batch.preparation_errors), 100)
+        self.assertEqual(batch.unavailable_sources, 60)
+        self.assertEqual(len(batch.preparation_errors), 60)
         self.assertFalse(batch.runs.exists())

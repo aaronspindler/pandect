@@ -135,46 +135,11 @@ or rewrite shared history as routine validation.
 
 ## Evidence Chat qualification
 
-Run the opt-in comparison on a loopback Ollama with a pinned local model digest
-and server version. The workload generates all evidence in a disposable test
-database. It checks a direct record, a factual lookup, conflicting accounts,
-a message-to-register chronology and a missing attribution at 1,000 and
-10,000 unrelated records.
-
-```sh
-PANDECT_QUALIFY_CHAT=1 uv run --locked --env-file .env python manage.py test \
-  core.evidence_chat.qualification --settings=config.test_settings --noinput
-```
-
-Use identical settings on the comparison revisions. Each required fact needs
-its expected original and an exact citation. Adding unrelated evidence must
-preserve those answers with the same number of generation calls and at most
-5% growth in total input and output tokens. When comparing revisions, assess
-newly answerable questions separately. For previously supported questions the
-target is a 20% median token reduction with no increase at the 95th percentile.
-A small fixture measures that workload only. Each result includes model input
-and output tokens, evidence-bearing request bytes (including prompt rendering),
-generation calls, source count, SQL queries and PostgreSQL backend counters.
-Hosted services are outside this local qualification.
-
-For the dense-case acceptance test, run the following command against a
-disposable PostgreSQL test database. It generates 100,000 messages, with topics
-occurring 10, 1,000 and 20,000 times. Each topic has a low-frequency contrary
-account, repeated forwards and a missing timestamp. The test verifies totals,
-coverage, retrieval and attribution of both times. It records elapsed time,
-SQL query counts, rows read, buffer activity, model calls and prompt bytes.
-The default deterministic answer fixture can cite only records the worker supplies.
-On the 20,000-match topic it also checks both deeper-review estimates, worker
-interruption, an approved two-request limit and resuming the outstanding work.
-
-```sh
-PANDECT_QUALIFY_DENSE_CHAT=1 uv run --locked --env-file .env python manage.py test \
-  core.evidence_chat.dense_qualification --settings=config.test_settings --noinput
-```
-
-Add `PANDECT_QUALIFY_DENSE_CHAT_LIVE=1` to use the pinned loopback Ollama
-and measure provider-reported tokens with the same questions and citations.
-Deeper-review generation stays mocked so interruption and resumption are reproducible.
+Use synthetic evidence, a disposable PostgreSQL database and an isolated search
+namespace. Exercise two cases, revoked access, duplicate remote acknowledgements,
+conflicting statements, an unsupported conclusion and an exact passage in a long
+transcript. Compare a fresh installation and an upgrade with saved citations.
+See [the Agent integration](cloudflare-agent.md) and [search lifecycle](cloudflare-search.md).
 
 ## Browser checks
 
@@ -289,55 +254,13 @@ To reproduce the findings resource benchmark and populated-database backfill che
 uv run --locked --env-file .env python manage.py test core.analysis.tests.test_catalogue_bounds core.analysis.tests.test_catalogue_migrations --settings=config.test_settings --noinput
 ```
 
-For case-search qualification, configure the four
-[private embedding settings](local-analysis.md#private-case-search-embeddings)
-for an operator-controlled model reachable from the test process. Run
-`uv run --locked --env-file .env python manage.py test core.case_search.qualification --settings=config.test_settings --noinput`.
-This opt-in suite uses a disposable Django database. It checks keyword and
-semantic retrieval on paraphrases, distractors and unrelated queries, and
-times the real worker on the small corpus. It measures exact UUID lookup,
-selective and high-frequency keyword matches, live suggestions, spelling
-correction and the complete case-search response with private query embedding. The large fixture contains 250,000
-independent records with repeated synthetic filler text and its matching vector.
-It measures retrieval and database footprint separately from model throughput.
-Set `PANDECT_QUALIFY_PASSAGES` to vary the scale.
+### Hosted search and inference
 
-### Hosted meaning search
-
-With the gateway and its stored OpenAI key alias configured, run the following
-opt-in check from the application environment. It creates a disposable test
-database, approves a synthetic case, indexes its generated evidence and posts
-queries through the ordinary results page. It makes billable embedding
-requests and checks linked excerpts, retrieval, unsupported queries and usage.
-Routine tests use mocked inference.
-
-```sh
-uv run --locked --env-file .env python manage.py test core.case_search.hosted_qualification --settings=config.test_settings --noinput
-```
-
-Parser tests use bounded child processes with synthetic documents, images, audio,
-geographic data, and local printed OCR. Host checks require
-[Tesseract and English data](development.md#run-python-on-the-host). Routine tests
-mock inference, geographic HTTP, and tiles; they do not establish general
-recognition/model accuracy, physical location accuracy, or live coverage.
-
-## Local inference validation
-
-`make check` includes local inference boundary checks using synthetic model bytes
-and temporary loopback listeners, without Whisper/Qwen weights. Run them with:
-
-```sh
-uv run --locked python -m unittest inference.test_server
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_local_inference core.analysis.tests.test_ollama core.analysis.tests.test_execution config.tests.test_settings --noinput
-```
-
-Optional runtime build check:
-`docker compose --profile local-ai build local-transcription`.
-Builds do not provision models or prove quality. After provisioning reviewed
-artifacts, follow [local qualification](local-analysis.md#qualification-and-recovery).
-Record actual output, latency, and peak memory separately from mocked tests/builds;
-block third-party egress while permitting private services. Never use public map
-capacity in routine tests.
+Routine tests mock Cloudflare and use PostgreSQL. A provider qualification must
+use disposable case instances and generated evidence. Verify OCR page and region
+anchors and recording timestamps against the fixture originals. Exercise an
+approved external model and Workers AI separately and record their actual
+routing, usage and citation outcomes.
 
 ## GitHub Actions
 
@@ -480,9 +403,8 @@ of five open PRs per ecosystem. Native uv updates maintain both `pyproject.toml`
 and `uv.lock`, including the development group. Docker discovers the Dockerfile
 and Compose images. Python image updates are excluded because the exact Python
 pin, compatibility range, lockfile, and image must be upgraded together. The
-major-update ignore rule matches `postgres`. The current Compose image is
-`pgvector/pgvector`, so review the PostgreSQL variant in its tag separately
-and plan any PostgreSQL major upgrade before accepting an image update.
+major-update ignore rule matches `postgres`. Compose pins the official PostgreSQL image and its manifest.
+Plan a data migration before accepting a PostgreSQL major upgrade.
 Security updates follow GitHub's separate settings; these groups do not opt into
 grouping security updates.
 

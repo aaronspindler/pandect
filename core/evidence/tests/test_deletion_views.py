@@ -15,7 +15,6 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
-from core.case_search.parent_index import index_parent
 from core.evidence import deletion
 from core.evidence.types import CALL_KINDS, KINDS
 from core.models import (
@@ -604,7 +603,7 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         self.assertContains(second, "What will be removed has changed", status_code=409)
         self.assertEqual(second.context["deletion_page"].number, 1)
 
-    def test_search_outline_publication_restarts_paginated_review(self):
+    def test_analysis_publication_restarts_paginated_review(self):
         source = self.create_evidence(body="Synthetic retained source. " * 100)
         AnalysisRun.objects.bulk_create(
             AnalysisRun(
@@ -621,8 +620,12 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         self.assertEqual(first.context["deletion_page"].paginator.count, 56)
 
         def publish_before_cache_lookup(*args):
-            index_parent.call(
-                str(self.case.pk), str(self.editor.pk), "text", str(source.pk)
+            AnalysisRun.objects.create(
+                case=self.case,
+                requested_by=self.editor,
+                operation="entities",
+                method_version="1",
+                inputs=[{"kind": "text", "evidence_id": str(source.pk)}],
             )
             return deletion.load_deletion_review(*args)
 

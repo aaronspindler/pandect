@@ -30,6 +30,7 @@ RESULT_VIEWS = {
             "copied_text",
             "text_topics",
             "content_events",
+            "narrative_relationships",
             "claim_comparison",
             "question_synthesis",
         ),

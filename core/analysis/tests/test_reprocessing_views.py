@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from cases.models import Case, CaseMembership
+from cases.models import CaseMembership
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisRun, CaseAnalysisBatch
@@ -141,19 +141,7 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
             requested_by=self.users["editor"],
             submission_id=next_payload["submission_id"],
         )
-        self.assertNotIn("content_events:gateway", second_batch.scope["executions"])
-
-        self.case.ai_backend = Case.AIBackend.GATEWAY
-        self.case.save(update_fields=("ai_backend",))
-        external_payload = self.selection("editor", evidence_types=["text"])
-        self.assertEqual(
-            self.client.post(self.reprocess_url(), external_payload).status_code, 302
-        )
-        batch = CaseAnalysisBatch.objects.get(
-            case=self.case,
-            requested_by=self.users["editor"],
-            submission_id=external_payload["submission_id"],
-        )
+        batch = second_batch
         self.assertEqual(
             batch.scope["executions"]["content_events:gateway"],
             approval["approved_execution"],

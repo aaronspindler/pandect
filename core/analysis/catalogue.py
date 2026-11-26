@@ -28,8 +28,8 @@ from core.analysis.projection import finding_values, is_timing_only
 from core.analysis.published import SUCCESSFUL, latest_successful_run_id
 from core.analysis.ranking import rank_findings
 from core.analysis.review_signals import classify_review_signal_v1
+from core.case_search.discovery import discover
 from core.evidence.queries import person_evidence, scoped_evidence
-from core.evidence.search import content_excerpt
 from core.evidence.types import KIND_LABELS, KINDS
 from core.models import (
     AnalysisFinding,
@@ -305,8 +305,8 @@ def finding_queryset(case, filters, *, person=None, labels=None):
         )
     if filters.get("weak") != "1":
         queryset = queryset.exclude(TIMING_ONLY_FINDINGS)
-    if query := filters.get("q"):
-        queryset = queryset.filter(search_text__icontains=query)
+    if filters.get("q"):
+        queryset = queryset.filter(pk__in=filters.get("finding_ids", ()))
     if method := filters.get("method"):
         queryset = queryset.filter(result__run__operation=method)
     if labels is not None:
@@ -520,10 +520,13 @@ def catalogue_page(
     page_parameter="page",
     labels=None,
     return_to_list=False,
+    actor=None,
 ):
     form = CatalogueForm(params, case=case)
     valid = form.is_valid()
     filters = form.cleaned_data if valid else {}
+    results = discover(case, actor, filters.get("q"), kind="finding")
+    filters["finding_ids"] = results.findings
     all_findings = (
         finding_queryset(case, filters | {"weak": "1"}, person=person, labels=labels)
         if valid
@@ -541,9 +544,7 @@ def catalogue_page(
     if filters.get("evidence"):
         queryset = rank_findings(queryset, case)
     queryset = queryset.annotate(
-        excerpt=content_excerpt("search_text", filters["q"])
-        if filters.get("q")
-        else F("preview"),
+        excerpt=F("preview"),
         run_id=F("result__run_id"),
     ).only("id", "case_id", "result_id", "item_index", "label", "weak", "preview")
     page = Paginator(queryset, PER_PAGE).get_page(params.get(page_parameter))
@@ -557,6 +558,10 @@ def catalogue_page(
     page.object_list = finding_rows(
         case, page.object_list, show_weak=show_timing_only, navigation=navigation
     )
+    if results.findings:
+        for row in page.object_list:
+            if not row["unavailable"]:
+                row["excerpt"] = results.findings.get(str(row["id"]), row["excerpt"])
     prefix = "?" + urlencode(query) + ("&" if query else "") + page_parameter + "="
     visibility_query = query.copy()
     if show_timing_only:
@@ -582,6 +587,7 @@ def catalogue_page(
         "page_obj": page,
         "rows": page.object_list,
         "timing_only_count": timing_only_count,
+        "search_notice": results.notice,
         "show_timing_only": show_timing_only,
         "timing_visibility_url": "?" + urlencode(visibility_query),
         "previous_url": prefix + str(page.previous_page_number())

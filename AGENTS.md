@@ -117,7 +117,7 @@ runtime pins, and migration details.
 
 ## Processing and AI
 
-Follow [analysis](docs/analysis.md), [local inference](docs/local-analysis.md), and
+Follow [analysis](docs/analysis.md), [hosted search](docs/cloudflare-search.md), and
 [background tasks](docs/background-tasks.md) for supported profiles and procedures.
 
 - Run lengthy ingestion/analysis in background jobs with visible progress, bounded
@@ -126,16 +126,16 @@ Follow [analysis](docs/analysis.md), [local inference](docs/local-analysis.md), 
   neither case authorization, automatic retries, nor stale-task recovery.
 - Queue applicable analysis for newly retained evidence, call additions and
   newly published CSV rows. Run deterministic checks once and use only the
-  case's selected, eligible AI backend for each model check. Compare with
+  case's approved Cloudflare model route for each model check. Compare with
   bounded relevant active case history and retain exact coverage and provenance.
   Keep methods requiring investigator-defined context and import interpretation
   deliberate. Vehicle imports require explicit timezone/vehicle interpretation
   and source-row provenance.
-- Keep OCR local in the bounded Tesseract worker parser, with no remote fallback.
-  Use explicitly configured operator-controlled local/private-LAN runtimes
-  through the shared backend. Pin model artifacts and
-  runtime identities, retain execution provenance, and fail recoverably on drift. Bound
-  inference separately from file parsers; never silently fall back to cloud.
+- Use Cloudflare AI Search for investigative search and one private instance per
+  enabled case. Use the Cloudflare Agent for Case Chat and approved Workers AI
+  or AI Gateway model routes for inference, including OCR and transcription.
+  Preserve original page, region, time and source-version anchors. Keep deterministic
+  intake, integrity verification and access to saved records available with AI off.
 - External AI and geographic lookups require case-owner approval of the configured
   destinations in Case Settings. Recheck approval and exact execution settings
   before each outbound request. Keep credentials server-side and outside source control.

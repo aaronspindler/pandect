@@ -148,10 +148,8 @@ class SourceClockTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(info["source_zone"], "UTC")
         self.assertContains(unplaced, "01 Nov 2026")
 
-        collection = self.client.get(
-            self.url("list"), {"type": "text-message", "q": "Only a day"}
-        )
-        row = collection.context["rows"][0]
+        collection = self.client.get(self.url("list"), {"type": "text-message"})
+        row = next(row for row in collection.context["rows"] if row["id"] == message.pk)
         self.assertTrue(row["time_date_only"])
         self.assertEqual(row["time_value"].isoformat(), raw)
         self.assertContains(collection, 'datetime="2026-11-01"')

@@ -73,6 +73,7 @@ def _source_choices(
     evidence=None,
     cursor="",
     reverse=False,
+    matched=None,
     inclusive=False,
     extractions_by_kind=EXTRACTIONS_BY_KIND,
 ):
@@ -113,7 +114,7 @@ def _source_choices(
         if evidence is not None:
             queryset = queryset.filter(pk=evidence[1].pk)
         if query:
-            queryset = queryset.filter(title__icontains=query)
+            queryset = queryset.filter(pk__in=(matched or {}).get(kind, ()))
         if kind in CALL_KINDS and operation in CALL_RECORDING_OPERATIONS:
             parent = "phone_call" if kind == "phone-call" else "facetime"
             audio = CallEvidenceAttachment.objects.filter(
@@ -315,6 +316,7 @@ def _source_choice_page(
     evidence=None,
     page=1,
     selected=(),
+    matched=None,
     cursor="",
     reverse=False,
     extractions_by_kind=EXTRACTIONS_BY_KIND,
@@ -325,6 +327,7 @@ def _source_choice_page(
                 case,
                 operation,
                 query,
+                matched=matched,
                 evidence=evidence,
                 cursor=cursor,
                 reverse=reverse,
@@ -408,6 +411,7 @@ class BaseAnalysisForm(forms.Form):
         case,
         operation,
         query="",
+        actor=None,
         evidence=None,
         sources_page=1,
         sources_cursor="",
@@ -444,11 +448,16 @@ class BaseAnalysisForm(forms.Form):
         )
         self.sources_cursor = sources_cursor
         self.sources_reverse = sources_reverse
+        from core.case_search.discovery import discover
+
+        results = discover(case, actor, query)
+        self.search_notice = results.notice
         self.source_page, retained = _source_choice_page(
             case,
             operation,
             query,
             evidence=evidence,
+            matched=results.evidence,
             page=sources_page,
             cursor=sources_cursor,
             reverse=sources_reverse,

@@ -230,7 +230,7 @@ def cited_model_analysis(
         )
     if infer is None:
         return output(
-            "Model analysis needs a configured local or external AI runtime.",
+            "Model analysis needs an approved Cloudflare AI Gateway destination.",
             outcome="unsupported",
         )
     characters = sum(len(s.text) for s in usable)
@@ -508,8 +508,7 @@ def text_topics(sources, parameters, *, infer=None):
         if (
             not observed
             or not observed["items"]
-            or not error.code.startswith(("local_ai_", "gateway_"))
-            or error.code == "local_ai_model_changed"
+            or not error.code.startswith("gateway_")
         ):
             raise
         result = output(

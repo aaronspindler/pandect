@@ -11,10 +11,7 @@ from django.utils import timezone
 from core.analysis.errors import AnalysisError
 from core.models import ChatTurn
 
-from . import engine
-from .answer_jobs import finish_answer, refine_answer, start_answer
-from .checkpoints import authorize_turn
-from .full_review import freeze_review, review_batch, verify_batch
+from .hosted_agent import dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -30,52 +27,10 @@ def _claim(turn_id, token):
     if turn is not None:
         turn.delivery_token = uuid4()
         turn.status = "running"
-        turn.started_at = turn.started_at or timezone.now()
-        turn.save(update_fields=("delivery_token", "status", "started_at"))
+        turn.started_at = turn.started_at or turn.created_at
+        turn.plan.pop("agent_decision", None)
+        turn.save(update_fields=("delivery_token", "status", "started_at", "plan"))
     return turn
-
-
-def _run_stage(turn):
-    try:
-        authorize_turn(turn, review=turn.plan.get("stage") == "review")
-        if turn.plan.get("stage") == "prepare_deeper_review" and turn.review_of_id:
-            freeze_review(turn, turn.question, {}, narrative=True)
-        elif turn.plan.get("stage") == "approved_extraction":
-            from .proposals import finish_continuation
-
-            finish_continuation(turn)
-        elif turn.plan.get("stage") == "verify":
-            verify_batch(turn)
-        elif turn.plan.get("stage") == "review":
-            if (
-                turn.review_of_id
-                and turn.review_requests >= turn.plan["deep_scope"]["limit"]
-            ):
-                raise AnalysisError("chat_deeper_review_limit")
-            review_batch(turn)
-        elif turn.plan.get("stage") == "refine":
-            refine_answer(turn)
-        else:
-            start_answer(turn)
-    except AnalysisError as error:
-        if error.code == "chat_deeper_review_limit" and turn.review_of_id:
-            from .deep_review import finish_at_limit
-
-            finish_at_limit(turn)
-            return
-        if error.code != "chat_budget_exhausted" or turn.mode == "full":
-            raise
-        # A direct query or linked extraction can hit its limit before producing
-        # any verified claims. Discard unverified selection and proposal state.
-        turn.plan.pop("recorded_selection", None)
-        turn.plan.pop("proposed_extraction", None)
-        finish_answer(
-            turn,
-            engine.empty_answer(
-                "Processing limit reached before this question could be verified."
-            ),
-            [],
-        )
 
 
 def process_turn(turn_id, token):
@@ -84,7 +39,7 @@ def process_turn(turn_id, token):
         return
     active_token = turn.delivery_token
     try:
-        _run_stage(turn)
+        dispatch(turn)
     except Http404, PermissionDenied:
         _fail(turn, active_token, "access_removed")
     except AnalysisError as error:

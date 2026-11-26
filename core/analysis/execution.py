@@ -1,4 +1,4 @@
-"""Snapshot concrete execution routes without equating HTTP with cloud use."""
+"""Pin approved Cloudflare inference routes and geographic service destinations."""
 
 import json
 from urllib.parse import urlsplit
@@ -32,25 +32,19 @@ OPENAI_TEXT_MODELS = {
     "conversation_link": "gpt-6.1-terra",
     "question_synthesis": "gpt-6.2-sol",
     "evidence_chat": "gpt-6.2-sol",
-}
-
-DIRECT_AI_ENDPOINTS = {
-    "openai-direct": ("openai", "responses", "https://api.openai.com/v1/responses"),
-    "anthropic-direct": (
-        "anthropic",
-        "messages",
-        "https://api.anthropic.com/v1/messages",
-    ),
+    "claim_comparison": "gpt-6.2-sol",
+    "narrative_relationships": "gpt-6-luna",
 }
 
 INFERENCE_OPERATIONS = (
-    *(
-        name
-        for name, spec in OPERATIONS.items()
-        if spec.inference and not spec.private_inference
-    ),
+    *(name for name, spec in OPERATIONS.items() if spec.inference),
     "evidence_chat",
 )
+
+
+def inference_purpose(operation):
+    spec = OPERATIONS.get(operation)
+    return spec.inference if spec and spec.inference else "text"
 
 
 def gateway_execution(purpose, operation, *, case=None):
@@ -102,26 +96,6 @@ def _default_gateway_execution(purpose, operation):
         key: config.get(key)
         for key in ("timeout", "max_request_bytes", "max_response_bytes")
     }
-    if provider in DIRECT_AI_ENDPOINTS:
-        provider, api, url = DIRECT_AI_ENDPOINTS[provider]
-        execution = limits | {
-            "provider": provider,
-            "api": api,
-            "url": url,
-            "adapter_version": "direct-1",
-            "model": settings.PANDECT_DIRECT_AI.get(f"{provider}_model", ""),
-            "timeout": 300,
-        }
-        if provider == "openai":
-            execution["inference_settings"] = {
-                "store": False,
-                "max_output_tokens": 32768,
-                "text": {"format": {"type": "json_object"}},
-            }
-        else:
-            execution["api_version"] = "2023-06-01"
-            execution["inference_settings"] = {"max_tokens": 8192}
-        return execution
     execution = {
         "provider": provider,
         "api": "responses" if provider == "openai" else "workers-ai",
@@ -131,6 +105,14 @@ def _default_gateway_execution(purpose, operation):
         "model": config.get("models", {}).get(purpose, ""),
         **limits,
     }
+    if purpose == "vision":
+        return execution | {
+            "provider": "openai",
+            "api": "responses",
+            "model": config.get("models", {}).get("vision", "gpt-4.1-mini"),
+            "key_alias": config.get("openai_key_alias", "default"),
+            "inference_settings": {"store": False, "max_output_tokens": 4096},
+        }
     if provider == "openai":
         if execution["model"] == "auto":
             execution["model"] = OPENAI_TEXT_MODELS.get(operation, "")
@@ -175,6 +157,8 @@ def _installation_models(purpose, execution):
 
 
 def _installation_provider(operation):
+    if inference_purpose(operation) == "vision":
+        return "openai"
     if operation == "transcription":
         return "workers-ai"
     return settings.PANDECT_AI_GATEWAY.get("text_provider", "workers-ai")
@@ -182,7 +166,7 @@ def _installation_provider(operation):
 
 def pin_model_choice(operation, value):
     """Persist the configured route for the original provider's custom IDs."""
-    purpose = "transcription" if operation == "transcription" else "text"
+    purpose = inference_purpose(operation)
     default = _default_gateway_execution(purpose, operation)
     if value and value in _installation_models(purpose, default):
         return f"{_installation_provider(operation)}:{value}"
@@ -194,7 +178,7 @@ def model_form_value(operation, saved, *, case):
     current = _installation_provider(operation)
     if ":" in saved:
         provider, model = saved.split(":", 1)
-        purpose = "transcription" if operation == "transcription" else "text"
+        purpose = inference_purpose(operation)
         if provider == current and model in _installation_models(
             purpose, _default_gateway_execution(purpose, operation)
         ):
@@ -215,7 +199,7 @@ def external_model_options(operation):
 
     if operation not in INFERENCE_OPERATIONS:
         return ()
-    purpose = "transcription" if operation == "transcription" else "text"
+    purpose = inference_purpose(operation)
     default = _default_gateway_execution(purpose, operation)
     rows = []
     covered = set()
@@ -229,10 +213,7 @@ def external_model_options(operation):
             continue
         record = MODELS.get(canonical)
         group = model_group(canonical, provider)
-        if default.get("url"):
-            group += " (direct)"
-        else:
-            covered.add(canonical)
+        covered.add(canonical)
         rows.append(
             {
                 "value": model,
@@ -297,17 +278,11 @@ def execution_destination(execution):
 
 def inference_configured(execution):
     """Check the current settings without contacting the processing service."""
-    if execution["backend"] == "gateway":
-        from core.analysis.gateway import gateway_route_configured
+    from core.analysis.gateway import gateway_route_configured
 
-        return gateway_route_configured(execution["purpose"], execution)
-    from core.analysis.local import validate_local_configuration
-
-    try:
-        validate_local_configuration(execution)
-    except AnalysisError:
-        return False
-    return True
+    return execution["backend"] == "gateway" and gateway_route_configured(
+        execution["purpose"], execution
+    )
 
 
 def execution_confirmation(salt, scope, execution):
@@ -329,13 +304,13 @@ def requires_inference(operation, parameters):
     return spec.inference
 
 
-def processing_external(operation, parameters, backend="local"):
+def processing_external(operation, parameters, backend="gateway"):
     if requires_inference(operation, parameters):
-        if backend not in {"local", "gateway"}:
-            raise ValidationError("Choose local or external AI processing.")
-        if operation not in INFERENCE_OPERATIONS and backend != "local":
-            raise ValidationError("Claim comparison uses private processing.")
-        return backend == "gateway"
+        if backend != "gateway":
+            raise ValidationError(
+                "AI analysis requires an approved Cloudflare AI Gateway destination."
+            )
+        return True
     if operation in GEOGRAPHIC:
         prefix, _ = GEOGRAPHIC[operation]
         return not getattr(settings, f"PANDECT_{prefix}_LOCAL", False)
@@ -346,61 +321,15 @@ def snapshot_execution(operation, parameters, *, case=None):
     """Only network-backed operations need a route, never a credential snapshot."""
     purpose = requires_inference(operation, parameters)
     if purpose:
-        backend = parameters.get("backend", "local")
-        external = processing_external(operation, parameters, backend)
-        common = {
-            "backend": backend,
-            "purpose": purpose,
-            "location": "external" if external else "local",
-            "adapter_version": "2",
-        }
-        if backend == "gateway":
-            return common | gateway_execution(purpose, operation, case=case)
-        config = getattr(settings, "PANDECT_LOCAL_AI", {})
-        if purpose == "text":
-            common["driver"] = "ollama"
-            common["adapter_version"] = "ollama-1"
-        # Fixed decoding choices are part of the retained method too. Bump the
-        # adapter version when changing request construction or interpretation.
-        common["inference_settings"] = (
-            {
-                "temperature": 0,
-                "think": False,
-                "truncate": False,
-                "shift": False,
-                "keep_alive": 0,
-                "context_bound": "rendered_utf8_bytes+8",
-            }
-            if purpose == "text"
-            else {
-                "language": "en",
-                "task": "transcribe",
-                "temperature": 0,
-                "temperature_inc": 0,
-                "vad_filter": False,
-                "condition_on_previous_text": False,
-            }
-        )
+        processing_external(operation, parameters, parameters.get("backend", "gateway"))
         return (
-            common
-            | {
-                key: config.get(purpose, {}).get(key, "")
-                for key in ("url", "model", "sha256", "runtime")
+            {
+                "backend": "gateway",
+                "purpose": purpose,
+                "location": "external",
             }
-            | {
-                key: config.get(key)
-                for key in (
-                    "timeout",
-                    "max_request_bytes",
-                    "max_response_bytes",
-                    "max_output_tokens",
-                )
-            }
-            | (
-                {"context_tokens": config.get("text", {}).get("context_tokens")}
-                if purpose == "text"
-                else {}
-            )
+            | gateway_execution(purpose, operation, case=case)
+            | ({"case_ai_revision": str(case.external_ai_revision)} if case else {})
         )
     if operation in GEOGRAPHIC:
         prefix, purpose = GEOGRAPHIC[operation]
@@ -421,17 +350,10 @@ def snapshot_execution(operation, parameters, *, case=None):
 def configured_executions(operation, parameters, *, case=None):
     """Resolve configured routes without contacting an inference or map service."""
     if requires_inference(operation, parameters):
-        routes = {}
-        backends = (
-            ("local", "gateway") if operation in INFERENCE_OPERATIONS else ("local",)
+        execution = snapshot_execution(
+            operation, parameters | {"backend": "gateway"}, case=case
         )
-        for backend in backends:
-            execution = snapshot_execution(
-                operation, parameters | {"backend": backend}, case=case
-            )
-            if inference_configured(execution):
-                routes[backend] = execution
-        return routes
+        return {"gateway": execution} if inference_configured(execution) else {}
     if operation not in GEOGRAPHIC:
         return {"local": None}
 
@@ -476,10 +398,12 @@ def available_executions(case, operation, parameters):
 
 
 def selected_ai_executions(case, operation, parameters):
-    """Use the case's selected AI backend only if it can run this method."""
-    available = available_executions(case, operation, parameters)
-    backend = case.ai_backend
-    return {backend: available[backend]} if backend in available else {}
+    """Resolve this method against the enabled case’s approved model routes."""
+    return (
+        available_executions(case, operation, parameters)
+        if case.external_ai_enabled
+        else {}
+    )
 
 
 def transfer_scope(operation, execution):
@@ -489,11 +413,9 @@ def transfer_scope(operation, execution):
     if operation not in INFERENCE_OPERATIONS or execution.get("backend") != "gateway":
         return None
     provider = execution["provider"]
-    default_billing = (
-        "direct"
-        if execution.get("url")
-        else ("workers-ai" if provider == "workers-ai" else "byok")
-    )
+    if execution.get("url"):
+        return None
+    default_billing = "workers-ai" if provider == "workers-ai" else "byok"
     return {
         "disclosure": 1,
         "purpose": execution["purpose"],
@@ -512,6 +434,7 @@ def case_execution_grants(case, operation, execution):
     approval = case.external_analysis_approval
     if (
         not execution
+        or (operation not in GEOGRAPHIC and not case.external_ai_enabled)
         or execution["location"] != "external"
         or approval.get("approved_by") != str(case.owner_id)
     ):
@@ -558,11 +481,11 @@ def validate_execution(run, case):
     """Old runs keep their old route; new work cannot drift after queueing."""
     execution = run.parameters.get("_execution")
     purpose = requires_inference(run.operation, run.parameters)
-    if (
-        execution is None
-        and run.external_processing
-        and purpose
-        and gateway_execution(purpose, run.operation)["provider"] != "workers-ai"
+    if purpose and (
+        not run.external_processing
+        or not execution
+        or execution.get("backend") != "gateway"
+        or execution.get("url")
     ):
         raise AnalysisError("execution_changed")
     if execution is not None and execution != snapshot_execution(

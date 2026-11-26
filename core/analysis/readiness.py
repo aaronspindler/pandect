@@ -62,18 +62,12 @@ def configuration_readiness(operation, parameters=None, *, case=None):
         parameters = {"include_summary": True, "semantic_links": True}
     configured = configured_executions(operation, parameters, case=case)
     if not configured:
-        if operation == "claim_comparison":
-            return "Configure private text analysis to compare claims."
         return "A service for this analysis is not configured."
     if case is None:
         return ""
-    available = available_executions(case, operation, parameters)
-    if operation != "claim_comparison" and requires_inference(operation, parameters):
-        if case.ai_backend not in configured:
-            return "The case's selected AI backend is unavailable for this method."
-        ready = case.ai_backend in available
-    else:
-        ready = bool(available)
+    if requires_inference(operation, parameters) and not case.external_ai_enabled:
+        return "Enable external AI in Case settings to run this analysis."
+    ready = available_executions(case, operation, parameters)
     if ready:
         return ""
     return "This analysis needs a destination approved in Case settings."

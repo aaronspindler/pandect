@@ -4,6 +4,7 @@
 {% block content %}
 <div class="page-header">
   <h1>All cases</h1>
+  <a class="button button-secondary" href="{% url 'cases:search_evidence' %}">Search evidence across cases</a>
   {% if page_obj.object_list or query or ownership != 'all' %}<a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>{% endif %}
 </div>
 {% if page_obj.object_list or query or ownership != 'all' %}

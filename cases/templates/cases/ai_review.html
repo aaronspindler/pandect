@@ -6,6 +6,8 @@
 <div class="form-layout ai-review">
   <header class="page-header"><div><h1>Review external AI destinations</h1></div></header>
   <p>Allow the following providers to receive the listed material for this case. You can then switch between models using the same approved destination and data.</p>
+  <p>Cloudflare AI Search stores searchable copies in a private instance for this case. These include active evidence passages and source descriptions, retained findings and reports, people and their contact details, reported social accounts, vehicles, places of interest, and investigator notes. Case Chat sends the question, relevant passages and findings to the Cloudflare Agent and its approved model. Disabling external AI stops new transfers and schedules removal of the hosted index.</p>
+  <dl class="metadata-grid"><div><dt>Search account and namespace</dt><dd>{{ hosting.hosted_search.account|default:"Unconfigured" }} / {{ hosting.hosted_search.namespace }}</dd></div><div><dt>Investigation Agent</dt><dd>{{ hosting.agent_url|default:"Unconfigured" }}</dd></div></dl>
   <form method="post" action="{% url 'cases:case_ai_settings' case.pk %}">
     {% csrf_token %}
     {% for name,value in proposal %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}

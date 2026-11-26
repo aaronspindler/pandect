@@ -6,15 +6,17 @@ from unittest.mock import patch
 
 from allauth.account.models import EmailAddress
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
-from core.analysis.testing import local_ocr_response
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_openai_gateway import OPENAI
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.parsers import MAX_BYTES
 from core.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence
@@ -133,6 +135,17 @@ class ImagePreviewTests(EvidenceViewTestMixin, TestCase):
         for _ in range(25):
             self.image()
         self.text()
+        self.enterContext(
+            indexed(
+                self.case,
+                [
+                    ("original", "image", key)
+                    for key in ImageEvidence.objects.filter(case=self.case).values_list(
+                        "pk", flat=True
+                    )
+                ],
+            )
+        )
         self.login("viewer")
         filters = {"type": "image", "view": "gallery", "page": 2, "q": "harbour"}
         gallery = self.client.get(self.url("list"), filters)
@@ -157,6 +170,7 @@ class ImagePreviewTests(EvidenceViewTestMixin, TestCase):
             404,
         )
 
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
     def test_expanding_ocr_finding_loads_only_its_image_from_a_shared_run(self):
         first, second = self.image(), self.image(image_bytes(size=(90, 60)))
         run, _ = start_run(
@@ -164,12 +178,12 @@ class ImagePreviewTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "ocr",
             [{"kind": "image", "id": str(photo.pk)} for photo in (first, second)],
+            **external_grant_kwargs(self.case, "ocr"),
         )
-        replies = [
-            local_ocr_response(text=text)
-            for text in ("First reading", "Second reading")
-        ]
-        with patch("image.analysis.ai.run_parser", side_effect=replies):
+        with patch(
+            "core.analysis.gateway.GatewayClient.read_image",
+            side_effect=[("First reading", False), ("Second reading", False)],
+        ):
             process_run(run.pk)
         artifacts = {
             str(artifact.source_id): reverse(

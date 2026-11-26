@@ -14,6 +14,7 @@ from cases.models import CaseMembership
 from core.analysis.catalogue import project_result
 from core.analysis.operations import get_operation
 from core.analysis.source_selection import snapshot_sources
+from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, AnalysisRun
 from geo.models import PointOfInterest, VehicleLocationEvidence
 from geo.poi_forms import PointOfInterestForm
@@ -160,6 +161,7 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
         poi = PointOfInterest.objects.get(person=self.person)
         poi_url = reverse("geo:poi_detail", args=(self.case.pk, poi.pk), query=origin)
         self.assertRedirects(created, poi_url)
+        self.enterContext(indexed(self.case, [("record", "poi", poi.pk)]))
         selected_trip = self.client.get(trip_url)
         self.assertEqual(selected_trip.context["points"][0]["url"], poi_url)
         detail = self.client.get(poi_url)
@@ -601,6 +603,7 @@ class PersonPOIMapTests(MapCaseFixtures, TestCase):
             self.assertEqual(
                 "data-poi-create-url=" in response.content.decode(), user != self.viewer
             )
+        self.enterContext(indexed(self.case, [("record", "poi", self.poi.pk)]))
         for query in ("Synthetic person", "POI address", "POI citation"):
             self.assertEqual(
                 self.client.get(self.url, {"q": query})
@@ -616,6 +619,7 @@ class PersonPOIMapTests(MapCaseFixtures, TestCase):
         )
 
     def test_poi_pagination_and_polar_coordinates_remain_explicit(self):
+        self.poi.delete()
         PointOfInterest.objects.bulk_create(
             [
                 PointOfInterest(
@@ -629,12 +633,12 @@ class PersonPOIMapTests(MapCaseFixtures, TestCase):
             ]
         )
         self.client.force_login(self.viewer)
-        response = self.client.get(self.url, {"q": "work"})
+        response = self.client.get(self.url)
         self.assertEqual(len(response.context["poi_page"]), 100)
         self.assertEqual(response.context["poi_page"].paginator.count, 102)
         self.assertEqual(response.context["points"], [])
         self.assertContains(response, "Outside map display range")
-        second = self.client.get(self.url, {"q": "work", "poi_page": 2})
+        second = self.client.get(self.url, {"poi_page": 2})
         self.assertEqual(len(second.context["poi_page"]), 2)
         self.assertEqual(second.context["poi_page"][0].number, "P101")
 

@@ -1,17 +1,13 @@
 """Actual media decoding plus mocked, schema-checked inference responses."""
 
-import base64
 import io
 import json
-import random
-from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from core.analysis.errors import AnalysisError
 from core.analysis.testing import file_source, image_bytes
-from image.analysis.ai import ocr
 from image.analysis.metadata import image_metadata
 from image.testing import jpeg_bytes
 
@@ -123,63 +119,3 @@ class ImageAnalysisTests(SimpleTestCase):
             result = image_metadata([file_source(buffer.getvalue(), "image")], {})
             self.assertEqual(result["items"][0]["values"]["GPS candidate"], expected)
             self.assertTrue(any("GPSLatitude" in x["text"] for x in result["items"]))
-
-    def test_local_ocr_previews_use_recognized_pixels_and_keep_originals(self):
-        from core.analysis.testing import local_ocr_response
-
-        image = Image.new("RGBA", (2400, 1200), (255, 255, 255, 0))
-        ImageDraw.Draw(image).rectangle((240, 240, 1920, 480), fill="black")
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        source = file_source(buffer.getvalue(), "image")
-        parsed = local_ocr_response(content=buffer.getvalue())
-        authorize = Mock()
-        with patch("image.analysis.ai.run_parser", return_value=parsed) as parser:
-            result = ocr([source], {}, authorize=authorize)
-        parser.assert_called_once_with("ocr", buffer.getvalue())
-        self.assertEqual(authorize.call_count, 2)
-        artifact = result["artifacts"][0]
-        self.assertEqual(artifact["data_base64"], parsed["image"])
-        self.assertEqual((artifact["width"], artifact["height"]), (2048, 1024))
-        self.assertEqual(
-            result["items"][0]["anchors"][0]["region"], [0.1, 0.2, 0.8, 0.6]
-        )
-        with Image.open(
-            io.BytesIO(base64.b64decode(artifact["data_base64"]))
-        ) as preview:
-            self.assertEqual(preview.size, (2048, 1024))
-            self.assertFalse(preview.getexif())
-            self.assertGreater(preview.getpixel((10, 10))[0], 245)
-        self.assertEqual(source.item.file.storage.content, buffer.getvalue())
-
-    def test_ocr_preview_limit_keeps_text_and_original_inspection_available(self):
-        random_bytes = random.Random(7).randbytes(2048 * 2048 * 3)
-        image = Image.frombytes("RGB", (2048, 2048), random_bytes)
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        sources = [
-            file_source(image_bytes(), "image"),
-            file_source(buffer.getvalue(), "image"),
-            file_source(image_bytes(), "image"),
-        ]
-        from core.analysis.testing import local_ocr_response
-
-        replies = [
-            local_ocr_response(content=s.item.file.storage.content) for s in sources
-        ]
-        with patch("image.analysis.ai.run_parser", side_effect=replies):
-            result = ocr(sources, {}, authorize=Mock())
-        self.assertEqual(result["outcome"], "complete")
-        self.assertEqual(len(result["items"]), 3)
-        self.assertEqual(len(result["artifacts"]), 1)
-        self.assertEqual(result["artifacts"][0]["source_id"], sources[0].id)
-        self.assertLessEqual(
-            sum(len(base64.b64decode(x["data_base64"])) for x in result["artifacts"]),
-            2 * 1024 * 1024,
-        )
-        self.assertTrue(
-            any(
-                "2 MiB preview limit" in value and "originals" in value
-                for value in result["warnings"]
-            )
-        )

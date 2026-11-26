@@ -19,6 +19,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
+from core.case_search.tests.fixtures import indexed
 from core.evidence.types import FILE_KINDS, KIND_LABELS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -458,7 +459,8 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                 404,
             )
         self.login("owner")
-        response = self.client.get(self.url("list"), {"q": "Interview"})
+        with indexed(self.case, [("original", "text", item.pk)]):
+            response = self.client.get(self.url("list"), {"q": "Interview"})
         self.assertContains(response, "Interview notes")
         self.assertNotContains(response, "Other case")
         self.users["outsider"].is_superuser = True
@@ -775,10 +777,13 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(
             self.client.get(details_url), "Earlier investigator context"
         )
-        self.assertContains(
-            self.client.get(self.url("list"), {"q": "Earlier investigator context"}),
-            item.title,
-        )
+        with indexed(self.case, [("original", "text", item.pk)]):
+            self.assertContains(
+                self.client.get(
+                    self.url("list"), {"q": "Earlier investigator context"}
+                ),
+                item.title,
+            )
         self.login("outsider")
         self.assertEqual(self.client.get(details_url).status_code, 404)
 
@@ -1030,9 +1035,18 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                 body="x" * 250,
             )
         self.login("viewer")
-        response = self.client.get(
-            self.url("list"), {"q": "x" * 250, "unexpected": "discard"}
-        )
+        with indexed(
+            self.case,
+            [
+                ("original", "text", pk)
+                for pk in TextEvidence.objects.filter(case=self.case).values_list(
+                    "pk", flat=True
+                )
+            ],
+        ):
+            response = self.client.get(
+                self.url("list"), {"q": "x" * 250, "unexpected": "discard"}
+            )
         urls = [
             response.context["pagination"]["next"],
             response.context["rows"][0]["url"],

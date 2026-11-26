@@ -173,7 +173,25 @@ class TimingCatalogueTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(shown["rows"][0]["item_index"], 0)
 
     def test_hidden_count_uses_search_filters_and_toggle_resets_only_finding_page(self):
-        self.publish([timing_item(), timing_item(shared_words=["harbour"])])
+        from unittest.mock import patch
+
+        from core.case_search.discovery import Discovery
+
+        result = self.publish([timing_item(), timing_item(shared_words=["harbour"])])
+        self.enterContext(
+            patch(
+                "core.analysis.catalogue.discover",
+                side_effect=lambda case, actor, query, **kw: (
+                    Discovery(
+                        findings={
+                            str(obj.pk): "adjacency" for obj in result.findings.all()
+                        }
+                    )
+                    if query == "adjacency"
+                    else Discovery()
+                ),
+            )
+        )
         page = catalogue_page(
             self.case,
             QueryDict("method=conversation_link&q=adjacency&page=4&history=all"),

@@ -68,8 +68,6 @@ def _plan(case, kind, item, attachment_id):
     if kind == "image":
         return [
             ("image_metadata", selections, {}),
-            ("ocr", selections, {"automatic_followup": True}),
-            ("plate_ocr", selections, {}),
         ]
     if kind == "audio":
         return [("audio_metadata", selections, {})]

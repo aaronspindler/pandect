@@ -1,19 +1,12 @@
 """Select a bounded, repeatable set of prior turns in this case conversation."""
 
 import re
-from datetime import datetime
-from functools import partial, reduce
-from operator import or_
-
-from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import F
+from functools import partial
 
 from core.analysis.errors import AnalysisError
 from core.models import ChatSource, ChatTurn
-from core.models.chat import chat_topic_vector
 
-from .corpus_search import terms_for
-from .search_scope import preceding_review_clarification, review_restart_code
+from .search_scope import review_restart_code
 
 TURN_NUMBER = re.compile(r"\b(?:question|answer|reply|turn)\s*#?\s*(\d{1,8})\b", re.I)
 MAX_DEPENDENCIES = 32
@@ -22,19 +15,6 @@ CONTEXT_WORDS = frozenset(
     "first follow following happened last mentioned next previous previously question "
     "recall remember remind reply said same talked then turn yesterday".split()
 )
-
-
-def _earlier_match(rows, question):
-    words = terms_for(question, extra_stopwords=CONTEXT_WORDS)
-    if not words:
-        return None
-    query = reduce(or_, (SearchQuery(w, config="simple") for w in words))
-    return (
-        rows.alias(topics=chat_topic_vector())
-        .filter(topics=query)
-        .order_by(SearchRank(F("topics"), query).desc(), "-ordinal")
-        .first()
-    )
 
 
 def history_turns(turn, *, select):
@@ -54,10 +34,6 @@ def history_turns(turn, *, select):
         earlier = None
         if number := TURN_NUMBER.search(turn.question):
             earlier = rows.filter(ordinal=int(number[1])).first()
-        elif len(recent) == 3 and recent[0].ordinal > 1:
-            earlier = _earlier_match(
-                rows.filter(ordinal__lt=recent[0].ordinal), turn.question
-            )
         if earlier:
             others = [t for t in recent if t.pk != earlier.pk][-2:]
             recent = sorted([earlier, *others], key=lambda t: t.ordinal)
@@ -229,194 +205,3 @@ def reply_context(turn, *, hints=None):
     if history:
         turn.plan["history_sources_pinned"] = True
     return [history[ordinal] for ordinal in sorted(history)]
-
-
-def review_clarification(turn, history):
-    """Allow a reply to continue only the immediately preceding clarification."""
-    if not history or not history[-1]["reply_context"]:
-        return None
-    previous = preceding_review_clarification(turn)
-    if previous and (
-        history[-1]["question"] == previous.question[:300]
-        and history[-1]["reply_context"]
-        == previous.answer.get("clarification", "")[:400]
-    ):
-        return previous
-    return None
-
-
-def updated_materials(turn, previous, after, filters):
-    """Find later publications for the reports and possible trips the reply cited."""
-    from .analysis_reports import analysis_materials
-    from .reports import timing_materials
-    from .search_budget import reserve_lookup, timed_query
-    from .trips import trip_materials
-
-    keys = {
-        ref["key"]
-        for claim in previous.answer.get("claims", ())
-        for ref in claim["citations"]
-    }
-    if not 0 < len(keys) <= MAX_DEPENDENCIES:
-        return []
-    locators = previous.sources.filter(case=turn.case, key__in=keys).values_list(
-        "locator", flat=True
-    )
-    reports, trips = [], []
-    for locator in locators:
-        if locator["surface"] == "report":
-            reports.append(locator)
-        elif locator["surface"] == "trip":
-            trips.append(locator["pk"])
-    materials = []
-    if reports and not filters:
-        reserve_lookup(turn)
-        with timed_query():
-            timing = [loc for loc in reports if loc["kind"] == "comm_patterns"]
-            if timing:
-                materials.extend(
-                    timing_materials(
-                        turn.case, through=turn.started_at, after=after, sources=timing
-                    )
-                )
-            other = [loc for loc in reports if loc["kind"] != "comm_patterns"]
-            if other:
-                materials.extend(
-                    analysis_materials(
-                        turn.case,
-                        "",
-                        through=turn.started_at,
-                        after=after,
-                        sources=other,
-                        methods={loc["kind"] for loc in other},
-                    )
-                )
-    if trips:
-        reserve_lookup(turn)
-        with timed_query():
-            materials.extend(
-                trip_materials(
-                    turn.case,
-                    "recent",
-                    through=turn.started_at,
-                    after=after,
-                    source=None,
-                    filters=filters,
-                    prior_trips=trips,
-                )
-            )
-    return materials
-
-
-def compare_cited_events(turn, previous, order):
-    """Compare every cited original with a recorded occurrence or observation clock."""
-    from core.evidence.queries import scoped_evidence
-    from core.evidence.source_clocks import is_date_only_message
-    from core.evidence.types import COMMUNICATION_KINDS, LOCATION_KINDS
-
-    from . import corpus, engine
-    from .search_budget import timed_query
-    from .services import inspect_turn
-
-    if previous.mode != "ordinary":
-        return None
-    if inspect_turn(previous) is None:
-        return engine.empty_answer(
-            "The earlier answer’s cited sources changed and cannot be compared."
-        ), []
-    keys = {
-        ref["key"]
-        for claim in previous.answer.get("claims", ())
-        for ref in claim["citations"]
-    }
-    if not 0 < len(keys) <= MAX_DEPENDENCIES:
-        return None
-    sources = list(previous.sources.filter(case=turn.case, key__in=keys))
-    clocks, windows = [], []
-    undated = date_only = 0
-    selected = {}
-    for source in sources:
-        loc = source.locator
-        sample = corpus.read_window(turn.case, loc, 0, 1)
-        if sample is None:
-            return None
-        windows.append(engine.Window(loc, 0, sample["text"]))
-        kind = loc["kind"]
-        if loc["surface"] == "trip":
-            edge, field = (
-                ("First", "start_at") if order == "first" else ("Last", "end_at")
-            )
-            stamp = loc[field]
-            clocks.append(
-                (
-                    datetime.fromisoformat(stamp),
-                    f"{edge} observation (UTC): {stamp}",
-                    loc,
-                )
-            )
-        elif loc["surface"] == "original" and kind in (
-            *COMMUNICATION_KINDS,
-            *LOCATION_KINDS,
-        ):
-            selected.setdefault(kind, {})[source.evidence_id] = loc
-
-    with timed_query():
-        # At most 32 IDs across all types; each owning table resolves one batch.
-        for kind, locators in selected.items():
-            communication = kind in COMMUNICATION_KINDS
-            field = "occurred_at" if communication else "observed_at"
-            rows = scoped_evidence(turn.case, kind).filter(
-                is_archived=False, pk__in=locators
-            )
-            if kind == "text-message":
-                only_day = is_date_only_message(turn.case)
-                date_only += rows.filter(only_day).count()
-                rows = rows.exclude(only_day)
-            for key, when in rows.values_list("pk", field):
-                if when is None:
-                    undated += 1
-                    continue
-                label = (
-                    f"Occurred: {when}"
-                    if communication
-                    else f"Observed at: {when.isoformat()}"
-                )
-                clocks.append((when, label, locators[key]))
-    if not clocks and not selected:
-        return None
-    result = engine.empty_answer(
-        f"Compared recorded occurrence or observation times on {len(clocks)} of "
-        f"{len(sources)} sources cited in answer {previous.ordinal}. "
-        f"Only precise recorded times can establish the {order} occurrence."
-    )
-    if date_only:
-        result["summary"] += f" {date_only} cited messages give only a calendar date."
-    if undated:
-        result["summary"] += f" {undated} cited records have no recorded event time."
-    if not clocks:
-        return result, windows
-    extreme = (min if order == "first" else max)(when for when, _, _ in clocks)
-    for when, label, loc in clocks:
-        if when != extreme:
-            continue
-        # The generated field follows any free-text original body.
-        start = loc.get("metadata_start", 0)
-        row = corpus.read_window(turn.case, loc, start, corpus.MAX_WINDOW)
-        if not row or (at := ("\n" + row["text"] + "\n").find("\n" + label + "\n")) < 0:
-            return None
-        window = engine.Window(loc, start + at, label)
-        windows.append(window)
-        result["claims"].append(
-            {
-                "text": f"{loc['label']} · {label}",
-                "citations": [
-                    {
-                        "key": loc["key"],
-                        "start": window.start,
-                        "end": window.start + len(label),
-                        "quote": label,
-                    }
-                ],
-            }
-        )
-    return result, windows

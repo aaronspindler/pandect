@@ -148,7 +148,7 @@ class ClaimComparisonTests(SimpleTestCase):
         ):
             with (
                 self.subTest(row=row),
-                self.assertRaisesMessage(AnalysisError, "local_ai_invalid_response"),
+                self.assertRaisesMessage(AnalysisError, "gateway_invalid_response"),
             ):
                 compare_claim(
                     [
@@ -158,7 +158,7 @@ class ClaimComparisonTests(SimpleTestCase):
                     self.parameters,
                     infer=Mock(return_value={"items": [row]}),
                 )
-        with self.assertRaisesMessage(AnalysisError, "local_ai_invalid_response"):
+        with self.assertRaisesMessage(AnalysisError, "gateway_invalid_response"):
             compare_claim(
                 [self.claim, self.support],
                 self.parameters,
@@ -189,7 +189,7 @@ class ClaimComparisonTests(SimpleTestCase):
             validate_selection(
                 [self.claim, self.source("Archived", is_archived=True)], self.parameters
             )
-        with self.assertRaisesMessage(AnalysisError, "local_ai_not_configured"):
+        with self.assertRaisesMessage(AnalysisError, "gateway_not_configured"):
             compare_claim([self.claim, self.support], self.parameters)
 
     def test_saved_extraction_requires_correct_operation_and_segment(self):
@@ -219,7 +219,7 @@ class ClaimComparisonTests(SimpleTestCase):
                         [transcript, self.support],
                         {"claim": {"source_id": transcript.id, "start": 0, "end": 10}},
                     )
-            with self.assertRaisesMessage(AnalysisError, "local_ai_invalid_response"):
+            with self.assertRaisesMessage(AnalysisError, "gateway_invalid_response"):
                 compare_claim(
                     [self.claim, transcript],
                     self.parameters,

@@ -20,7 +20,12 @@ from core.analysis.services import start_run
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import selection
 from core.analysis.worker import process_run
-from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, CaseSearchIndex
+from core.models import (
+    AnalysisResult,
+    AnalysisRun,
+    CaseAnalysisBatch,
+    HostedSearchIndex,
+)
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import (
@@ -118,7 +123,8 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
     def test_readiness_requires_exact_extraction_without_parsing_on_get(self):
         document = self.document()
         with patch(
-            "core.analysis.local.build_opener", side_effect=AssertionError("No request")
+            "core.analysis.gateway.build_opener",
+            side_effect=AssertionError("No request"),
         ):
             form = analysis_form(case=self.case, operation="entities")
         original = f"document:{document.pk}"
@@ -427,15 +433,15 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         )
         for status in ("running", "complete", "failed", "cancelled"):
             InstagramCheck.objects.create(monitor=monitor, status=status)
-        CaseSearchIndex.objects.create(
-            case=self.case,
-            requested_by=owner,
-            profile="synthetic-index",
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
+        HostedSearchIndex.objects.create(
+            case_key=self.case.pk,
+            revision=self.case.external_ai_revision,
             status="ready",
         )
         self.login("viewer")
-        with patch("core.case_search.indexing.profile", return_value="synthetic-index"):
-            response = self.client.get(self.processing_url())
+        response = self.client.get(self.processing_url())
         self.assertEqual(
             {
                 item["label"]: item["count"]

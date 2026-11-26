@@ -10,6 +10,11 @@ from uuid import UUID
 from django.core.exceptions import ImproperlyConfigured
 from django.http.request import split_domain_port
 
+from config.cloudflare_agent import PANDECT_CLOUDFLARE_AGENT as PANDECT_CLOUDFLARE_AGENT
+from config.cloudflare_search import (
+    PANDECT_CLOUDFLARE_SEARCH as PANDECT_CLOUDFLARE_SEARCH,
+)
+from config.model_prices import model_prices
 from request_activity import capture_enabled
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -332,25 +337,7 @@ else:
         }
     }
 
-# A single direct key is enough to configure text inference. Explicit provider
-# configuration takes precedence, including on existing Gateway installations.
-PANDECT_DIRECT_AI = {
-    "openai_api_key": os.environ.get("OPENAI_API_KEY", "").strip(),
-    "anthropic_api_key": os.environ.get("ANTHROPIC_API_KEY", "").strip(),
-    "openai_model": os.environ.get("PANDECT_OPENAI_MODEL") or "gpt-6-luna",
-    "anthropic_model": os.environ.get("PANDECT_ANTHROPIC_MODEL") or "claude-haiku-5-5",
-}
-direct_text_providers = [
-    f"{provider}-direct"
-    for provider in ("openai", "anthropic")
-    if PANDECT_DIRECT_AI[f"{provider}_api_key"]
-]
-default_text_provider = "workers-ai"
-if len(direct_text_providers) == 1:
-    default_text_provider = direct_text_providers[0]
-elif direct_text_providers:
-    default_text_provider = ""
-
+PANDECT_AI_PRICES_USD_PER_MILLION = model_prices()
 PANDECT_AI_GATEWAY = {
     "account": os.environ.get("PANDECT_AI_ACCOUNT_ID", ""),
     "gateway": os.environ.get("PANDECT_AI_GATEWAY_ID", ""),
@@ -363,11 +350,11 @@ PANDECT_AI_GATEWAY = {
         for name in os.environ.get("PANDECT_AI_STORED_KEY_PROVIDERS", "").split(",")
         if name.strip()
     ),
-    "text_provider": os.environ.get("PANDECT_AI_TEXT_PROVIDER")
-    or default_text_provider,
+    "text_provider": os.environ.get("PANDECT_AI_TEXT_PROVIDER") or "workers-ai",
     "openai_key_alias": os.environ.get("PANDECT_AI_OPENAI_KEY_ALIAS", "default"),
     "models": {
         "text": os.environ.get("PANDECT_AI_TEXT_MODEL", "auto"),
+        "vision": os.environ.get("PANDECT_AI_VISION_MODEL") or "gpt-4.1-mini",
         "transcription": os.environ.get(
             "PANDECT_AI_TRANSCRIPTION_MODEL", "@cf/openai/whisper-large-v3-turbo"
         ),
@@ -386,54 +373,6 @@ PANDECT_AI_GATEWAY = {
     "timeout": 60,
     "max_request_bytes": 8 * 1024 * 1024,
     "max_response_bytes": 2 * 1024 * 1024,
-}
-# Only explicitly configured, operator-controlled runtimes are local. Their
-# model and runtime identities are checked before evidence is sent.
-PANDECT_LOCAL_AI = {
-    "text": {
-        "url": os.environ.get("PANDECT_LOCAL_TEXT_URL", ""),
-        "model": os.environ.get("PANDECT_LOCAL_TEXT_MODEL", "qwen3.5:9b"),
-        "sha256": os.environ.get("PANDECT_LOCAL_TEXT_SHA256", ""),
-        "runtime": os.environ.get("PANDECT_LOCAL_TEXT_RUNTIME", ""),
-        "context_tokens": 16384,
-    },
-    "transcription": {
-        "url": os.environ.get("PANDECT_LOCAL_TRANSCRIPTION_URL", ""),
-        "model": os.environ.get(
-            "PANDECT_LOCAL_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
-        ),
-        "sha256": os.environ.get("PANDECT_LOCAL_TRANSCRIPTION_SHA256", ""),
-        "runtime": os.environ.get(
-            "PANDECT_LOCAL_TRANSCRIPTION_RUNTIME",
-            "whisper.cpp@d1be6fde11ac6e0407606b4e42fe72d34add8037",
-        ),
-    },
-    "token": os.environ.get("PANDECT_LOCAL_AI_TOKEN", ""),
-    "timeout": 600,
-    "max_request_bytes": 8 * 1024 * 1024,
-    "max_response_bytes": 2 * 1024 * 1024,
-    "max_output_tokens": 4096,
-}
-PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE = os.environ.get(
-    "PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE", ""
-)
-PANDECT_SEARCH_EMBEDDING_PROVIDER = os.environ.get(
-    "PANDECT_SEARCH_EMBEDDING_PROVIDER", "local"
-)
-PANDECT_SEARCH_RERANK_PROVIDER = os.environ.get(
-    "PANDECT_SEARCH_RERANK_PROVIDER", "disabled"
-)
-PANDECT_LOCAL_RERANK = {
-    "url": os.environ.get("PANDECT_LOCAL_RERANK_URL", ""),
-    "revision": os.environ.get("PANDECT_LOCAL_RERANK_REVISION", ""),
-    "version": os.environ.get("PANDECT_LOCAL_RERANK_VERSION", ""),
-    "token": os.environ.get("PANDECT_LOCAL_RERANK_TOKEN", ""),
-}
-PANDECT_LOCAL_EMBEDDING = {
-    "url": os.environ.get("PANDECT_LOCAL_EMBEDDING_URL", ""),
-    "model": os.environ.get("PANDECT_LOCAL_EMBEDDING_MODEL", "all-minilm:22m"),
-    "sha256": os.environ.get("PANDECT_LOCAL_EMBEDDING_SHA256", ""),
-    "runtime": os.environ.get("PANDECT_LOCAL_EMBEDDING_RUNTIME", ""),
 }
 PANDECT_ANALYSIS_MAX_SOURCES = 500
 PANDECT_ANALYSIS_MAX_BYTES = 16 * 1024 * 1024

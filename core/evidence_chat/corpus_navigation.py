@@ -220,7 +220,7 @@ def linked_materials(case, locator, question, *, through, filters):
     surface = locator["surface"]
     kind = locator["kind"] if surface in ("original", "attachment") else ""
 
-    def load(surface, kind, pk, size):
+    def load(surface, kind, pk, size, *, hosted_metadata=False):
         queryset = scope_rows(
             rows(case, surface, kind, False, through), case, surface, kind, filters
         ).filter(pk=pk)
@@ -230,7 +230,14 @@ def linked_materials(case, locator, question, *, through, filters):
         if item is None:
             return None, None
         return item, material(
-            case, surface, kind, item, False, size=size, through=through
+            case,
+            surface,
+            kind,
+            item,
+            False,
+            size=size,
+            through=through,
+            hosted_metadata=hosted_metadata,
         )
 
     try:
@@ -260,7 +267,9 @@ def linked_materials(case, locator, question, *, through, filters):
 
         current = read_analysis_material(case, pk, 0, 1, through=through)
     elif (surface, kind) in surfaces():
-        item, current = load(surface, kind, pk, 1)
+        item, current = load(
+            surface, kind, pk, 1, hosted_metadata=locator.get("hosted_metadata") is True
+        )
     else:
         return []
     if current is None or any(

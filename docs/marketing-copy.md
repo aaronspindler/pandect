@@ -26,23 +26,22 @@ in private cases with their own people, vehicles, evidence, and permissions.
 
 Retain documents, images, audio, text, communications, and location observations.
 Search supported case text and explore source-linked findings. Eligible evidence
-receives automatic analysis, including native document text extraction and
-printed-English image recognition. Maps, supported imports, exact identifier
+receives automatic analysis, including native document text extraction. The case owner can enable
+Cloudflare to recognize text in images. Maps, supported imports, exact identifier
 connections, and recorded chronology help examine activity. Inspect supported
 originals privately. Invite collaborators to inspect or edit.
 
-Transcription and model suggestions need configured services. Search by meaning
-uses a configured private model or a case-approved hosted model. External AI
-requires case-owner approval in Case Settings. Inferred event timelines, graphs, and broader discovery
-are planned. Pandect is in active development. Self-hosting is available, and
+The case owner enables Cloudflare search, transcription and Case Chat in Case
+Settings. Chat can follow candidate relationships from statements and messages
+back to the passages that support them. Inferred event timelines remain planned. Pandect is in active development. Self-hosting is available, and
 managed hosting is planned.
 
 ## Announcement copy
 
 Pandect brings evidence into a private investigation workspace.
 Organize files, messages, and locations. Search a case and inspect sources behind
-findings with collaborators. Local checks cover supported document text,
-printed-English image recognition, and metadata. Explore identifier matches,
+findings with collaborators. Pandect extracts supported document text and metadata. Cloudflare can recognize
+printed text when enabled by the case owner. Explore identifier matches,
 recorded chronology, and possible trips. Transcription and model suggestions
 need configuration. Pandect is in active development, with inferred timelines,
 graphs, and broader discovery planned.

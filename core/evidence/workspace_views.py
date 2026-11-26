@@ -46,7 +46,9 @@ EVIDENCE_SUMMARY_ICONS = {
 
 
 def _list_context(request, case, *, workspace_rows=True):
-    context = collection_context(case, request.GET, workspace_rows=workspace_rows)
+    context = collection_context(
+        case, request.GET, actor=request.user, workspace_rows=workspace_rows
+    )
     if workspace_rows:
         for row in context["rows"]:
             row["icon"] = EVIDENCE_SUMMARY_ICONS.get(row["kind"], "file-text")

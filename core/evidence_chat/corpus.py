@@ -11,7 +11,6 @@ from django.db.models.functions import Length, Substr
 from django.http import Http404
 from django.urls import reverse
 
-from cases.permissions import get_case
 from core.analysis.catalogue import finding_queryset, raw_finding_item
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url
@@ -105,7 +104,12 @@ def rows(
         else:
             qs = (
                 finding_queryset(case, {"history": "all"} if retained else {})
-                .exclude(result__run__operation="evidence_chat")
+                .exclude(
+                    result__run__operation__in=(
+                        "evidence_chat",
+                        "narrative_relationships",
+                    )
+                )
                 .exclude(
                     Exists(
                         retained_passages(case).filter(
@@ -214,7 +218,7 @@ def lines(fields, *, value_ranges=None):
     return "\n".join(rendered)
 
 
-def original_metadata(item, kind, *, value_ranges=None):
+def original_metadata(item, kind, *, value_ranges=None, hosted_metadata=False):
     fields = [
         ("Type", KIND_LABELS[kind]),
         ("Title", item.title),
@@ -222,6 +226,14 @@ def original_metadata(item, kind, *, value_ranges=None):
         ("Source URL", item.source_url),
         ("Collected", item.collected_at),
     ]
+    if hosted_metadata:
+        fields.extend(
+            (
+                ("SHA-256", item.sha256),
+                ("Source description", item.source_description),
+                ("Investigator description", item.description),
+            )
+        )
     deps = [dependency(kind, item.pk)]
     detail = ""
     if kind in COMMUNICATION_KINDS:
@@ -406,13 +418,22 @@ def make_material(
 
 
 def _original_material(
-    case, surface, kind, item, start, size, include_archived, through, value_ranges
+    case,
+    surface,
+    kind,
+    item,
+    start,
+    size,
+    include_archived,
+    through,
+    value_ranges,
+    hosted_metadata,
 ):
     gap = ""
     if surface == "original":
         original = item
         suffix, detail, deps = original_metadata(
-            original, kind, value_ranges=value_ranges
+            original, kind, value_ranges=value_ranges, hosted_metadata=hosted_metadata
         )
         if kind == "text" and item.body_digest != item.sha256:
             gap = "Original text failed its integrity check."
@@ -474,6 +495,8 @@ def _original_material(
         value_ranges=value_ranges,
     )
 
+    if hosted_metadata and surface == "original":
+        found.locator["hosted_metadata"] = True
     if kind == "text-message" and surface == "original":
         from .lineage import message_lineage
 
@@ -556,6 +579,7 @@ def material(
     sources=None,
     through=None,
     literal=False,
+    hosted_metadata=False,
 ):
     value_ranges = [] if literal else None
     if surface in ("original", "attachment"):
@@ -569,6 +593,7 @@ def material(
             include_archived,
             through,
             value_ranges,
+            hosted_metadata,
         )
     if sources is None:
         sources = result_sources(case, item.result.run, include_archived)
@@ -716,7 +741,11 @@ def read_window(
         pk = UUID(locator["pk"])
     except ValueError, KeyError, AttributeError, TypeError:
         return None
-    if surface == "trip":
+    if surface == "record":
+        from core.case_search.material import read_record
+
+        found = read_record(case, locator, pk, start, size)
+    elif surface == "trip":
         from .trips import read_trip_material
 
         found = read_trip_material(case, pk, start, size)
@@ -741,7 +770,15 @@ def read_window(
         if item is None:
             return None
         found = material(
-            case, surface, kind, item, include_archived, start, size, literal=literal
+            case,
+            surface,
+            kind,
+            item,
+            include_archived,
+            start,
+            size,
+            literal=literal,
+            hosted_metadata=locator.get("hosted_metadata") is True,
         )
     if found is None or any(
         found.locator[k] != locator.get(k)
@@ -811,44 +848,3 @@ def cite(case, locator, start, quote, *, include_archived=False, read=None):
         "url": url,
         "label": window["label"],
     }
-
-
-def rank(
-    case,
-    question,
-    *,
-    user,
-    include_archived=False,
-    limit=10,
-    through=None,
-    after=None,
-    related=None,
-    hints=(),
-    filters=None,
-    stamp_body=False,
-    semantic_hints=None,
-    surfaces_to_search=None,
-    stats=None,
-    independent_of=(),
-    message_topics=(),
-):
-    from .corpus_search import ranked_windows
-
-    return ranked_windows(
-        get_case(user, case.pk),
-        question,
-        user,
-        include_archived,
-        limit,
-        through,
-        after=after,
-        related=related,
-        hints=hints,
-        filters=filters,
-        stamp_body=stamp_body,
-        semantic_hints=semantic_hints,
-        surfaces_to_search=surfaces_to_search,
-        stats=stats,
-        independent_of=independent_of,
-        message_topics=message_topics,
-    )

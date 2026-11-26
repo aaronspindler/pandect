@@ -18,7 +18,6 @@ from core.analysis.execution import (
 )
 from core.analysis.services import start_run
 from core.analysis.testing import approve_case_execution, external_grant_kwargs
-from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG, error, response
 from core.analysis.worker import authorize_run, process_run
 from core.models import AnalysisRun, GatewayRequest
@@ -149,7 +148,7 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(text[:2], ("gpt-6.2-sol", "gpt-6-luna"))
         self.assertIn("openai/gpt-6.2-astra", text)
         self.assertFalse(set(text).intersection(speech))
-        self.assertEqual(external_model_options("claim_comparison"), ())
+        self.assertTrue(external_model_options("claim_comparison"))
         self.case.external_analysis_models = {
             "transcription": "@cf/test/synthetic-transcriber"
         }
@@ -657,7 +656,6 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
             "sources": [f"text:{self.note.pk}"],
         }
 
-    @override_settings(PANDECT_LOCAL_AI={})
     def test_owner_approval_allows_editor_to_create_run_for_current_destination(self):
         payload = self.payload()
         self.login("editor")
@@ -670,8 +668,6 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(DBTaskResult.objects.exists())
 
         external_grant_kwargs(self.case, "content_events")
-        self.case.ai_backend = "gateway"
-        self.case.save(update_fields=["ai_backend"])
         saved = self.client.post(self.analysis_url, payload)
         self.assertEqual(saved.status_code, 302)
         run = AnalysisRun.objects.get()
@@ -679,8 +675,7 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(run.external_processing)
         self.assertEqual(run.parameters["_execution"]["model"], "gpt-6.2-sol")
 
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
-    def test_changed_destination_skips_external_and_keeps_private_analysis(self):
+    def test_changed_destination_stops_ai_analysis(self):
         external_grant_kwargs(self.case, "content_events")
         payload = self.payload()
         with self.settings(PANDECT_AI_GATEWAY=OPENAI | {"openai_key_alias": "changed"}):
@@ -692,10 +687,8 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
                 browsed.context["form"]["sources"].value(), payload["sources"]
             )
             result = self.client.post(self.analysis_url, payload)
-        self.assertEqual(result.status_code, 302)
-        run = AnalysisRun.objects.get()
-        self.assertFalse(run.external_processing)
-        self.assertEqual(run.parameters["_execution"]["backend"], "local")
+        self.assertEqual(result.status_code, 200)
+        self.assertFalse(AnalysisRun.objects.exists())
 
     def test_snapshots_and_disclosures_include_alias_but_no_credentials(self):
         retained = gateway_execution("text", "content_events")

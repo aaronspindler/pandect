@@ -6,6 +6,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
+from core.case_search.tests.fixtures import indexed
 from people.models import Person
 
 
@@ -317,11 +318,14 @@ class PersonInterfaceTests(TestCase):
         )
 
     def test_search_and_pagination_remain_case_scoped_and_keep_query_context(self):
-        Person.objects.bulk_create(
+        records = Person.objects.bulk_create(
             [
                 Person(case=self.case, first_name=f"Paginated person {index:02d}")
                 for index in range(30)
             ]
+        )
+        self.enterContext(
+            indexed(self.case, [("record", "person", item.pk) for item in records])
         )
         self.client.force_login(self.viewer)
         response = self.client.get(self.url(), {"q": "Paginated person", "page": 1})

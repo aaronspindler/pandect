@@ -8,6 +8,7 @@ from . import (
     import_checks,
     output_views,
     processing,
+    relationship_views,
     report_views,
     reprocessing_views,
     run_views,
@@ -18,6 +19,12 @@ from . import (
 
 app_name = "analysis"
 urlpatterns = [
+    path("connections/narrative/", relationship_views.index, name="relationships"),
+    path(
+        "connections/narrative/<uuid:edge_id>/review/",
+        relationship_views.review,
+        name="relationship_review",
+    ),
     path("connections/", connections.connections, name="connections"),
     path("sightings/", sighting_views.index, name="sighting_groups"),
     path("sightings/new/", sighting_views.create, name="sighting_create"),
@@ -60,6 +67,7 @@ urlpatterns = [
     path("reports/<str:name>/", report_views.current_report, name="report"),
     path("<uuid:run_id>/", run_views.detail, name="detail"),
     path("<uuid:run_id>/cancel/", run_views.cancel, name="cancel"),
+    path("<uuid:run_id>/acknowledge/", run_views.acknowledge, name="acknowledge"),
     path("<uuid:run_id>/retry/", run_views.retry, name="retry"),
     path(
         "<uuid:run_id>/estimate/<int:item_index>/",

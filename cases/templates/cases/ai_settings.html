@@ -4,22 +4,19 @@
     {% csrf_token %}
     {% include 'ui/components/form_errors.html' with form=ai_settings_form %}
     {{ ai_settings_form.confirmation }}
-    <fieldset id="{{ ai_settings_form.ai_backend.auto_id }}_group" class="ai-backend" tabindex="-1">
-      <legend class="visually-hidden">Processing location</legend>
-      <div class="ai-backend-options">
-        {% for choice in ai_settings_form.ai_backend %}
-          <label>{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>
-        {% endfor %}
-      </div>
-      {{ ai_settings_form.ai_backend.errors }}
-    </fieldset>
-
+    <p>External AI is <strong>{% if case.external_ai_enabled %}enabled{% else %}disabled{% endif %}</strong> for this case.</p>
+    <p>Enabling external AI creates a private Cloudflare AI Search instance for case passages and enables Case Chat and the model destinations you approve.</p>
+    {% if case.external_ai_enabled %}
+      <button class="button" type="submit" name="action" value="disable">Disable external AI</button>
+    {% else %}
+      <button class="button button-primary" type="submit" name="action" value="enable">Enable external AI</button>
+    {% endif %}
     <details class="ai-destinations" id="external-analysis">
       <summary>
         {% include 'ui/components/icon.html' with name='shield' only %}
         <strong>Approved destinations</strong>
         <span class="muted">{% if external_analysis.approved_names %}{% if external_analysis.gateway_summary %}Cloudflare AI Gateway · {% endif %}{{ external_analysis.approved_names|join:", " }}{% else %}None approved{% endif %}</span>
-        <span class="ai-manage">{% if external_analysis.pending_ai and case.ai_backend == 'gateway' %}Review pending{% else %}Manage{% endif %}</span>
+        <span class="ai-manage">{% if external_analysis.pending_ai and case.external_ai_enabled %}Review pending{% else %}Manage{% endif %}</span>
       </summary>
       <div class="ai-destination-details">
         {% if external_analysis.destinations %}
@@ -35,9 +32,9 @@
             </div>
           {% endfor %}
         {% else %}
-          <p>Choose your models and save with External AI selected to review where case material can be sent.</p>
+          <p>Enable external AI to review which destinations can receive case material.</p>
         {% endif %}
-        {% if external_analysis.pending_ai and case.ai_backend == 'gateway' %}
+        {% if external_analysis.pending_ai and case.external_ai_enabled %}
           <button form="review-pending-ai" type="submit" class="button">Review pending destinations</button>
         {% endif %}
         {% if external_analysis.geographic_destinations %}
@@ -57,7 +54,6 @@
 
     <section class="ai-models" aria-labelledby="ai-models-heading">
       <h3 id="ai-models-heading">Models by task</h3>
-      <p class="muted ai-local-hint">These assignments apply when you choose External AI.</p>
       <p class="muted ai-effort-hint">Effort choices depend on the model. Higher effort can take longer and cost more.</p>
       {% if ai_settings_form.stale %}
         <div class="notice">
@@ -96,12 +92,12 @@
         <p class="muted">External models are available when the operator configures a provider.</p>
       {% endfor %}
     </section>
-    <button class="button button-primary" type="submit">Save changes</button>
+    <button class="button" name="action" value="save" type="submit">Save model assignments</button>
   </form>
 
-  {% if external_analysis.pending_ai and case.ai_backend == 'gateway' %}
+  {% if external_analysis.pending_ai and case.external_ai_enabled %}
     <form id="review-pending-ai" method="post" action="{% url 'cases:case_ai_settings' case.pk %}">
-      {% csrf_token %}<input type="hidden" name="action" value="review_current">
+      {% csrf_token %}<input type="hidden" name="confirmation" value="{{ ai_settings_form.expected_confirmation }}"><input type="hidden" name="action" value="review_current">
     </form>
   {% endif %}
   {% if external_analysis.geographic_destinations %}

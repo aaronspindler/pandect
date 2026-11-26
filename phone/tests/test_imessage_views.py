@@ -941,10 +941,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         final.refresh_from_db()
         self.assertEqual(final.status, "complete", final.error_code)
         batch = CaseAnalysisBatch.objects.get()
-        self.assertEqual(
-            {route["backend"] for route in batch.scope["executions"].values()},
-            {"local"},
-        )
+        self.assertEqual(batch.scope["executions"], {})
         review = self.client.get(self.review_url(final))
         self.assertContains(review, "Follow message analysis")
         self.assertNotContains(review, "Selected analysis:")

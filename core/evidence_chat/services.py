@@ -17,7 +17,7 @@ from core.evidence.queries import scoped_evidence
 from core.evidence.types import KINDS
 from core.models import AnalysisResult, ChatMatch, ChatTurn, EvidenceChat
 
-from . import ai, checkpoints, corpus, decisions_approval, retrieval_route
+from . import ai, checkpoints, corpus
 from .search_scope import review_restart_code
 
 
@@ -28,19 +28,7 @@ def _edit_case(actor, case_id):
 
 
 def submission_route(case, *, turn=None):
-    execution, revision = ai.turn_execution(case)
-    search = retrieval_route.hosted_scope(case)
-    if turn and turn.plan.get("hosted_search") != search:
-        search = {}
-    from core.case_search.rerank import rerank_scope
-
-    ranking = rerank_scope(case)
-    if turn and turn.plan.get("rerank_scope") != ranking:
-        ranking = {}
-    routing = decisions_approval.scope(case)
-    if turn and turn.plan.get("decisions_scope") != routing:
-        routing = {}
-    return execution, revision, search, ranking, routing
+    return ai.turn_execution(case)
 
 
 def _route(case, expected, *, turn=None):
@@ -64,11 +52,23 @@ def submit_turn(
     submission_id,
     chat_id=None,
     expected_route=None,
+    update_of=None,
 ):
     case = _edit_case(actor, case_id)
     if not isinstance(question, str) or not 0 < len(question.strip()) <= 2000:
         raise ValidationError("Enter a question of up to 2,000 characters.")
     question = question.strip()
+    if update_of:
+        prior = get_object_or_404(
+            ChatTurn,
+            case=case,
+            chat_id=chat_id,
+            chat__case=case,
+            pk=update_of,
+            status="complete",
+        )
+        if prior.question != question:
+            raise ValidationError("The question to update changed.")
     try:
         submission_id = UUID(str(submission_id))
     except ValueError, TypeError:
@@ -81,10 +81,17 @@ def submit_turn(
         correct_chat = (
             str(existing.chat_id) == str(chat_id) if chat_id else existing.ordinal == 1
         )
-        if correct_chat and existing.question == question:
+        if (
+            correct_chat
+            and existing.question == question
+            and existing.plan.get("updated_from")
+            == (str(update_of) if update_of else None)
+        ):
             return existing
         raise ValidationError("This submission reference has already been used.")
-    execution, revision, search, ranking, routing = _route(case, expected_route)
+    from .investigation import processing_coverage
+
+    execution, revision = _route(case, expected_route)
     if chat_id:
         chat = get_object_or_404(EvidenceChat, pk=chat_id, case=case)
         _require_idle(chat)
@@ -109,9 +116,10 @@ def submit_turn(
                 execution=execution,
                 plan={
                     "timezone": timezone.get_current_timezone_name(),
-                    "hosted_search": search,
-                    "rerank_scope": ranking,
-                    "decisions_scope": routing,
+                    "agent_version": 1,
+                    **({"updated_from": str(update_of)} if update_of else {}),
+                    "coverage": processing_coverage(case),
+                    "cutoff_versions": checkpoints.evidence_versions(case),
                 },
                 approval_revision=revision,
             )

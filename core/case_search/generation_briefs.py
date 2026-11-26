@@ -4,18 +4,19 @@ from dataclasses import dataclass
 from hashlib import sha256
 from uuid import UUID
 
-from django.db.models import Count, Exists, Func, IntegerField, OuterRef, Q, Sum, Value
-from django.db.models.functions import Coalesce, Length
+from django.db.models import Exists, Func, IntegerField, OuterRef, Q, Value
+from django.db.models.functions import Coalesce
 
 from core.analysis.errors import AnalysisError
 from core.analysis.published import PASSAGE_OPERATIONS
 from core.analysis.sources import Source
-from core.case_search.semantic_model import CHUNK_BYTES
-from core.case_search.semantic_sources import BODY_FIELDS, source_queryset
+from core.case_search.scoped_sources import BODY_FIELDS, source_queryset
 from core.evidence_chat import corpus
 from core.models import ExtractedPassage
 from core.storage import canonical_bytes
 
+# Historical preparation threshold used to resolve saved brief sources.
+CHUNK_BYTES = 246
 SECTION_CHARS = corpus.MAX_WINDOW
 BRIEF_SOURCES = ("text", "attachment", "extraction")
 
@@ -46,21 +47,6 @@ def eligible_sections(case, source):
     return qs.alias(
         byte_length=Func(field, function="octet_length", output_field=IntegerField())
     ).filter(multi)
-
-
-def brief_estimate(case):
-    sources = sections = 0
-    for kind in BRIEF_SOURCES:
-        counts = eligible_sections(case, kind).aggregate(
-            sources=Count("pk"),
-            sections=Sum(
-                (Length(BODY_FIELDS[kind]) + SECTION_CHARS - 1) / SECTION_CHARS,
-                default=0,
-            ),
-        )
-        sources += counts["sources"]
-        sections += counts["sections"]
-    return {"estimate": sources, "units": sections}
 
 
 def section(case, kind, pk, start):

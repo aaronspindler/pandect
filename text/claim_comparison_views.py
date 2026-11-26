@@ -1,4 +1,4 @@
-"""Choose one exact retained quotation and queue its private comparison."""
+"""Choose one exact retained quotation and queue its approved comparison."""
 
 from django import forms
 from django.contrib import messages
@@ -14,8 +14,9 @@ from django.views.decorators.http import require_POST
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
+from core.analysis.execution import selected_ai_executions
+from core.analysis.manual import start_available_run
 from core.analysis.navigation import current_comparison_origin, evidence_return_url
-from core.analysis.services import start_run
 from core.analysis.sources import selection
 from core.evidence.types import KIND_LABELS
 from phone.analysis.presentation import addition_label
@@ -126,6 +127,7 @@ def prepare(
     rows, claim_sources = _comparison_rows(sources)
     draft = {
         "digest": digest,
+        "revision": str(case.external_ai_revision),
         "tokens": tokens,
         "submission_id": str(submission_id),
         "chooser_query": chooser_query or {},
@@ -177,14 +179,17 @@ def confirm(request, case_id):
     form = ClaimForm(request.POST, claim_sources=claim_sources)
     if form.is_valid():
         try:
-            run, created = start_run(
+            route = selected_ai_executions(case, OPERATION, {}).get("gateway")
+            if not route or draft.get("revision") != str(case.external_ai_revision):
+                raise AnalysisError("external_processing_not_approved")
+            run, created = start_available_run(
                 request.user,
-                case.pk,
+                case,
                 OPERATION,
                 selections,
-                parameters={"claim": form.cleaned_data["claim"]},
+                parameters={"claim": form.cleaned_data["claim"], "backend": "gateway"},
+                execution=route,
                 submission_id=draft["submission_id"],
-                require_configured_inference=True,
             )
         except (AnalysisError, ValidationError) as error:
             form.add_error(

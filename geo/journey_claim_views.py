@@ -32,7 +32,7 @@ from geo.journey_claim_requests import (
 PICKERS = {"claim": "content_events", "movement": "location_conflicts"}
 
 
-def _picker(case, role, data, chosen, *, recover=False):
+def _picker(case, actor, role, data, chosen, *, recover=False):
     """Use the existing bounded cursor picker for originals and extractions."""
     action = data.get("browse", "")
     query = data.get(role + "_query", "")[:200]
@@ -53,7 +53,14 @@ def _picker(case, role, data, chosen, *, recover=False):
             derived_number = 1
 
     raw = [value for value in chosen if not value.startswith(DERIVED_INPUT_PREFIXES)]
-    page_options = {"selected": raw, "extractions_by_kind": COMPARISON_EXTRACTIONS}
+    from core.case_search.discovery import discover
+
+    results = discover(case, actor, query)
+    page_options = {
+        "selected": raw,
+        "extractions_by_kind": COMPARISON_EXTRACTIONS,
+        "matched": results.evidence,
+    }
     reset = False
     try:
         page, retained = _source_choice_page(
@@ -68,7 +75,9 @@ def _picker(case, role, data, chosen, *, recover=False):
     readiness = (
         source_readiness(case, PICKERS[role], choices.items()) if choices else {}
     )
-    derived = derived_page(case, role, page=derived_number, query=query)
+    derived = derived_page(
+        case, role, page=derived_number, query=query, results=results
+    )
     rows = []
     for token, label in choices.items():
         state = readiness[token]
@@ -93,6 +102,7 @@ def _picker(case, role, data, chosen, *, recover=False):
             derived_choices.setdefault(token, option["label"])
     return {
         "role": role,
+        "notice": results.notice,
         "rows": rows,
         "derived_rows": [
             (token, label, "", token in chosen)
@@ -306,6 +316,7 @@ def create(request, case, *, chooser_query=None, result_query=None):
         pickers = context["pickers"] = [
             _picker(
                 case,
+                request.user,
                 role,
                 data,
                 state["picked"][role],
@@ -313,6 +324,9 @@ def create(request, case, *, chooser_query=None, result_query=None):
             )
             for role in PICKERS
         ]
+        context["search_notice"] = next(
+            (p["notice"] for p in pickers if p["notice"]), ""
+        )
         notices = []
         if any(picker["unavailable"] for picker in pickers):
             if action == "prepare":

@@ -80,12 +80,6 @@ docker compose exec web python manage.py createsuperuser
 
 ## Run Python on the host
 
-For Django's host autoreloader with PostgreSQL in Docker, first install Tesseract
-and English data: `brew install tesseract` on macOS, or
-`sudo apt-get install tesseract-ocr tesseract-ocr-eng` on Debian/Ubuntu. Check
-`tesseract --version` and that `tesseract --list-langs` includes `eng`. The
-application image already includes both packages.
-
 Keep the database and media together. Host Django defaults to the checkout's
 `data/media`, while Compose uses `/app/data/media` on the named `app_data`
 volume. Use a separate database and media directory for host development unless
@@ -110,9 +104,7 @@ stack to exercise push delivery.
 
 Use `uv run --locked --env-file .env python manage.py <command>` for management
 commands; uv loads `.env`, Django does not. Compose loads it separately and uses
-database hostname `db`. If meaning search is configured, run
-`uv run --locked --env-file .env python manage.py prepare_case_search` after
-migrations to queue missing indexes. In another terminal, run
+database hostname `db`. In another terminal, run
 `uv run --locked --env-file .env python manage.py db_worker --no-reload` to process
 background jobs, including vehicle CSV preparation/publication and automatic
 checks. Invitation mail is synchronous. See [background tasks](background-tasks.md)
@@ -124,13 +116,9 @@ The local example contains only the two required secrets and `DJANGO_DEBUG=true`
 Database names, ports and internal processing limits have defaults; add optional
 environment values only for your deployment or an explicitly configured service.
 
-Optional local text processing uses an operator-controlled Ollama installation
-with a reviewed Qwen3.5 model, manifest digest and exact server-version pin.
-The separate `local-ai` Compose profile supplies only Whisper transcription and
-requires reviewed model weights, a file hash and a runtime token. Startup never
-downloads models. Printed-English OCR remains in the bounded Tesseract parser.
-See [local analysis](local-analysis.md) for setup, cloud selection, capacity
-measurement, qualification and upgrading older local text configurations.
+Configure [Cloudflare search](cloudflare-search.md) and the
+[investigation Worker](cloudflare-agent.md) to use evidence search and model
+processing. New cases begin with External AI off.
 
 | Variable | Behavior |
 | --- | --- |

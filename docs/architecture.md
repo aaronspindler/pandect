@@ -32,8 +32,7 @@ GUI, trained model, or network service. It runs only in the isolated file parser
 with one thread and OpenCL disabled. See
 [plate extraction](analysis-extraction.md#vehicle-plate-candidates).
 
-The unprivileged Docker image installs locked Python dependencies, Tesseract, and
-English OCR data. Its build context excludes local secrets/data and explicitly
+The unprivileged Docker image installs the locked Python dependencies. Its build context excludes local secrets/data and explicitly
 includes app-local templates/assets. Build-time `collectstatic` supplies public
 assets to WhiteNoise; private evidence stays outside the static root.
 
@@ -49,10 +48,9 @@ in the image, OCI revision label, and health response's `commit` field. See
 [release numbering and deployment](operations.md#continuous-deployment).
 Compose overrides startup commands for development. PostgreSQL 18's named volume
 mounts at `/var/lib/postgresql`. Compose and CI pin the same multi-architecture
-pgvector image. Case search uses PostgreSQL full-text search, trigrams and
-case-scoped exact vector search in the existing database. Passage vectors
-carry their embedding profile. PostgreSQL accepts the supported widths of 384
-and 1,536, and queries compare compatible vectors from complete sources.
+official PostgreSQL image. [Cloudflare AI Search](cloudflare-search.md) indexes
+eligible active passages in one private instance per enabled case. Django verifies
+each hit against its source and keeps the canonical findings and answer history.
 
 Django's Tasks API uses the beta `django-tasks-db` dependency and PostgreSQL
 without a separate broker. Ordinary workers use the `default` queue. The optional
@@ -185,7 +183,7 @@ stay with its entry point.
 | Workflow | Service owner |
 | --- | --- |
 | Case invitation issuance, delivery, and acceptance | `cases.invitations` |
-| Case AI, Meaning Search, ranking, and preparation settings | `cases.analysis_settings`, `cases.search_settings` |
+| Case External AI approval and hosted index lifecycle | `cases.analysis_settings`, `core.case_search.lifecycle` |
 | Product evidence intake, duplicate review, and shared archive transitions | `core.evidence.retention` |
 | Important marks and dated notes | `core.important.services` |
 | Analysis submission, worker execution, and retry | `core.analysis.services`, `core.analysis.worker`, `core.analysis.retries` |
@@ -219,29 +217,23 @@ constraints can no longer be restored in place. Keep a pre-upgrade backup.
 
 ### Search and processing
 
-Migration `core.0024_chat_completed_topics` adds a partial PostgreSQL GIN
-index over bounded question, claim, clarification and follow-up text on
-completed chat turns. It builds concurrently and includes existing chats.
-The chat worker uses the index within the current case and conversation to
-recall an earlier topic and reopen its cited originals.
-Migration `core.0025_search_parent_inventory` advances the case activity
-revision when search outlines enter or leave a deletion inventory.
+Cloudflare AI Search owns passage retrieval, matching and indexing. PostgreSQL
+stores the per-case private instance identity, versioned sync inventory and
+durable cleanup work. Each hit must match the current case, retained source
+version and archive state before its text can leave Django. The case owner must
+enable External AI for both Case Search and Case Chat.
 
-Migrations `core.0035` through `core.0037` add a searchable projection of
-published analysis measurements, per-turn matching record identities and a
-link to an approved deeper review. Apply them with the normal release
-migration command before starting matching web and worker processes. The
-report migration indexes existing saved outputs in batches. New structured
-queries freeze selected identities and versions in PostgreSQL. Previously saved
-replies retain the verification rules for their recorded selections.
+The investigation Worker uses one Durable Object per investigation to choose and
+sequence tools. Django enforces the turn's cutoff, permissions, execution budget
+and approved destinations. It opens original passages and publishes the verified
+answer. Immutable results and historical selections stay readable after the
+search cache is retired. See [search](cloudflare-search.md) and
+[the Agent](cloudflare-agent.md).
 
-Case Search and Evidence chat share the case-scoped passage and outline
-indexes in `core.case_search`. An outline stores its version, coverage,
-original source references, offsets and excerpt digests. Query-time checks
-resolve those references to active originals. The optional passage reranker
-and optional background generation use independently configured routes.
-[Background tasks](background-tasks.md#meaning-search-indexing) describes
-index preparation and recovery.
+During ingestion a model can propose source-anchored narrative relationships.
+Pandect stores the endpoints, qualification, exact passage and originating result
+in PostgreSQL. Reviewing a lead records an attributable decision. Case Chat can
+follow an unreviewed lead, and reopens its source before citing it.
 
 `core.analysis.published` owns shared queries for saved analysis and its
 extracted passages. `core.evidence.source_clocks` owns how original timestamps
@@ -260,9 +252,9 @@ boundary; no FFmpeg executable or separate service is required. See the
 [recording profiles and bounds](original-previews.md#recordings).
 
 Domain `analysis/` packages separate `deterministic`, `metadata`, `ai`, and
-`external` processing. Local OCR uses `image.analysis.ai_parser` in the bounded
-parser. Private geocoding belongs to External but retains its private route:
-categories describe code ownership, not destination or approval. Domain
+`external` processing. The bounded parser prepares metadata-free images or
+rendered PDF pages for OCR through the case-approved Cloudflare vision route.
+Geographic services keep their independently configured destinations. Domain
 `workflows.py` modules combine categories without changing investigator choices
 or parameters. Core dispatches reports; phone owns call calculations and geo
 owns vehicle-location calculations.
@@ -308,13 +300,9 @@ matching treatment. See [operations](operations.md).
 ## Capability boundaries
 
 Implemented analysis and inputs are listed in [analysis](analysis.md) and
-[vehicle-location imports](vehicle-location-imports.md). Optional private text
-processing uses native Ollama with pinned Qwen3.5 model manifests and server
-versions. The optional bundled inference image contains only whisper.cpp for
-transcription, with separate resource bounds and operator-provisioned weights on
-an internal network. Tesseract OCR stays in the isolated file parser. Setup and
-qualification belong to [local analysis](local-analysis.md). Core management and
-deterministic analysis do not require an external AI service.
+[vehicle-location imports](vehicle-location-imports.md). The verified case owner enables hosted search and AI in Case Settings.
+[Case Chat](cloudflare-agent.md) uses a Cloudflare Agent and the approved model
+route. Django retains deterministic extraction, source verification and saved work.
 
 The [roadmap](evidence-analysis-roadmap.md) owns future analysis priorities.
 Ownership transfer and self-service account deletion remain unimplemented.

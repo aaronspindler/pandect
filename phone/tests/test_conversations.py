@@ -17,7 +17,7 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
-from core.case_search.queries import search
+from core.case_search.tests.fixtures import indexed
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
@@ -122,11 +122,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(detail, "View in conversation")
         self.assertEqual(
             self.client.get(self.list_url()).context["page_obj"].object_list, []
-        )
-        hits = search(self.case, query="geocaching", record_type="text-message")
-        self.assertEqual([(row["id"], row["url"]) for row in hits], [(message.pk, url)])
-        self.assertFalse(
-            search(self.case, query="geocaching", record_type="conversation")
         )
         with self.assertRaisesMessage(AnalysisError, "direct_messages_required"):
             start_run(
@@ -355,6 +350,15 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.login("viewer")
 
         reader = self.reader_url()
+        self.enterContext(
+            indexed(
+                self.case,
+                [
+                    ("original", "text-message", item.pk)
+                    for item in (first, copy, wildcard_only)
+                ],
+            )
+        )
         first_match = self.client.get(reader, {"q": f"  {query}  "})
         self.assertContains(first_match, "Match 1 of 1")
         self.assertContains(first_match, "<mark>CRATE%_&lt;b&gt;</mark>")
@@ -375,6 +379,9 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         original = self.message(body="Unrelated original")
         self.login("viewer")
         reader = self.reader_url()
+        self.enterContext(
+            indexed(self.case, [("original", "text-message", original.pk)])
+        )
         missing = self.client.get(reader, {"q": "missing phrase"})
         self.assertContains(missing, "No matching messages.")
         self.assertContains(missing, 'value="missing phrase"')

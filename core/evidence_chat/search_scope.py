@@ -129,14 +129,14 @@ def review_restart_code(turn):
 def scope_rows(queryset, case, surface, kind, filters, *, include_recordings=False):
     if not filters:
         return queryset
-    from core.case_search.semantic_sources import source_queryset
+    from core.case_search.scoped_sources import source_queryset
     from core.case_search.sources import dated, sources
 
     if surface in ("original", "attachment"):
         if filters.get("record_type", kind) != kind:
             return queryset.none()
         matches = (
-            dated(sources(case, kind), filters.get("start"), filters.get("end"), kind)
+            dated(sources(case, kind), filters.get("start"), filters.get("end"))
             .order_by()
             .values("pk")
         )

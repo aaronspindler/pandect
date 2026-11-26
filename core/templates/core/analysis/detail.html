@@ -27,6 +27,10 @@
 </section>
 {% endif %}
 {% if run.status == 'failed' %}<p class="notice">Processing could not finish. {{ error_message }} {% if can_edit and can_retry %}<a href="#run-again">Run again</a> with the same inputs.{% endif %} Earlier evidence is retained.</p>{% endif %}
+{% if run.status == 'failed' %}
+  {% if run.failure_acknowledged_at %}<p>Missing coverage acknowledged by {{ run.failure_acknowledged_by.get_username }} on <time datetime="{{ run.failure_acknowledged_at|date:'c' }}">{{ run.failure_acknowledged_at }}</time>.</p>
+  {% elif can_edit %}<form method="post" action="{% url 'core:analysis:acknowledge' case.pk run.pk %}{{ history_suffix }}">{% csrf_token %}<button class="button" type="submit">Acknowledge missing coverage</button></form>{% endif %}
+{% endif %}
 {% if retry_blocked and run.status != 'complete' and not focused_finding %}<p>{{ retry_blocked }}{% if run.external_processing and is_owner %} <a href="{% url 'cases:case_settings' case.pk %}">Case settings</a>{% endif %}</p>{% endif %}
 {% if source_review_changed and not focused_finding %}<p class="notice">An address estimate used by this run is no longer selected. This result retains the estimate used at the time.</p>{% endif %}
 {% if source_archived %}<p class="notice">A selected source is archived. Restore the evidence to view this result.</p>{% elif source_unavailable %}<p class="notice">A selected source is unavailable or changed. The result is withheld until its exact retained inputs can be verified.</p>{% endif %}

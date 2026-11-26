@@ -18,9 +18,12 @@ from playwright.sync_api import expect
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.services import start_run
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_openai_gateway import OPENAI, openai_reply
 from core.analysis.worker import process_run
-from core.models import AnalysisRun
+from core.case_search.tests.fixtures import indexed
+from core.models import AnalysisResult, AnalysisRun
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from image.models import ImageEvidence
@@ -92,6 +95,7 @@ def synthetic_reference():
 
 
 @override_settings(
+    PANDECT_AI_GATEWAY=OPENAI,
     PANDECT_MAP_CONTEXT_URL="https://maps.example.test/api/interpreter",
     PANDECT_MAP_CONTEXT_NAME="Synthetic reference source",
     PANDECT_MAP_CONTEXT_VERSION="synthetic-reference-1",
@@ -147,7 +151,7 @@ class ContextBrowserTests(BrowserTestCase):
         run = AnalysisRun.objects.get(pk=run_id)
         self.assertEqual(run.operation, operation)
         self.assertEqual(run.status, "complete", run.error_code)
-        self.assertEqual(run.external_processing, operation != "ocr")
+        self.assertTrue(run.external_processing)
         return run.parameters
 
     def _choose(self, page, operation):
@@ -223,6 +227,7 @@ class ContextBrowserTests(BrowserTestCase):
             title="Synthetic image without recognized text",
             file=ContentFile(stream.getvalue(), name="synthetic-camera.jpeg"),
         )
+        self.gateway_request.return_value = openai_reply({"text": "", "partial": True})
         runs = {}
         for operation in ("ocr", "image_metadata"):
             run, _ = start_run(
@@ -230,6 +235,11 @@ class ContextBrowserTests(BrowserTestCase):
                 self.case.pk,
                 operation,
                 [{"kind": "image", "id": str(source.pk)}],
+                **(
+                    external_grant_kwargs(self.case, operation)
+                    if operation == "ocr"
+                    else {}
+                ),
             )
             process_run(run.pk)
             run.refresh_from_db()
@@ -247,24 +257,23 @@ class ContextBrowserTests(BrowserTestCase):
                     )
                 )
                 expect(
-                    page.get_by_role("heading", name="OCR coverage", exact=True)
-                ).to_be_visible()
-                expect(
-                    page.get_by_role("region", name="Limitations").get_by_text(
-                        "No text recognized. Inspect the original images.",
-                        exact=True,
+                    page.get_by_role(
+                        "heading", name="Image · candidate text", exact=True
                     )
                 ).to_be_visible()
+                expect(page.locator("#finding-1")).to_contain_text(
+                    "Uncertain or unreadable"
+                )
                 page.get_by_text("Analysis run details", exact=True).press("Enter")
                 summary = page.locator("summary").filter(has_text="Processing summary")
                 summary.focus()
                 expect(summary).to_be_focused()
                 summary.press("Space")
                 metric = page.locator(".analysis-measurements > div").filter(
-                    has=page.locator("dt", has_text="Recognized text regions")
+                    has=page.locator("dt", has_text="Images read")
                 )
-                expect(metric.locator("dd")).to_have_text("0")
-                self._capture_layouts(page, engine, "local-ocr-no-text")
+                expect(metric.locator("dd")).to_have_text("1")
+                self._capture_layouts(page, engine, "hosted-ocr-no-text")
                 page.goto(
                     self.url(
                         "core:analysis:detail",
@@ -280,12 +289,16 @@ class ContextBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Interpreted XMP attributes")
                 ).to_be_visible()
                 self._capture_layouts(page, engine, "image-nul-xmp")
-        self.gateway_request.assert_not_called()
+        self.gateway_request.assert_called_once()
 
-    def test_local_printed_ocr_regions_search_and_private_original(
+    def test_hosted_ocr_search_and_private_original(
         self,
     ):
+        self.gateway_request.return_value = openai_reply(
+            {"text": "Synthetic printed pickup 07:30", "partial": False}
+        )
         for engine in self.engines:
+            self.db(external_grant_kwargs, self.case, "ocr")
             with (
                 self.subTest(engine=engine),
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
@@ -302,37 +315,22 @@ class ContextBrowserTests(BrowserTestCase):
                 )
                 expect(
                     page.get_by_text(
-                        "Processed locally. Handwriting and mixed text "
-                        "are unsupported.",
+                        "The approved vision model reads prepared images "
+                        "through Cloudflare.",
                         exact=False,
                     )
                 ).to_be_visible()
                 page.get_by_label("Image · Synthetic OCR page", exact=True).check()
-                self._capture_layouts(page, engine, "local-ocr-form")
+                self._capture_layouts(page, engine, "hosted-ocr-form")
                 run_id, parameters = self._start_and_finish(page, "ocr")
                 self.assertEqual(parameters["mode"], "printed")
                 finding = page.locator("#finding-1")
                 expect(
                     finding.get_by_text("Synthetic printed pickup 07:30", exact=True)
                 ).to_be_visible()
-                expect(
-                    page.get_by_text(
-                        "OCR can miss text. Compare candidates with the original.",
-                        exact=True,
-                    )
-                ).to_be_visible()
-                warning_text = (
-                    "Printed English OCR runs locally; no image is sent "
-                    "to an external service."
+                expect(finding).to_contain_text(
+                    "Compare candidate text with the original"
                 )
-                expect(finding.get_by_text(warning_text, exact=False)).to_be_visible()
-                run_details = page.locator(".analysis-run-details")
-                retained_warning = run_details.get_by_text(warning_text, exact=False)
-                summary = run_details.get_by_text("Analysis run details", exact=True)
-                expect(retained_warning).to_be_hidden()
-                summary.press("Enter")
-                expect(retained_warning).to_be_visible()
-                summary.press("Enter")
                 preview = finding.locator("svg image")
                 expect(preview).to_have_count(1)
                 preview_url = urljoin(page.url, preview.get_attribute("href"))
@@ -340,7 +338,19 @@ class ContextBrowserTests(BrowserTestCase):
                 self.assertEqual(response.status, 200)
                 self.assertIn("private", response.headers["cache-control"])
                 self.assertEqual(response.headers["content-type"], "image/jpeg")
-                self._capture_layouts(page, engine, "local-ocr-result")
+                self._capture_layouts(page, engine, "hosted-ocr-result")
+                from core.models import ExtractedPassage
+
+                passages = self.db(
+                    list,
+                    ExtractedPassage.objects.filter(
+                        case=self.case, result__run_id=run_id
+                    ).values_list("pk", flat=True),
+                )
+                self.db(
+                    self.enterContext,
+                    indexed(self.case, [("passage", "", key) for key in passages]),
+                )
                 page.goto(self.url("core:evidence:list", case_id=self.case.pk))
                 search = page.get_by_label("Filter evidence", exact=True)
                 search.fill("printed pickup")
@@ -352,7 +362,7 @@ class ContextBrowserTests(BrowserTestCase):
                 expect(row).to_contain_text("printed pickup")
                 expect(row).to_have_attribute("href", re.compile(r"/evidence/image/"))
                 page.get_by_role(
-                    "link", name="Open matching finding for Synthetic OCR page"
+                    "link", name="Open matching passage for Synthetic OCR page"
                 ).click()
                 expect(
                     page.get_by_role(
@@ -365,41 +375,6 @@ class ContextBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Synthetic OCR page", exact=True)
                 ).to_be_visible()
-                link = page.get_by_role("link", name="Visible structure", exact=True)
-                link.focus()
-                expect(link).to_be_focused()
-                link.press("Enter")
-                layout = page.get_by_role("region", name="Visible structure")
-                expect(layout.get_by_role("heading", name="Text block")).to_be_visible()
-                inspect = layout.locator("summary").first
-                inspect.press("Enter")
-                expect(layout.locator("svg rect")).to_have_count(4)
-                self.assertEqual(
-                    urljoin(
-                        page.url, layout.locator("svg image").get_attribute("href")
-                    ),
-                    preview_url,
-                )
-                self._capture_layouts(page, engine, "visible-structure")
-                for property_name, value in (("fontSize", "200%"), ("zoom", "4")):
-                    page.evaluate(
-                        "([key, value]) => document.documentElement.style[key] = value",
-                        [property_name, value],
-                    )
-                    self.assertLessEqual(
-                        page.evaluate("document.documentElement.scrollWidth"),
-                        page.evaluate("document.documentElement.clientWidth") + 1,
-                    )
-                    page.evaluate(
-                        "key => document.documentElement.style[key] = ''", property_name
-                    )
-                layout.get_by_role(
-                    "link", name=re.compile(r"Synthetic · OCR finding")
-                ).press("Enter")
-                expect(finding).to_be_visible()
-                finding.get_by_role(
-                    "link", name="Synthetic OCR page", exact=True
-                ).press("Enter")
                 with page.expect_download() as waiting:
                     page.get_by_role(
                         "link", name="Download original", exact=True
@@ -413,26 +388,20 @@ class ContextBrowserTests(BrowserTestCase):
                             AnalysisRun.objects.get(pk=identifier).method_version
                         )
                     ),
-                    "6",
+                    "7",
                 )
-        self.gateway_request.assert_not_called()
+        self.assertEqual(self.gateway_request.call_count, len(self.engines))
         self.map_lookup.assert_not_called()
 
-    def test_document_layout_with_omitted_preview(self):
+    def test_historical_document_layout_with_omitted_preview(self):
+        # A retained v6 result records its own regions, words and reading orders.
         form, _ = printed_layout("form")
         long_value = "LongReferenceWindowLongReferenceWindow"
-        stream = io.BytesIO()
-        with Image.open(io.BytesIO(form)) as sheet:
-            draw = ImageDraw.Draw(sheet)
-            font = ImageFont.load_default(size=25)
-            draw.text((65, 315), "Reference:", fill="black", font=font)
-            draw.text((315, 315), long_value, fill="black", font=font)
-            sheet.save(stream, format="PNG")
         document = DocumentEvidence.objects.create(
             case=self.case,
             uploaded_by=self.owner,
             title="Synthetic scanned form",
-            file=ContentFile(stream.getvalue(), name="scanned-form.png"),
+            file=ContentFile(form, name="scanned-form.png"),
         )
         columns, _ = printed_layout("columns")
         image = ImageEvidence.objects.create(
@@ -441,19 +410,83 @@ class ContextBrowserTests(BrowserTestCase):
             title="Synthetic columns",
             file=ContentFile(columns, name="columns.png"),
         )
-        run, _ = start_run(
-            self.owner,
-            self.case.pk,
-            "ocr",
+        inputs = snapshot_sources(
+            self.case,
             [
-                {"kind": "image", "id": str(image.pk)},
                 {"kind": "document", "id": str(document.pk)},
+                {"kind": "image", "id": str(image.pk)},
             ],
         )
-        with patch("image.analysis.ai.MAX_PREVIEW_BYTES", 0):
-            process_run(run.pk)
-        run.refresh_from_db()
-        self.assertEqual(run.status, "partial", run.error_code)
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="ocr",
+            method_version="6",
+            inputs=inputs,
+            status="partial",
+        )
+        items = []
+        layouts = {}
+        for source, fields in zip(
+            inputs,
+            (
+                ["River Hall", long_value],
+                ["Morning", "East", "Evening", "West"],
+            ),
+            strict=True,
+        ):
+            words, candidates = [], []
+            for field in fields:
+                refs = []
+                for token in field.split():
+                    refs.append(len(words))
+                    words.append(
+                        {
+                            "item": len(items),
+                            "start": 0,
+                            "end": len(token),
+                            "region": [0.1, 0.1, 0.5, 0.2],
+                            "confidence": 90,
+                        }
+                    )
+                    items.append(
+                        {
+                            "label": "OCR finding",
+                            "text": token,
+                            "source_ids": [source["id"]],
+                            "anchors": [{"source_id": source["id"]}],
+                            "values": {},
+                        }
+                    )
+                candidates.append(
+                    {
+                        "kind": "form_field",
+                        "fields": [{"role": "Text", "words": refs, "confidence": 90}],
+                        "notes": [],
+                    }
+                )
+            orders = []
+            if source["kind"] == "image":
+                orders = [
+                    {"label": "Across rows", "candidates": [0, 1, 2, 3]},
+                    {"label": "Down columns", "candidates": [0, 2, 1, 3]},
+                ]
+            layouts[source["id"]] = {
+                "words": words,
+                "candidates": candidates,
+                "orders": orders,
+                "notes": [],
+            }
+        AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={
+                "summary": "Saved text",
+                "outcome": "partial",
+                "items": items,
+                "visible_structure": layouts,
+            },
+        )
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),

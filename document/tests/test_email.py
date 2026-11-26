@@ -12,6 +12,7 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.testing import file_source
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.models import CaseAnalysisBatch
 from core.parsers import run_parser
 from core.testing import EvidenceViewTestMixin
@@ -147,6 +148,12 @@ class EmailIntakeTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.status, "complete", run.error_code)
         self.assertFalse(run.external_processing)
 
+        self.enterContext(
+            indexed(
+                self.case,
+                [("passage", "", source.pk) for source in run.result.passages.all()],
+            )
+        )
         for role in ("owner", "viewer"):
             self.login(role)
             search = self.client.get(self.url("list"), {"q": "blue door pickup"})

@@ -19,7 +19,6 @@ from .models import (
     AnalysisReview,
     AnalysisRun,
     CaseAnalysisBatch,
-    CaseSearchIndex,
     ChatAnalysisProposal,
     ChatMatch,
     ChatSource,
@@ -30,13 +29,7 @@ from .models import (
     ImportantItem,
     ImportantNote,
     SavedSelection,
-    SearchDocument,
-    SearchParent,
-    SearchParentScan,
-    SearchPassage,
 )
-from .models.search import SOURCE_FIELDS
-from .models.search_parents import PARENT_ORIGINS
 
 # The queue has no case boundary. django_tasks_db registers it before this app.
 # Private deletion reviews and storage cleanup work use their existing workflows.
@@ -411,71 +404,3 @@ class SavedSelectionAdmin(CoreRecordAdmin):
         "created_at",
         "updated_at",
     )
-
-
-@admin.register(CaseSearchIndex)
-class CaseSearchIndexAdmin(CoreRecordAdmin):
-    list_display = ("id", "case", "status", "failures")
-    search_fields = (*CoreRecordAdmin.search_fields, "=status", "=error_code")
-    fields = (
-        "id",
-        "case",
-        "requested_by",
-        "profile",
-        "status",
-        "source_type_index",
-        "failures",
-        "error_code",
-    )
-
-
-@admin.register(SearchDocument)
-class SearchDocumentAdmin(CoreRecordAdmin):
-    list_display = ("id", "case", "source_kind", "complete")
-    list_filter = ("complete",)
-    same_case_relations = (
-        *SOURCE_FIELDS,
-        "message__sender",
-        "message__recipient",
-        "attachment__phone_call",
-        "attachment__facetime",
-        "extraction__result",
-        "extraction__result__run",
-        "finding__result",
-        "finding__result__run",
-    )
-    fields = ("id", "case", "profile", "offset", "complete", *SOURCE_FIELDS)
-
-    @admin.display(description="Source type")
-    def source_kind(self, obj):
-        return obj.source()[0].capitalize()
-
-
-@admin.register(SearchPassage)
-class SearchPassageAdmin(CoreRecordAdmin):
-    list_display = ("id", "case", "start", "length")
-    search_fields = (*CoreRecordAdmin.search_fields, "=document__id")
-    same_case_relations = ("document",)
-    fields = ("id", "case", "document", "start", "length", "digest", "profile")
-
-
-@admin.register(SearchParent)
-class SearchParentAdmin(CoreRecordAdmin):
-    list_display = ("id", "case", "label", "version")
-    search_fields = (*CoreRecordAdmin.search_fields, "label")
-    same_case_relations = (
-        *PARENT_ORIGINS,
-        "attachment__phone_call",
-        "attachment__facetime",
-        "extraction__result",
-        "extraction__result__run",
-        "summary__run",
-        "session__grouping",
-    )
-    fields = ("id", "case", "label", "version", "profile", *PARENT_ORIGINS)
-
-
-@admin.register(SearchParentScan)
-class SearchParentScanAdmin(CoreRecordAdmin):
-    list_display = ("id", "case", "version", "phase")
-    fields = ("id", "case", "version", "phase")

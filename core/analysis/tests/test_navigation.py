@@ -12,8 +12,9 @@ from django.utils.html import escape
 from core.analysis.catalogue import project_result
 from core.analysis.services import start_run
 from core.analysis.source_resolution import resolve_inputs
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import output, source_id
-from core.analysis.testing import external_grant_kwargs, local_ocr_response, wav_bytes
+from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.testing import preview_image_bytes as image_bytes
 from core.analysis.tests.test_gateway import CONFIG, TRANSCRIPTION_CONFIG
 from core.analysis.worker import process_run
@@ -185,8 +186,8 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
     def test_reader_started_batch_keeps_return_through_filters_and_check_detail(self):
         note = self.text()
         external_grant_kwargs(self.case, "text_topics")
-        self.case.ai_backend = "gateway"
-        self.case.save(update_fields=["ai_backend"])
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
         self.login("editor")
         filters = {"q": "Interview", "type": "text", "state": "all"}
         back = self.url("detail", note) + "?" + urlencode(filters) + "#evidence-reader"
@@ -341,31 +342,56 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             title="Two printed regions",
             file=SimpleUploadedFile("regions.png", image_bytes()),
         )
-        extraction = self.start("ocr", image, "image")
-        reply = local_ocr_response(status="partial")
-        reply["regions"] = [
-            {
-                "text": text,
-                "bbox": box,
-                "order": index,
-                "confidence": score,
-                "paragraph": [1, 1, index + 1],
-                "words": [
-                    {"start": 0, "end": len(text), "region": box, "confidence": score}
+        # Saved version-six OCR contains word confidence and sub-image anchors.
+        extraction = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="ocr",
+            method_version="6",
+            status="partial",
+            inputs=snapshot_sources(self.case, [{"kind": "image", "id": image.pk}]),
+        )
+        (source,) = resolve_inputs(extraction, self.case)
+        from core.analysis.sources import output, source_item
+
+        result = AnalysisResult.objects.create(
+            run=extraction,
+            case=self.case,
+            data=output(
+                "Historical lines",
+                items=[
+                    source_item(
+                        source,
+                        "Text candidate",
+                        text=text,
+                        anchors=[
+                            source.anchor(
+                                region=bbox,
+                                coordinate_space="original_unoriented_pixels",
+                            )
+                        ],
+                        values={"Minimum word confidence (0–100)": score},
+                    )
+                    for text, bbox, score in [
+                        ("first@example.test", [0.1, 0.1, 0.7, 0.3], 95),
+                        ("second@example.test", [0.1, 0.5, 0.8, 0.8], 78),
+                    ]
                 ],
-            }
-            for index, (text, box, score) in enumerate(
-                [
-                    ("first@example.test", [0.1, 0.1, 0.7, 0.3], 95),
-                    ("second@example.test", [0.1, 0.5, 0.8, 0.8], 78),
-                ]
+            ),
+        )
+        from core.models import ExtractedPassage
+
+        for index, item in enumerate(result.data["items"]):
+            ExtractedPassage.objects.create(
+                case=self.case,
+                result=result,
+                kind="image",
+                evidence_id=image.pk,
+                evidence_sha256=image.sha256,
+                text=item["text"],
+                item_index=index,
+                anchors=item["anchors"],
             )
-        ]
-        with patch("image.analysis.ai.run_parser", return_value=reply):
-            process_run(extraction.pk)
-        extraction.refresh_from_db()
-        self.assertEqual(extraction.status, "partial", extraction.error_code)
-        result = extraction.result
         derived = self.start(
             "entities", image, "image", extra={"result_id": str(result.pk)}
         )
@@ -479,7 +505,9 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             title="Review selection",
             body="A retained description of candidate topics and place matches.",
         )
-        run = self.start("text_topics", note, "text")
+        run = self.start(
+            "text_topics", note, "text", parameters={"include_summary": False}
+        )
         source = run.inputs[0]["id"]
         data = output(
             "Synthetic candidates for individual review",

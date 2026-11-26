@@ -5,6 +5,7 @@ from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.case_search.tests.fixtures import indexed
 from core.models import ImportantItem, ImportantNote
 from people.models import Person
 from text.models import TextEvidence
@@ -60,7 +61,11 @@ class QuickFormBrowserTests(BrowserTestCase):
                 kind="text",
                 evidence_id=source.pk,
             )
-            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+            with (
+                self.subTest(engine=engine),
+                indexed(self.case, [("original", "text", source.pk)]),
+                self.browser_page(engine) as (_, page),
+            ):
                 self.sign_in(page)
                 page.goto(url + f"?type=text&q=Draft+{engine}")
                 page.evaluate(
@@ -84,7 +89,11 @@ class QuickFormBrowserTests(BrowserTestCase):
         for engine in self.engines:
             person = Person.objects.create(case=self.case, first_name="Witness")
             url = self.url("people:detail", case_id=self.case.pk, person_id=person.pk)
-            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+            with (
+                self.subTest(engine=engine),
+                indexed(self.case, [("record", "person", person.pk)]),
+                self.browser_page(engine) as (_, page),
+            ):
                 self.sign_in(page)
                 listing = self.url("people:list", case_id=self.case.pk)
                 page.goto(listing + "?q=Witness&page=2")

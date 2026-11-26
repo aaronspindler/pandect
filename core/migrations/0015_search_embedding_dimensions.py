@@ -1,29 +1,11 @@
 from django.db import migrations, models
-from django.db.models.lookups import In
-from pgvector.django import VectorField
 
 
 class Migration(migrations.Migration):
     dependencies = [("core", "0014_search_embedding_usage")]
 
     operations = [
-        migrations.AlterField(
-            model_name="searchpassage", name="embedding", field=VectorField()
-        ),
-        migrations.AddConstraint(
-            model_name="searchpassage",
-            constraint=models.CheckConstraint(
-                condition=In(
-                    models.Func(
-                        "embedding",
-                        function="vector_dims",
-                        output_field=models.IntegerField(),
-                    ),
-                    (384, 1536),
-                ),
-                name="case_search_embedding_dimensions",
-            ),
-        ),
+        # The obsolete embedding cache is dropped at the Cloudflare cutover.
         migrations.AddField(
             model_name="searchpassage",
             name="profile",

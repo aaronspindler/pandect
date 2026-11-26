@@ -25,9 +25,9 @@
   <div class="marketing-section wrap">
     <div class="section-heading heading-with-aside"><div><p class="section-label">Evidence processing</p><h2 id="processing-heading">Where is evidence processed?</h2></div><p>Eligible analysis starts automatically after evidence is added. Where it runs depends on the method, the installation’s configured services, and the case owner’s approvals.</p></div>
     <div class="principles">
-      <article><p class="section-label">Included</p><h3>Local checks</h3><p>Supported text extraction, metadata checks, and printed-English image recognition run locally. Image OCR stays in the local parser.</p></article>
-      <article><p class="section-label">Requires configuration</p><h3>Private AI services</h3><p>Operators can configure local or private-LAN services for supported AI methods. A private service failure leaves that check unavailable.</p></article>
-      <article><p class="section-label">Requires approval</p><h3>External AI</h3><p>Operators can connect OpenAI, Anthropic, or Cloudflare AI Gateway for text analysis. A service can receive evidence only after the case owner approves its configured destination in Case Settings.</p></article>
+      <article><p class="section-label">Included</p><h3>Local checks</h3><p>Pandect extracts native document text, checks metadata and verifies original file hashes on the installation.</p></article>
+      <article><p class="section-label">Search</p><h3>Private case index</h3><p>When the case owner enables external AI, Pandect sends eligible passages to a private Cloudflare AI Search instance dedicated to that case.</p></article>
+      <article><p class="section-label">Requires approval</p><h3>External AI</h3><p>Case Chat investigates through a Cloudflare Agent. Model checks, including image text recognition and transcription, use the destinations the owner approves in Case Settings. The owner can disable external AI and continue reading case records and saved work.</p></article>
     </div>
   </div>
 </section>

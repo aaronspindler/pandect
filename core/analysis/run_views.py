@@ -39,7 +39,7 @@ from core.analysis.navigation import (
 from core.analysis.operations import OPERATIONS
 from core.analysis.presentation import measurement_formatter
 from core.analysis.result_reader import retained_result_context
-from core.analysis.retries import retry_analysis, retry_route
+from core.analysis.retries import acknowledge_failure, retry_analysis, retry_route
 from core.analysis.services import cancel_run, case_run
 from core.analysis.source_resolution import resolve_active_inputs
 from core.important.navigation import return_params
@@ -224,6 +224,18 @@ def cancel(request, case_id, run_id):
     return redirect(
         run_url(run.case_id, run.pk)
         + query_suffix(result_navigation(request.GET, case_id))
+    )
+
+
+@product_login_required
+@require_POST
+def acknowledge(request, case_id, run_id):
+    run = acknowledge_failure(request.user, case_id, run_id)
+    messages.success(
+        request, "Failure acknowledged. The missing coverage remains recorded."
+    )
+    return redirect(
+        run_url(case_id, run.pk) + query_suffix(result_navigation(request.GET, case_id))
     )
 
 

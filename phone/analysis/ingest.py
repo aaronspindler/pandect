@@ -32,6 +32,7 @@ from phone.conversations import reported_pair
 MODEL_PARAMETERS = {
     "text_topics": {"include_summary": True},
     "content_events": {},
+    "narrative_relationships": {},
     "session_summaries": {"gap_minutes": 60},
     "conversation_link": {"semantic_links": True},
 }
@@ -39,16 +40,12 @@ MODEL_PARAMETERS = {
 
 def import_analysis_executions():
     """Snapshot reviewable message-analysis routes without credentials."""
-    backend = (
-        "gateway"
-        if all(gateway_configured("text", operation) for operation in MODEL_PARAMETERS)
-        else "local"
-    )
     return {
-        f"{operation}:{backend}": snapshot_execution(
-            operation, parameters | {"backend": backend}
+        f"{operation}:gateway": snapshot_execution(
+            operation, parameters | {"backend": "gateway"}
         )
         for operation, parameters in MODEL_PARAMETERS.items()
+        if gateway_configured("text", operation)
     }
 
 
@@ -317,20 +314,19 @@ def prepare_import_analysis(batch, case, messages):
         for group in _groups(messages, count=min(20, limit), characters=16_000):
             direct = [message for message in group if message.recipient_id is not None]
             for operation, parameters in MODEL_PARAMETERS.items():
-                for route in ("local", "gateway") if versioned else (backend,):
-                    if f"{operation}:{route}" in executions:
-                        queue(
-                            operation,
-                            direct if operation in PAIR_MESSAGE_OPERATIONS else group,
-                            parameters
-                            | {"backend": route}
-                            | (
-                                {"_suggestions_only": True}
-                                if versioned
-                                and operation in {"text_topics", "conversation_link"}
-                                else {}
-                            ),
-                        )
+                if f"{operation}:gateway" in executions:
+                    queue(
+                        operation,
+                        direct if operation in PAIR_MESSAGE_OPERATIONS else group,
+                        parameters
+                        | {"backend": "gateway"}
+                        | (
+                            {"_suggestions_only": True}
+                            if versioned
+                            and operation in {"text_topics", "conversation_link"}
+                            else {}
+                        ),
+                    )
 
 
 def import_selection_warning(selected, imported):

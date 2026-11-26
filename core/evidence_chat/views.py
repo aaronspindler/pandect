@@ -1,6 +1,6 @@
 """Case-scoped, progressively enhanced readers for saved evidence questions."""
 
-from datetime import datetime
+from uuid import uuid4
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
@@ -43,21 +43,13 @@ def _route_context(case, *, turn=None):
         selected = services.submission_route(case, turn=turn)
     except AnalysisError as exc:
         return {"unavailable": error_message(exc.code), "route_token": ""}
-    execution, revision, search, ranking, routing = selected
-    binding = [str(case.pk), revision, search, ranking]
-    if routing:
-        binding.append(routing)
+    execution, revision = selected
     return {
         "selected_route": selected,
-        "route_token": execution_confirmation("chat.submit", binding, execution),
-        "decisions_destination": routing,
-        "ranking_destination": ranking
-        if ranking.get("provider") == "workers-ai"
-        else {},
-        "embedding_destination": search.get("destination"),
-        "external_destination": execution_destination(execution)
-        if execution["location"] == "external"
-        else "",
+        "route_token": execution_confirmation(
+            "chat.submit", [str(case.pk), revision], execution
+        ),
+        "external_destination": execution_destination(execution),
     }
 
 
@@ -76,6 +68,7 @@ def _row(request, case, turn):
     parent_check = getattr(turn, "approved_check", None)
     if (
         parent_check
+        and parent_check.parent_id != turn.pk
         and parent_check.parent.case_id == case.pk
         and parent_check.parent.chat_id == turn.chat_id
     ):
@@ -94,16 +87,6 @@ def _row(request, case, turn):
             if code
             else "Reply unavailable because its sources could not be verified."
         }
-    from .deep_review import offer
-
-    if offer(turn):
-        child = getattr(turn, "deeper_review", None)
-        if child and child.case_id == case.pk and child.chat_id == turn.chat_id:
-            row["deep_child"] = reverse(
-                "core:chat:reply", args=(case.pk, turn.chat_id, child.pk)
-            )
-        else:
-            row["deep_offer"] = True
     check = getattr(turn, "analysis_proposal", None)
     if (
         check
@@ -113,12 +96,20 @@ def _row(request, case, turn):
         row["proposal"] = check
         if (
             check.continuation_id
+            and check.continuation_id != turn.pk
             and check.continuation.case_id == case.pk
             and check.continuation.chat_id == turn.chat_id
         ):
             row["linked_reply"] = reverse(
                 "core:chat:reply", args=[case.pk, turn.chat_id, check.continuation_id]
             )
+    if turn.plan.get("agent_version"):
+        row["update_submission"] = uuid4()
+        from .checkpoints import evidence_versions
+
+        row["newer_material"] = turn.plan.get("cutoff_versions") != evidence_versions(
+            case
+        )
     references = []
     claims = []
     support = turn.plan.get("claim_support", [])
@@ -237,7 +228,7 @@ def chat(request, case_id, chat_id=None):
         or any(
             row.get("proposal")
             and row["proposal"].status == "approved"
-            and not row.get("linked_reply")
+            and not row["proposal"].continuation_id
             for row in rows
         ),
     )
@@ -258,7 +249,6 @@ def _get_turn(case, chat_id, turn_id):
 @require_safe
 def selection(request, case_id, chat_id, turn_id):
     from django.db import transaction
-    from django.http import Http404
 
     from . import selections
 
@@ -310,7 +300,7 @@ def reply(request, case_id, chat_id, turn_id):
         or bool(
             row.get("proposal")
             and row["proposal"].status == "approved"
-            and not row.get("linked_reply")
+            and not row["proposal"].continuation_id
         ),
     }
     if "answer" in row:
@@ -323,7 +313,9 @@ def reply(request, case_id, chat_id, turn_id):
             context["gaps_page"] = services.gap_page(
                 turn, request.GET.get("gaps_page", 1)
             )
-    if context["can_edit"] and turn.status == ChatTurn.Status.FAILED:
+    if context["can_edit"] and (
+        turn.status == ChatTurn.Status.FAILED or row.get("newer_material")
+    ):
         context.update(_route_context(case, turn=turn))
     return render_live(request, "core/evidence_chat/reply.html", context)
 
@@ -420,75 +412,32 @@ def proposal(request, case_id, chat_id, turn_id):
 
 
 @product_login_required
-@require_http_methods(["GET", "HEAD", "POST"])
-def deep_review(request, case_id, chat_id, turn_id):
-    from . import deep_review as reviews
-    from .forms import DeeperReviewForm
-
+@require_POST
+def update_answer(request, case_id, chat_id, turn_id):
     case = get_case(request.user, case_id, edit=True)
     parent = _get_turn(case, chat_id, turn_id)
-    if not reviews.offer(parent):
-        raise Http404
-    reply_url = reverse("core:chat:reply", args=(case.pk, chat_id, turn_id))
-    existing = ChatTurn.objects.filter(
-        review_of=parent, case=case, chat_id=chat_id
-    ).first()
-    if existing:
-        return redirect("core:chat:reply", case.pk, chat_id, existing.pk)
-    if request.method == "POST":
-        action = request.POST.get("action")
-        if action == "keep":
-            return redirect(reply_url)
-        if action != "approve":
-            raise Http404
-    unavailable = ""
-    context = case_context(case, request.user) | {
-        "thread": parent.chat,
-        "turn": parent,
-        "reply_url": reply_url,
-    }
+    route = _route_context(case)
     try:
-        if request.method == "POST":
-            form = DeeperReviewForm(request.POST)
-            if form.is_valid():
-                child = reviews.approve(
-                    request.user,
-                    case.pk,
-                    chat_id,
-                    parent.pk,
-                    form.cleaned_data["question"],
-                    form.cleaned_data["confirmation"],
-                    form.cleaned_data["request_limit"],
-                )
-                return redirect("core:chat:reply", case.pk, chat_id, child.pk)
-        scope, expected, token = reviews.estimate(parent, request.user)
-        if request.method != "POST":
-            form = DeeperReviewForm(
-                initial={
-                    "question": parent.question,
-                    "confirmation": token,
-                    "request_limit": min(expected * 2, scope["limit"]),
-                }
-            )
-        if scope.get("resume"):
-            form.fields["question"].widget.attrs["readonly"] = True
-        form.fields["request_limit"].widget.attrs["max"] = scope["limit"]
-        context.update(
-            scope=scope,
-            expected=expected,
-            cutoff=datetime.fromisoformat(scope["through"]),
-            form=form,
-            destination=execution_destination(parent.execution),
+        if (
+            not route["route_token"]
+            or request.POST.get("route") != route["route_token"]
+        ):
+            raise ValidationError("Review the current processing destination.")
+        turn = services.submit_turn(
+            request.user,
+            case.pk,
+            parent.question,
+            submission_id=request.POST.get("submission_id"),
+            chat_id=chat_id,
+            expected_route=route["selected_route"],
+            update_of=parent.pk,
         )
-    except (AnalysisError, ValidationError) as error:
-        unavailable = (
-            error_message(error.code)
-            if isinstance(error, AnalysisError)
-            else " ".join(error.messages)
+    except (AnalysisError, ValidationError) as exc:
+        messages.error(
+            request,
+            error_message(exc.code)
+            if isinstance(exc, AnalysisError)
+            else " ".join(exc.messages),
         )
-    return render(
-        request,
-        "core/evidence_chat/deeper_review.html",
-        context | {"unavailable": unavailable},
-        status=409 if unavailable and request.method == "POST" else 200,
-    )
+        return redirect("core:chat:reply", case.pk, chat_id, turn_id)
+    return redirect("core:chat:reply", case.pk, chat_id, turn.pk)

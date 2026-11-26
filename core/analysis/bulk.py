@@ -229,9 +229,8 @@ def prepare_case_analysis_batch(batch_id):
 
                 has_more = prepare_grouping_step(batch, case)
             elif scope_type == "search_generation":
-                from core.case_search.generation import prepare_step
-
-                has_more = prepare_step(batch, case)
+                # Old outline-preparation deliveries are retired.
+                has_more = False
             elif scope_type == "instance_summaries":
                 from phone.instance_summaries import prepare_instance_summaries
 

@@ -5,6 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
+from core.case_search.tests.fixtures import indexed
 from people.models import Person
 from socialmedia.models import SocialAccount
 
@@ -134,7 +135,7 @@ class SocialAccountTests(TestCase):
             self.person.social_accounts.filter(pk=self.account.pk).update(username=" ")
 
     def test_viewer_can_read_and_search_with_one_result_per_person(self):
-        SocialAccount.objects.create(
+        second = SocialAccount.objects.create(
             person=self.person, platform="Example Social", username="@Alex_Second"
         )
         self.client.force_login(self.viewer)
@@ -148,6 +149,12 @@ class SocialAccountTests(TestCase):
             self.assertEqual(self.client.get(url).status_code, 403)
             self.assertEqual(self.client.post(url, {"confirm": "on"}).status_code, 403)
 
+        self.enterContext(
+            indexed(
+                self.case,
+                [("social", "person", item.pk) for item in (self.account, second)],
+            )
+        )
         list_url = reverse("people:list", args=(self.case.pk,))
         for query, people in (
             ("example social", [self.person]),

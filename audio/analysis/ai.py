@@ -140,15 +140,7 @@ def transcription(sources, parameters, *, client):
                     "condition_on_previous_text": False,
                 },
             )
-            # whisper.cpp can round a final timestamp to its nearest 20 ms
-            # tick. Anchor the accepted interval to the exact decoded audio.
-            text, segments = _segments(
-                response,
-                duration,
-                tail_rounding=0.01
-                if parameters.get("backend", "local") == "local"
-                else 0,
-            )
+            text, segments = _segments(response, duration)
             info = response.get("transcription_info", {})
             if not isinstance(info, dict):
                 raise AnalysisError("gateway_invalid_response")

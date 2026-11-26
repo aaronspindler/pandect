@@ -7,7 +7,7 @@
         {% if row.content_match %}<span class="evidence-row-meta">{{ row.content_match.label }}: {{ row.content_match.excerpt }}</span>{% endif %}
       </span>
     </a>
-    {% if row.content_match.url %}<a class="record-link evidence-match-link" href="{{ row.content_match.url }}">{% if row.content_match.anchor %}Open matching transcript{% else %}Open matching finding{% endif %}<span class="visually-hidden"> for {{ row.title }}</span></a>{% endif %}
+    {% if row.content_match.url %}<a class="record-link evidence-match-link" href="{{ row.content_match.url }}">Open matching passage<span class="visually-hidden"> for {{ row.title }}</span></a>{% endif %}
   </td>
   <td class="evidence-table-type" role="cell">
     {{ row.label }}

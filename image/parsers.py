@@ -200,7 +200,7 @@ def _image(content, *, prepare=False, orient=False, max_side=2048):
 def parse(operation, content, options):
     return _image(
         content,
-        prepare=operation == "image_preview",
+        prepare=operation in {"image_preview", "ocr"},
         orient=operation == "image_preview",
         max_side=320 if options.get("thumbnail") is True else 2048,
     )

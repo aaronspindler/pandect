@@ -2,6 +2,7 @@
 
 from copy import copy
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 from django.db import transaction
 from django.http import Http404
@@ -10,6 +11,7 @@ from django.utils.crypto import constant_time_compare
 from core.analysis.approval import (
     approve_scopes,
     case_approval_confirmation,
+    clear_ai_grants,
     pending_scopes,
     revoke_case_execution,
     revoke_destination,
@@ -31,58 +33,93 @@ class AISettingsChange:
     selected_scope_ids: set[str] = field(default_factory=set)
 
 
+def _publish_change(case):
+    from core.case_search.hosted import case_setting_changed
+
+    case.external_ai_revision = uuid4()
+    case.save(
+        update_fields=(
+            "external_ai_revision",
+            "external_ai_enabled",
+            "external_analysis_approval",
+            "external_analysis_models",
+            "external_analysis_efforts",
+        )
+    )
+    case_setting_changed(case)
+
+
 @transaction.atomic
 def change_ai_settings(actor, case_id, data):
     case = get_case(actor, case_id, owner=True, lock=True)
     action = data.get("action", "save")
-    if action not in {"save", "review_current", "approve"}:
+    if action not in {"enable", "disable", "save", "review_current", "approve"}:
         raise Http404("Case action not found.")
-    if action == "review_current":
-        initial = CaseAISettingsForm(case=case)
-        form = CaseAISettingsForm(initial.initial, case=case)
-    else:
-        form = CaseAISettingsForm(data, case=case)
+    # Turning off transfers only needs the current signed settings revision.
+    form_data = (
+        {"confirmation": data.get("confirmation", "")} if action == "disable" else data
+    )
+    form = CaseAISettingsForm(form_data, case=case)
     if not form.is_valid():
         return AISettingsChange(case, form, "stale" if form.stale else "invalid")
+    was_enabled = case.external_ai_enabled
+    if action == "disable":
+        if was_enabled:
+            case.external_ai_enabled = False
+            clear_ai_grants(case)
+            _publish_change(case)
+        return AISettingsChange(case, form, "saved")
 
-    backend = form.cleaned_data["ai_backend"]
+    enabled = was_enabled or action in {"enable", "approve"}
     models = form.proposed_models()
     efforts = form.proposed_efforts()
-    routes = {}
-    if backend == Case.AIBackend.GATEWAY:
-        proposed = copy(case)
-        proposed.external_analysis_models = models
-        proposed.external_analysis_efforts = efforts
+    previous = case.external_analysis_approval.copy()
+    proposed = copy(case)
+    proposed.external_analysis_models = models
+    proposed.external_analysis_efforts = efforts
+    proposed.external_ai_enabled = enabled
+    scopes = []
+    if enabled:
+        if not was_enabled:
+            # Earlier versions did not disclose the hosted index or agent.
+            clear_ai_grants(proposed)
         routes = {
             op: route
             for op, route in configured_external_executions(proposed).items()
             if op in ANALYSIS_MODEL_LABELS
         }
-        if not routes:
-            form.add_error(
-                "ai_backend",
-                "External AI needs at least one configured model destination.",
+        review_action = data.get("review_action") if action == "approve" else action
+        if (
+            was_enabled
+            and review_action == "save"
+            and all(
+                previous.get(key) == value for key, value in form.destinations.items()
             )
-            return AISettingsChange(case, form, "invalid")
-    changed = {
-        op
-        for op in ANALYSIS_MODEL_LABELS
-        if (op in form.data and form.cleaned_data[op] != form.initial[op])
-        or efforts.get(op) != case.external_analysis_efforts.get(op)
-    }
-    # Manage can review declined destinations even when every assignment is unchanged.
-    if backend == case.ai_backend and (changed or action == "save"):
-        routes = {op: route for op, route in routes.items() if op in changed}
-    scopes = pending_scopes(case, routes)
-    if action == "review_current" and not scopes:
-        return AISettingsChange(case, form, "no_review")
-
-    if action == "approve" or scopes:
+        ):
+            routes = {
+                op: route
+                for op, route in routes.items()
+                if models.get(op) != case.external_analysis_models.get(op)
+                or efforts.get(op) != case.external_analysis_efforts.get(op)
+            }
+        scopes = pending_scopes(proposed, routes)
+    hosting_changed = enabled and (
+        not was_enabled
+        or any(previous.get(key) != value for key, value in form.destinations.items())
+    )
+    if scopes or hosting_changed or action == "approve":
         confirmation = case_approval_confirmation(
             case,
             actor,
-            "save",
-            [form.expected_confirmation, backend, models, efforts, scopes],
+            "enable",
+            [
+                form.expected_confirmation,
+                models,
+                efforts,
+                scopes,
+                form.destinations,
+                review_action,
+            ],
         )
         selected = set(data.getlist("allow"))
         if action != "approve":
@@ -91,28 +128,32 @@ def change_ai_settings(actor, case_id, data):
             )
         if not constant_time_compare(data.get("review_confirmation", ""), confirmation):
             form.add_error(
-                None, "The review changed. Check your settings and save again."
+                None, "The destinations changed. Review the current settings."
             )
             return AISettingsChange(case, form, "stale")
-        ids = {str(i) for i in range(len(scopes))}
-        if not selected or not selected <= ids:
+        if not selected <= {str(i) for i in range(len(scopes))}:
             return AISettingsChange(
                 case, form, "select_destinations", scopes, confirmation, selected
             )
+        case.external_analysis_approval = proposed.external_analysis_approval
         approve_scopes(
             case, actor, [scope for i, scope in enumerate(scopes) if str(i) in selected]
         )
-
-    case.ai_backend = backend
-    case.external_analysis_models = models
-    case.external_analysis_efforts = efforts
-    case.save(
-        update_fields=(
-            "ai_backend",
-            "external_analysis_models",
-            "external_analysis_efforts",
+        case.external_analysis_approval = (
+            case.external_analysis_approval | form.destinations
         )
-    )
+    elif action == "review_current":
+        return AISettingsChange(case, form, "no_review")
+    if (
+        enabled != was_enabled
+        or previous != case.external_analysis_approval
+        or models != case.external_analysis_models
+        or efforts != case.external_analysis_efforts
+    ):
+        case.external_ai_enabled = enabled
+        case.external_analysis_models = models
+        case.external_analysis_efforts = efforts
+        _publish_change(case)
     return AISettingsChange(case, form, "saved")
 
 
@@ -120,11 +161,12 @@ def change_ai_settings(actor, case_id, data):
 def change_external_approval(actor, case_id, action, confirmation):
     case = get_case(actor, case_id, owner=True, lock=True)
     if action == "revoke_destination":
-        return (
-            "destination_revoked"
-            if revoke_destination(case, actor, confirmation)
-            else "stale"
-        )
+        removed = revoke_destination(case, actor, confirmation)
+        if not removed:
+            return "stale"
+        if case.external_ai_enabled and removed.get("operation") not in GEOGRAPHIC:
+            _publish_change(case)
+        return "destination_revoked"
     if action not in {"approve", "revoke"}:
         raise Http404("Case action not found.")
     executions = (
@@ -142,6 +184,9 @@ def change_external_approval(actor, case_id, action, confirmation):
         return "stale"
     if action == "revoke":
         revoke_case_execution(case)
+        if case.external_ai_enabled:
+            case.external_ai_enabled = False
+            _publish_change(case)
         return "revoked"
     if scopes := pending_scopes(case, executions):
         approve_scopes(case, actor, scopes)

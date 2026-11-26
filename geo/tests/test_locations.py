@@ -9,6 +9,7 @@ from django.db.models.deletion import RestrictedError
 from django.test import TestCase
 from django.urls import reverse
 
+from core.case_search.tests.fixtures import indexed
 from core.evidence.types import KINDS, LOCATION_KINDS
 from core.testing import LOCATION_MODELS, EvidenceTestMixin, EvidenceViewTestMixin
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
@@ -250,6 +251,7 @@ class LocationViewTests(EvidenceViewTestMixin, TestCase):
 
     def test_source_edit_search_detail_and_location_original_preservation(self):
         self.login("editor")
+        edited_items = []
         for kind, model in KINDS.items():
             created = self.client.post(
                 self.url("create"), self.payload(kind), HTTP_ACCEPT="application/json"
@@ -276,6 +278,13 @@ class LocationViewTests(EvidenceViewTestMixin, TestCase):
                 self.url("detail", item, kind=kind), {"section": "details"}
             )
             self.assertContains(detail, f"Revised source {kind}")
+            edited_items.append((kind, item))
+        self.enterContext(
+            indexed(
+                self.case, [("original", kind, item.pk) for kind, item in edited_items]
+            )
+        )
+        for kind, item in edited_items:
             results = self.client.get(
                 self.url("list"), {"type": kind, "q": item.source}
             )

@@ -12,7 +12,7 @@ class ImageAnalysisForm(BaseAnalysisForm):
         initial="printed",
         label="Text profile",
         help_text=(
-            "Processed locally. Handwriting and mixed text are unsupported. "
+            "The approved vision model reads prepared images through Cloudflare. "
             "Inspect extracted text against the source image."
         ),
     )

@@ -10,14 +10,12 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from config.access import product_login_required
 from core.analysis.approval import case_approval_context, scope_description
-from core.case_search.approval import search_approval_context
 from socialmedia import instagram_connector, monitor_jobs
 
 from .analysis_settings import change_ai_settings, change_external_approval
 from .forms import CaseAISettingsForm, CaseForm
 from .permissions import get_case
 from .responses import render_case
-from .search_settings import rerank_approval_context
 
 
 @product_login_required
@@ -67,10 +65,6 @@ def _render_case_settings(
     latest_details=None,
     ai_settings_form=None,
 ):
-    from core.case_search.generation import settings_rows
-    from core.evidence_chat.decisions_approval import approval_context
-
-    review_search = request.GET.get("review_search") == "1"
     invitations = list(case.invitations.all())
     return render_case(
         request,
@@ -86,13 +80,6 @@ def _render_case_settings(
         pending_invitations=[item for item in invitations if item.is_pending],
         invitation_history=[item for item in invitations if not item.is_pending],
         external_analysis=case_approval_context(case, request.user),
-        search_approval=search_approval_context(case, request.user),
-        search_backlog_review=review_search,
-        search_generation=settings_rows(case, request.user, estimate=True)
-        if review_search
-        else (),
-        rerank_approval=rerank_approval_context(case, request.user),
-        chat_routing=approval_context(case, request.user),
         instagram_scheduling_available=instagram_connector.scheduling_available(),
         instagram_target_approved=monitor_jobs.target_approved(case.pk),
         instagram_target=instagram_connector.PILOT_TARGET,
@@ -126,7 +113,16 @@ def case_ai_settings(request, case_id):
                 scope_description(scope) | {"scope_id": str(i)}
                 for i, scope in enumerate(change.scopes)
             ],
+            hosting=form.destinations,
             proposal=[
+                (
+                    "review_action",
+                    request.POST.get("review_action")
+                    if request.POST.get("action") == "approve"
+                    else request.POST.get("action", "save"),
+                )
+            ]
+            + [
                 (name, form.cleaned_data[name])
                 for name in form.fields
                 if name in form.data

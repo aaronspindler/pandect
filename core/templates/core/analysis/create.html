@@ -48,8 +48,8 @@
   {% for value,label in form.retained_sources %}<input type="hidden" name="sources" value="{{ value }}">{% endfor %}
   {% if form.retained_sources %}<details class="disclosure" open><summary>Selected on other pages · {{ form.retained_sources|length }}</summary><ul>{% for value,label in form.retained_sources %}<li>{{ label }} <button class="button button-secondary" type="submit" name="remove_source" value="{{ value }}" formnovalidate>Remove selection</button></li>{% endfor %}</ul></details>{% endif %}
   {% if not fixed_source %}<div class="analysis-picker" role="group" aria-label="Find evidence">
-    <div class="field"><label for="analysis-query">Find evidence by title</label><input type="search" id="analysis-query" name="q" maxlength="200" value="{{ query }}"></div>
-    <div class="actions"><button class="button button-secondary" type="submit" name="browse_sources" value="search" formnovalidate>Find evidence</button>{% if query %}<button class="button button-secondary" type="submit" name="browse_sources" value="clear" formnovalidate>Clear title filter</button>{% endif %}</div>
+    <div class="field"><label for="analysis-query">Search case evidence</label><input type="search" id="analysis-query" name="q" maxlength="200" value="{{ query }}"></div>
+    <div class="actions"><button class="button button-secondary" type="submit" name="browse_sources" value="search" formnovalidate>Find evidence</button>{% if query %}<button class="button button-secondary" type="submit" name="browse_sources" value="clear" formnovalidate>Clear search</button>{% endif %}</div>
   </div>{% endif %}
   <h2>{% if choose_call_recording %}Choose a recording from this call{% else %}Choose evidence{% endif %}</h2>
   {% if operation == 'claim_comparison' %}<p>Choose the message or call transcript with the claim and up to five sources to compare with it.</p>{% endif %}

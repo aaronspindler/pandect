@@ -402,7 +402,9 @@ class TextAnalysisTests(SimpleTestCase):
         without_runtime = text_topics([original], {})
         self.assertEqual(without_runtime["outcome"], "partial")
         self.assertEqual(without_runtime["items"], result["items"])
-        self.assertIn("needs a configured", " ".join(without_runtime["warnings"]))
+        self.assertIn(
+            "approved Cloudflare AI Gateway", " ".join(without_runtime["warnings"])
+        )
 
     def test_topics_with_empty_model_output_keep_keywords_and_cautions(self):
         original = source("Harbour harbour delivery.")
@@ -459,9 +461,6 @@ class TextAnalysisTests(SimpleTestCase):
     def test_topic_service_failures_keep_keywords_and_safe_recovery_guidance(self):
         original = source("Harbour delivery.")
         for code in (
-            "local_ai_unavailable",
-            "local_ai_invalid_response",
-            "local_ai_context_limit",
             "gateway_unavailable",
             "gateway_invalid_response",
         ):
@@ -480,7 +479,6 @@ class TextAnalysisTests(SimpleTestCase):
             AnalysisError("source_changed"),
             AnalysisError("source_unavailable"),
             AnalysisError("execution_changed"),
-            AnalysisError("local_ai_model_changed"),
             PermissionDenied(),
             Http404(),
             RuntimeError(),
@@ -492,7 +490,7 @@ class TextAnalysisTests(SimpleTestCase):
             text_topics(
                 [source("a")],
                 {},
-                infer=Mock(side_effect=AnalysisError("local_ai_unavailable")),
+                infer=Mock(side_effect=AnalysisError("gateway_unavailable")),
             )
 
     def test_model_suggestions_require_exact_quotes_and_selected_sources(self):

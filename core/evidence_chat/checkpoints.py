@@ -10,7 +10,6 @@ from cases.models import CaseActivity
 from cases.permissions import get_case_for_verified_user
 from core.analysis.errors import AnalysisError
 from core.analysis.inference_payloads import encode_json
-from core.case_search.parents import current_parent_ids
 from core.models import ChatSource, ChatTurn
 
 from . import activity, ai, corpus
@@ -41,14 +40,14 @@ def authorize_turn(turn, windows=(), *, lock=False, metadata=False, review=False
     if code := review_restart_code(turn):
         raise AnalysisError(code)
     ai.check_execution(turn, case)
-    if turn.review_of_id:
-        from .deep_review import parent_for
-
-        parent_for(turn)
     if turn.plan.get("approved_proposal"):
         from .proposals import check_continuation
 
         check_continuation(turn)
+    if turn.plan.get("graph_checks"):
+        from .investigation import current_leads
+
+        current_leads(turn, case)
     if metadata:
         return case
     if digest := turn.plan.get("history_digest"):
@@ -76,12 +75,6 @@ def authorize_turn(turn, windows=(), *, lock=False, metadata=False, review=False
             for key, locator in locators.items()
         ):
             raise AnalysisError("source_changed")
-    parents = {p for w in windows for p in w.locator.get("search_parents", ())}
-    if (
-        parents
-        and current_parent_ids(case, parents, through=turn.started_at) != parents
-    ):
-        raise AnalysisError("source_changed")
     for window in windows:
         current = corpus.read_window(
             case,

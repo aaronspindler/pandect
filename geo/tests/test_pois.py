@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils.html import escape
 
 from cases.models import CaseMembership
+from core.case_search.tests.fixtures import indexed
 from geo.models import PointOfInterest
 from geo.poi_forms import PointOfInterestForm
 from geo.testing import MapCaseFixtures
@@ -157,6 +158,7 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
         return reverse("geo:case_map", args=(self.case.pk,))
 
     def test_poi_detail_returns_to_its_map_or_person_list_context(self):
+        self.enterContext(indexed(self.case, [("record", "poi", self.poi.pk)]))
         self.client.force_login(self.viewer)
         filters = {
             "q": "Home",

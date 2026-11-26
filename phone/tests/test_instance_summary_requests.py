@@ -24,7 +24,6 @@ from core.analysis.source_resolution import resolve_inputs
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import source_id
 from core.analysis.testing import external_grant_kwargs
-from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
@@ -32,8 +31,12 @@ from core.testing import EvidenceViewTestMixin
 from phone.models import TextMessageEvidence
 
 
-@override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
+@override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
 class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        external_grant_kwargs(self.case, "session_summaries")
+
     def message(self, minute, body="A synthetic message."):
         return TextMessageEvidence.objects.create(
             case=self.case,
@@ -89,8 +92,8 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
 
     def select_external_ai(self):
         external_grant_kwargs(self.case, "session_summaries")
-        self.case.ai_backend = "gateway"
-        self.case.save(update_fields=["ai_backend"])
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
 
     def test_review_locks_members_and_adjustments_and_submit_replays_once(self):
         a, b, c = [self.message(n) for n in (1, 120, 360)]
@@ -135,16 +138,12 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.parameters["gap_minutes"], 20)
         self.assertEqual(run.parameters["join_before"], [b_id])
         self.assertNotIn("break_before", run.parameters)
-        self.assertFalse(run.external_processing)
+        self.assertTrue(run.external_processing)
 
     def test_instance_summary_queues_only_the_selected_approved_route(self):
         original = self.message(1)
         url = self.session(original)
-        self.save_summary(original)
-        external_grant_kwargs(self.case, "session_summaries")
         self.login("editor")
-        self.assertEqual(self.client.get(url).status_code, 302)
-        self.select_external_ai()
         review = self.client.get(url)
         self.assertContains(review, "Request session summary")
         self.assertContains(review, "External AI")
@@ -159,7 +158,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(run.external_processing)
         self.assertEqual(run.parameters["_execution"]["backend"], "gateway")
         self.assertEqual(
-            AnalysisRun.objects.filter(operation="session_summaries").count(), 2
+            AnalysisRun.objects.filter(operation="session_summaries").count(), 1
         )
 
     def test_pending_exact_grant_survives_approval_for_the_same_destination(self):
@@ -194,23 +193,16 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
 
-    def test_queued_private_summary_retains_its_route_after_case_changes(self):
+    def test_disabling_external_ai_fences_previously_queued_work(self):
         url = self.session(self.message(1))
         self.login("editor")
-        private = self.summary_payload(self.client.get(url))
-        self.assertEqual(self.client.post(url, private).status_code, 302)
-        private_batch = CaseAnalysisBatch.objects.get()
-
-        self.select_external_ai()
-        review = self.client.get(url)
-        new_request = self.client.post(url, self.summary_payload(review))
-        self.assertEqual(new_request.status_code, 302)
-        approved_batch = CaseAnalysisBatch.objects.exclude(pk=private_batch.pk).get()
-
-        self.assertEqual(prepare_case_analysis_batch(private_batch.pk), "complete")
-        self.assertEqual(prepare_case_analysis_batch(approved_batch.pk), "complete")
-        self.assertFalse(private_batch.runs.get().external_processing)
-        self.assertTrue(approved_batch.runs.get().external_processing)
+        payload = self.summary_payload(self.client.get(url))
+        self.assertEqual(self.client.post(url, payload).status_code, 302)
+        batch = CaseAnalysisBatch.objects.get()
+        self.case.external_ai_enabled = False
+        self.case.save(update_fields=["external_ai_enabled"])
+        prepare_case_analysis_batch(batch.pk)
+        self.assertFalse(batch.runs.exists())
 
     def test_backend_change_requires_new_single_and_bulk_review(self):
         single = self.session(self.message(1))
@@ -219,9 +211,11 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         payloads = {}
         for url in (single, self.bulk_url):
             review = self.client.get(url)
-            self.assertContains(review, "Private inference")
+            self.assertContains(review, "External AI")
             payloads[url] = self.summary_payload(review)
 
+        self.case.external_ai_revision = uuid4()
+        self.case.save(update_fields=["external_ai_revision"])
         self.select_external_ai()
         for url, payload in payloads.items():
             with self.subTest(url=url):
@@ -245,9 +239,10 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
     def test_unapproved_selected_backend_has_no_private_fallback(self):
         original = self.message(1)
         single = self.session(original)
-        self.save_summary(original)
-        self.case.ai_backend = "gateway"
-        self.case.save(update_fields=["ai_backend"])
+        self.case.external_analysis_approval = {}
+        self.case.save(update_fields=["external_analysis_approval"])
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
         self.login("editor")
         for url in (single, self.bulk_url):
             with self.subTest(url=url):
@@ -275,7 +270,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(url)
         self.assertContains(response, "16,000-character")
         self.assertNotContains(response, ">Request summary</button>")
-        payload = {"submission_id": uuid4(), "backend": "local"}
+        payload = {"submission_id": uuid4(), "backend": "gateway"}
         self.assertEqual(self.client.post(url, payload).status_code, 400)
         TextMessageEvidence.objects.filter(pk=a.pk).update(sha256="0" * 64)
         self.assertEqual(self.client.post(url, payload).status_code, 404)
@@ -307,10 +302,11 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             operation="session_summaries",
             method_version=get_operation("session_summaries").version,
             status="complete",
+            external_processing=True,
             parameters={
-                "backend": "local",
+                "backend": "gateway",
                 "_execution": snapshot_execution(
-                    "session_summaries", {"backend": "local"}
+                    "session_summaries", {"backend": "gateway"}, case=self.case
                 ),
             },
             inputs=inputs,
@@ -376,7 +372,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             [[str(message.pk)] for message in originals[1:]]
             + [[str(message.pk) for message in originals[-2:]]],
         )
-        self.assertFalse(batch.runs.filter(external_processing=True).exists())
+        self.assertFalse(batch.runs.filter(external_processing=False).exists())
 
     def test_bulk_review_queues_only_the_current_review_page(self):
         originals = [self.message(n * 10) for n in range(51)]
@@ -449,7 +445,8 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "session_summaries",
             [{"kind": "text-message", "id": str(original.pk)}],
-            parameters={"backend": "local"},
+            parameters={"backend": "gateway"},
+            **external_grant_kwargs(self.case, "session_summaries"),
         )
         batch = CaseAnalysisBatch.objects.get()
         self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
@@ -465,7 +462,8 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "session_summaries",
             [{"kind": "text-message", "id": str(item.pk)} for item in originals],
-            parameters={"backend": "local", "gap_minutes": 10},
+            parameters={"backend": "gateway", "gap_minutes": 10},
+            **external_grant_kwargs(self.case, "session_summaries"),
         )
         self.login("owner")
         self.assertContains(self.client.get(self.bulk_url), "Sessions included · 1")
@@ -483,7 +481,6 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         )
 
     @override_settings(
-        PANDECT_LOCAL_AI={},
         PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG
         | {
             "account": "",
@@ -530,22 +527,12 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         submitted = self.client.post(self.bulk_url, payload)
         self.assertEqual(submitted.status_code, 302)
         batch = CaseAnalysisBatch.objects.get()
-        self.assertEqual(set(batch.scope["executions"]), {"local"})
-        batch.scope.pop("reviewed_scope")
-        batch.scope["executions"]["gateway"] = snapshot_execution(
-            "session_summaries", {"backend": "gateway"}
-        )
-        batch.save(update_fields=["scope"])
+        self.assertEqual(set(batch.scope["executions"]), {"gateway"})
         self.assertRedirects(self.client.get(self.bulk_url), submitted.url)
         gateway = settings.PANDECT_AI_GATEWAY | {"gateway": "changed-synthetic-route"}
         with self.settings(PANDECT_AI_GATEWAY=gateway):
-            self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
-        self.assertEqual(batch.runs.count(), 2)
-        self.assertFalse(batch.runs.filter(external_processing=True).exists())
-        batch.refresh_from_db()
-        self.assertEqual(batch.unavailable_sources, 2)
-        self.case.ai_backend = "gateway"
-        self.case.save(update_fields=["ai_backend"])
+            prepare_case_analysis_batch(batch.pk)
+        self.assertFalse(batch.runs.exists())
         self.assertContains(self.client.get(self.bulk_url), "Sessions included · 2")
 
     def test_bulk_preserves_other_runs_when_a_reviewed_instance_becomes_unavailable(
@@ -591,13 +578,12 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             for message in (first, second)
         ]
         with (
-            patch("core.analysis.local.LocalClient._validate_configuration"),
             patch(
-                "core.analysis.local.LocalClient.infer",
-                side_effect=AnalysisError("local_ai_unavailable"),
+                "core.analysis.gateway.GatewayClient.infer",
+                side_effect=AnalysisError("gateway_unavailable"),
             ),
         ):
-            self.assertEqual(process_run(failed.pk), "local_ai_unavailable")
+            self.assertEqual(process_run(failed.pk), "gateway_unavailable")
         self.assertFalse(AnalysisResult.objects.filter(run=failed).exists())
         response = self.client.post(
             reverse("core:analysis:retry", args=(self.case.pk, failed.pk)),
@@ -605,29 +591,28 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(response.status_code, 302)
         retried = batch.runs.get(previous_run=failed)
-        with patch("core.analysis.local.LocalClient._validate_configuration"):
-            for run, original in ((succeeding, second), (retried, first)):
-                with patch(
-                    "core.analysis.local.LocalClient.infer",
-                    return_value={
-                        "items": [
-                            {
-                                "text": (
-                                    f"The reported sender {self.person.pk} "
-                                    "discusses a synthetic topic."
-                                ),
-                                "citations": [
-                                    {
-                                        "source_id": run.inputs[0]["id"],
-                                        "quote": original.body,
-                                    }
-                                ],
-                            }
-                        ]
-                    },
-                ):
-                    process_run(run.pk)
-                self.assertTrue(AnalysisResult.objects.filter(run=run).exists())
+        for run, original in ((succeeding, second), (retried, first)):
+            with patch(
+                "core.analysis.gateway.GatewayClient.infer",
+                return_value={
+                    "items": [
+                        {
+                            "text": (
+                                f"The reported sender {self.person.pk} "
+                                "discusses a synthetic topic."
+                            ),
+                            "citations": [
+                                {
+                                    "source_id": run.inputs[0]["id"],
+                                    "quote": original.body,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            ):
+                process_run(run.pk)
+            self.assertTrue(AnalysisResult.objects.filter(run=run).exists())
         report = self.client.get(
             reverse("core:analysis:detail", args=(self.case.pk, retried.pk))
         )
@@ -639,7 +624,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
 
     def test_viewers_revoked_members_and_other_cases_cannot_start(self):
         url = self.session(self.message(1))
-        payload = {"submission_id": uuid4(), "backend": "local"}
+        payload = {"submission_id": uuid4(), "backend": "gateway"}
         for role, status in (("viewer", 403), ("outsider", 404)):
             self.login(role)
             for target in (url, self.bulk_url):

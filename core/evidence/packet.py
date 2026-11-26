@@ -183,7 +183,7 @@ def packet_picker(request, case_id):
     allowed = {"q", "type", "page"}
     for key in set(filters) - allowed:
         del filters[key]
-    context = collection_context(case, filters)
+    context = collection_context(case, filters, actor=request.user)
     for row in context["rows"]:
         row["ref"] = f"{row['kind']}:{row['id']}"
         row["selected"] = row["ref"] in refs

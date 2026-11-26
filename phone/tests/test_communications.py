@@ -15,6 +15,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from cases.models import CaseMembership
+from core.case_search.tests.fixtures import indexed
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS
 from core.testing import COMMUNICATION_MODELS, EvidenceTestMixin, EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -531,6 +532,12 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
                 ).status_code,
                 201,
             )
+        sources = [("original", "phone-call", item.pk)]
+        sources.extend(
+            ("attachment", "phone-call", attachment.pk)
+            for attachment in CallEvidenceAttachment.objects.filter(phone_call=item)
+        )
+        self.enterContext(indexed(self.case, sources))
         for query in ("matching.wav", "Synthetic person"):
             result = self.client.get(self.url("list"), {"q": query})
             self.assertEqual(result.context["page_obj"].paginator.count, 1)

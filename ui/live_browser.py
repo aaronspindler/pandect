@@ -12,6 +12,7 @@ from config.tests.browser_base import BrowserTestCase
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisRun
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
@@ -514,10 +515,20 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
             archived_count = TextEvidence.objects.filter(
                 case=self.case, is_archived=True
             ).count()
-            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+            title = f"Archive-{engine}"
+            active = TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=title,
+                body="Active dispatch.",
+            )
+            with (
+                self.subTest(engine=engine),
+                indexed(self.case, [("original", "text", active.pk)]),
+                self.browser_page(engine) as (_, page),
+            ):
                 self.sign_in(page, self.viewer)
                 page.clock.install()
-                title = f"Archive-{engine}"
                 url = self.url("core:evidence:list", case_id=self.case.pk)
                 url += f"?state=archived&q={title}"
                 with page.expect_response(
@@ -552,12 +563,20 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(text_count).to_have_text(str(archived_count))
                 page.evaluate("window.liveSentinel = 42")
                 refresh.click()
-                expect(records.get_by_role("link", name=title)).to_be_visible()
+                # Archived originals remain readable through the collection.
+                # Hosted search includes active sources only.
+                expect(
+                    records.get_by_role("heading", name="No matching evidence")
+                ).to_be_visible()
                 expect(refresh).to_be_hidden()
                 expect(text_count).to_have_text(str(archived_count + 1))
                 expect(summary).to_be_visible()
                 expect(page).to_have_url(url)
                 self.assertEqual(page.evaluate("window.liveSentinel"), 42)
+                page.get_by_role("searchbox", name="Filter evidence").fill("")
+                page.clock.fast_forward(1000)
+                expect(records.get_by_role("link", name=title)).to_be_visible()
+                expect(page).to_have_url(url.split("&q=")[0])
 
     def test_idle_processing_and_open_evidence_discover_finished_work(self):
         for engine in self.engines:
@@ -704,6 +723,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                         ).to_be_visible()
 
     def test_typing_filters_the_collection_and_preserves_the_open_reader(self):
+        self.enterContext(indexed(self.case, [("original", "text", self.source.pk)]))
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
@@ -906,9 +926,40 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 self.assertEqual(page.evaluate("window.activityRequests"), 1)
                 self.capture(page, engine, "case-collection-access-recovery")
 
+    def test_typing_reports_disabled_search_and_clearing_restores_the_collection(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.url("core:evidence:list", case_id=self.case.pk))
+                results = page.locator("#evidence-records")
+                source = results.get_by_role("link", name=self.source.title)
+                original = page.locator("#evidence-records").element_handle()
+                expect(source).to_be_visible()
+                query = page.get_by_role("searchbox", name="Filter evidence")
+                query.fill("meeting")
+                notice = results.locator("[data-search-notice]")
+                expect(notice).to_contain_text("enable external AI in Case settings")
+                expect(
+                    page.get_by_role("status").filter(has_text="enable external AI")
+                ).to_have_count(1)
+                expect(
+                    page.get_by_role("heading", name="No matching evidence")
+                ).to_have_count(0)
+                query.fill("")
+                expect(source).to_be_visible()
+                expect(notice).to_have_count(0)
+                self.assertTrue(original.evaluate("node => node.isConnected"))
+                expect(query).to_be_focused()
+
     def test_mobile_typing_in_people_vehicles_findings_and_images(self):
-        Person.objects.create(case=self.case, first_name="Collection fixture")
-        Vehicle.objects.create(case=self.case, model="Collection fixture")
+        person = Person.objects.create(case=self.case, first_name="Collection fixture")
+        vehicle = Vehicle.objects.create(case=self.case, model="Collection fixture")
+        self.enterContext(
+            indexed(
+                self.case,
+                [("record", "person", person.pk), ("record", "vehicle", vehicle.pk)],
+            )
+        )
         case_args = {"case_id": self.case.pk}
         screens = (
             (self.url("people:list", **case_args), "people", "Search people"),

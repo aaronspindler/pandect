@@ -116,7 +116,8 @@ window.PandectPage((signal) => {
       if (fresh.hasAttribute("data-collection-count")) {
         const count = fresh.dataset.collectionCount;
         results.dataset.collectionCount = count;
-        status.textContent = count + (count === "1" ? " result." : " results.");
+        const notice = results.querySelector("[data-search-notice]");
+        status.textContent = notice?.textContent || count + (count === "1" ? " result." : " results.");
       } else {
         status.textContent = "Results refreshed.";
       }

@@ -1,5 +1,6 @@
 """Investigator routes enforce current case access for retained analysis work."""
 
+import hashlib
 import io
 import json
 import wave
@@ -22,6 +23,7 @@ from core.analysis.services import start_run
 from core.analysis.testing import external_grant_kwargs, image_bytes
 from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -84,6 +86,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "No findings yet")
         self.assertContains(response, f'href="{processing}">View processing</a>')
 
+        self.enterContext(indexed(self.case, []))
         response = self.client.get(browse, {"q": "Synthetic search"})
         self.assertContains(response, "No matching findings")
         self.assertContains(response, f'href="{browse}">Show all findings</a>')
@@ -378,7 +381,6 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(form["sources"].value(), [f"location:{point.pk}"])
         self.assertFalse(AnalysisRun.objects.exists())
 
-    @override_settings(PANDECT_LOCAL_AI={})
     def test_configuration_errors_keep_the_exact_extraction_version(self):
         document = DocumentEvidence.objects.create(
             case=self.case,
@@ -467,7 +469,13 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         } | values
 
     def analysis_run(
-        self, *, complete=True, actor="owner", source=None, operation="entities"
+        self,
+        *,
+        complete=True,
+        actor="owner",
+        source=None,
+        operation="entities",
+        parameters=None,
     ):
         item = source or self.note
         run, _ = start_run(
@@ -475,6 +483,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             operation,
             [{"kind": "text", "id": str(item.pk)}],
+            parameters=parameters,
         )
         if complete:
             process_run(run.pk)
@@ -607,7 +616,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
                     uploaded_by=self.users["owner"],
                     title=f"Selected source {number}",
                     body="Synthetic retained source.",
-                    sha256="a" * 64,
+                    sha256=hashlib.sha256(b"Synthetic retained source.").hexdigest(),
                 )
                 for number in range(30)
             ]
@@ -623,6 +632,15 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
                 )
                 for _ in range(25)
             ]
+        )
+        self.enterContext(
+            indexed(
+                self.case,
+                [
+                    ("original", "text", item.pk)
+                    for item in TextEvidence.objects.filter(case=self.case)
+                ],
+            )
         )
         response = self.client.get(original + "&results_page=2")
         self.assertFalse(response.context["info_open"])
@@ -649,7 +667,6 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertIn(f"batch={CaseAnalysisBatch.objects.get().pk}", batch_response.url)
 
-    @override_settings(PANDECT_LOCAL_AI={})
     def test_evidence_analysis_uses_url_source_and_ignores_forged_operation_settings(
         self,
     ):
@@ -828,7 +845,11 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(self.client.get(reader), "Review failed check")
 
     def test_evidence_shows_saved_outcomes_even_without_highlighted_findings(self):
-        run = self.analysis_run(complete=False, operation="text_topics")
+        run = self.analysis_run(
+            complete=False,
+            operation="text_topics",
+            parameters={"include_summary": False},
+        )
         AnalysisRun.objects.filter(pk=run.pk).update(status=AnalysisRun.Status.EMPTY)
         AnalysisResult.objects.create(
             case=self.case,
@@ -1015,9 +1036,9 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertNotContains(response, "Other retained note")
         self.assertNotContains(response, self.foreign.title)
-        self.assertNotContains(response, "Find evidence by title")
+        self.assertNotContains(response, "Search case evidence")
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI={})
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_external_evidence_requires_approval_current_edit_access_and_csrf(self):
         url = self.analysis_url(
             "external_evidence", kind="text", evidence_id=self.note.pk
@@ -1035,8 +1056,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(url, payload).status_code, 403)
         external_grant_kwargs(self.case, "content_events")
-        self.case.ai_backend = "gateway"
-        self.case.save(update_fields=["ai_backend"])
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
         self.assertEqual(self.client.post(url, payload).status_code, 302)
         self.assertTrue(AnalysisRun.objects.get().external_processing)
 

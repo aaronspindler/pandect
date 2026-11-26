@@ -14,7 +14,6 @@ from django.db.models import (
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast, Coalesce, Concat, StrIndex
 
-from core.case_search.documents import FIELDS, searchable
 from core.case_search.sources import name
 from core.evidence.queries import scoped_evidence
 from core.evidence.source_clocks import is_date_only_message
@@ -62,11 +61,8 @@ def matching(case, selection, *, archived=False):
     phrase = selection["phrase"]
     if not phrase:
         return rows
-    # The first predicate matches the existing PostgreSQL trigram index. The
-    # second checks the original body, excluding words found only in metadata.
-    return searchable(rows, FIELDS["text-message"]).filter(
-        search_document__icontains=phrase, body__contains=phrase
-    )
+    # Reopen the exact selection behind historical saved counts and citations.
+    return rows.filter(body__contains=phrase)
 
 
 def source_version():

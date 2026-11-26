@@ -22,11 +22,12 @@ from .chat import (
 )
 from .evidence import DeletionReview, Evidence, FileEvidence, PendingFileDeletion
 from .important import ImportantItem, ImportantNote
-from .search import CaseSearchIndex, SearchDocument, SearchPassage
-from .search_parents import SearchParent, SearchParentScan
+from .relationships import NarrativeRelationship
+from .search import HostedSearchIndex, HostedSearchItem, HostedSearchSource
 from .selection import SavedSelection
 
 __all__ = [
+    "NarrativeRelationship",
     "EvidenceChat",
     "ChatRoutingApproval",
     "ChatSelectionMember",
@@ -35,11 +36,6 @@ __all__ = [
     "ChatTurn",
     "ChatSource",
     "ChatMatch",
-    "CaseSearchIndex",
-    "SearchDocument",
-    "SearchParent",
-    "SearchParentScan",
-    "SearchPassage",
     "SavedSelection",
     "Evidence",
     "FileEvidence",
@@ -48,6 +44,9 @@ __all__ = [
     "ImportantItem",
     "ImportantNote",
     "AnalysisRun",
+    "HostedSearchIndex",
+    "HostedSearchItem",
+    "HostedSearchSource",
     "CaseAnalysisBatch",
     "AnalysisReportIndex",
     "AnalysisResult",

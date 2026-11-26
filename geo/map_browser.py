@@ -21,9 +21,11 @@ from PIL import Image, ImageDraw
 from playwright.sync_api import expect, sync_playwright
 
 from cases.models import Case
+from config.tests.browser_base import DrainableBrowserLiveServerThread
 from core.analysis.address_estimates import set_address_estimate
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from geo.analysis.external.geocoding import Geocoder
 from geo.models import LocationEvidence, PointOfInterest, VehicleLocationEvidence
 from geo.testing import LOCAL_GEOCODER
@@ -40,6 +42,12 @@ from vehicle.models import Vehicle
     PANDECT_MAP_TILE_ORIGIN="https://tile.openstreetmap.org",
 )
 class InvestigationMapBrowserTests(StaticLiveServerTestCase):
+    server_thread_class = DrainableBrowserLiveServerThread
+
+    def _fixture_teardown(self):
+        with self.server_thread.httpd.drained_connections():
+            super()._fixture_teardown()
+
     def setUp(self):
         self.owner = get_user_model().objects.create_user(
             username="map-investigator", email="map@example.test"
@@ -187,7 +195,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
         with (
             patch(
                 "geo.map_views.poi_map_data",
-                return_value=(Paginator([], 100).page(1), points),
+                return_value=(Paginator([], 100).page(1), points, ""),
             ),
             sync_playwright() as playwright,
         ):
@@ -570,6 +578,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 browser.close()
 
     def test_person_pois_from_map_and_without_javascript(self):
+        publish = self.enterContext(indexed(self.case, []))
         with sync_playwright() as playwright:
             for engine in self.engines():
                 browser = getattr(playwright, engine).launch()
@@ -685,6 +694,16 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                             "longitude": "-79.382",
                             "created_by": self.owner,
                         },
+                    )
+                )
+                self.in_database(
+                    lambda: publish(
+                        [
+                            ("record", "poi", key)
+                            for key in PointOfInterest.objects.filter(
+                                person=self.person
+                            ).values_list("pk", flat=True)
+                        ]
                     )
                 )
                 page.get_by_role("link", name="Back to trip", exact=True).click()

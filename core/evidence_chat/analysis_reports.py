@@ -1,21 +1,14 @@
 """Search saved method outcomes and measurements, including zero-finding results."""
 
-from functools import reduce
-from operator import or_
-
-from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import F, Q
 from django.db.models.expressions import RawSQL
 from django.urls import reverse
 
 from core.analysis.operations import OPERATIONS
 from core.analysis.published import successful_results
-from core.analysis.report_index import report_words
-from core.models import AnalysisReportIndex
 
 from . import corpus
-from .corpus_search import terms_for
-from .reports import MAX_REPORTS, read_timing_material
+from .reports import read_timing_material
 
 REPORT_TERMS = {
     "analysis",
@@ -77,67 +70,6 @@ def overlapping_results(results, case, locators):
     return results.filter(match)
 
 
-def analysis_materials(
-    case, query, *, through, sources=None, after=None, automatic=False, methods=()
-):
-    terms = terms_for(query, extra_stopwords=REPORT_TERMS | {"recent", "latest"})
-    if automatic and not terms and not set(query.casefold().split()) & REPORT_TERMS:
-        return []
-    results = eligible_results(case).filter(created_at__lte=through)
-    newer = results.filter(
-        run__equivalence_key=OuterRef("run__equivalence_key")
-    ).filter(
-        Q(run__created_at__gt=OuterRef("run__created_at"))
-        | Q(run__created_at=OuterRef("run__created_at"), run_id__gt=OuterRef("run_id"))
-    )
-    results = results.filter(~Exists(newer))
-    if after:
-        results = results.filter(created_at__gt=after)
-    if sources is not None:
-        results = overlapping_results(results, case, sources)
-    if methods:
-        results = results.filter(run__operation__in=methods)
-    if automatic:
-        # Existing timing requests use their own semantics, including coverage,
-        # correct units and source population. Other runs stay discoverable.
-        results = results.exclude(run__operation="comm_patterns")
-    # Query the index expression on its owning table. Only the bounded contents
-    # and fields of the selected results are materialized.
-    index = AnalysisReportIndex.objects.filter(result__in=results)
-    order = ["-result__run__created_at", "-result__run_id"]
-    if terms:
-        # Search the same GIN expression for both named measurements and
-        # operation labels. An OR against another table would force PostgreSQL
-        # to examine the unrelated reports of a busy case before ranking.
-        words = set(terms)
-        method_names = [
-            key.replace("_", " ")
-            for key, op in OPERATIONS.items()
-            if words.intersection(terms_for(op.label))
-        ]
-        query = reduce(
-            or_,
-            (SearchQuery(term, config="english") for term in (*terms, *method_names)),
-        )
-        index = (
-            index.alias(words=report_words())
-            .filter(words=query)
-            .annotate(score=SearchRank(report_words(), query))
-        )
-        order.insert(0, "-score")
-    output = []
-    for key in index.order_by(*order).values_list("result_id", flat=True)[
-        : MAX_REPORTS * 2
-    ]:
-        if material := read_analysis_material(
-            case, key, 0, corpus.MAX_WINDOW, through=through
-        ):
-            output.append(material)
-            if automatic or len(output) >= MAX_REPORTS:
-                break
-    return output
-
-
 def read_analysis_material(case, result_id, start, size, *, through=None):
     results = eligible_results(case).filter(pk=result_id)
     if through:
@@ -197,20 +129,3 @@ def read_analysis_material(case, result_id, start, size, *, through=None):
     material.locator["result_id"] = str(result.pk)
     material.locator["selected_count"] = len(sources)
     return material
-
-
-def answer_window(material, query, limit):
-    """Quote the matching named measurement even in a long processing summary."""
-    from .engine import Window
-
-    start = 0
-    if len(material.text) > limit:
-        terms = set(terms_for(query, extra_stopwords=REPORT_TERMS))
-        best_score = offset = 0
-        for line in material.text.splitlines(keepends=True):
-            score = len(terms.intersection(terms_for(line.partition(":")[0])))
-            if score > best_score:
-                best_score = score
-                start = max(0, offset + len(line) - limit)
-            offset += len(line)
-    return Window(material.locator, start, material.text[start : start + limit])

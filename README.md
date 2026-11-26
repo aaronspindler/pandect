@@ -16,11 +16,12 @@ and trace findings back to their sources.
 - Invite collaborators with viewer or editor access to each case.
 - Organize people and vehicles, and explore recorded events in a chronology.
 
-Core case work needs no AI credentials or hosted subscription. Optional
-[private AI](docs/local-analysis.md), [external AI](docs/analysis.md#external-ai-configuration),
-and [map services](docs/maps.md) need additional configuration. External AI
-requires explicit selection and approval. Local failures never trigger cloud
-fallback.
+Core case work needs no AI credentials or hosted subscription. The verified
+case owner can enable external AI in Case Settings to use private passage
+search, automatic model analysis and cited Case Chat investigations. Pandect
+retains the original evidence, reviews and saved answers. See
+[Cloudflare search](docs/cloudflare-search.md), [the investigation Agent](docs/cloudflare-agent.md)
+and [map services](docs/maps.md).
 
 Pandect is in active development. See the [roadmap](docs/evidence-analysis-roadmap.md)
 for planned features.

@@ -9,6 +9,7 @@ from core.analysis.execution import (
     execution_confirmation,
     external_model_options,
     gateway_execution,
+    inference_purpose,
     model_form_value,
     pin_model_choice,
 )
@@ -22,6 +23,10 @@ CASE_ACCESS_HELP = (
     "and archive or restore evidence."
 )
 ANALYSIS_MODEL_LABELS = {
+    "ocr": "Image and scanned page text",
+    "plate_ocr": "Vehicle plate text",
+    "claim_comparison": "Claim comparisons",
+    "narrative_relationships": "Candidate actors and relationships",
     "text_topics": "Topic summaries",
     "content_events": "Claims and commitments",
     "session_summaries": "Message-session summaries",
@@ -79,26 +84,19 @@ class ModelSelect(forms.Select):
 
 
 class CaseAISettingsForm(forms.Form):
-    ai_backend = forms.ChoiceField(
-        choices=Case.AIBackend.choices,
-        widget=forms.RadioSelect,
-        label="Processing location",
-    )
     confirmation = forms.CharField(widget=forms.HiddenInput)
 
     def __init__(self, *args, case, **kwargs):
         self.case = case
         saved = case.external_analysis_models
         self.stale = False
-        super().__init__(
-            *args, initial={**saved, "ai_backend": case.ai_backend}, **kwargs
-        )
+        super().__init__(*args, initial=saved.copy(), **kwargs)
         self.rows = []
         inventory = {}
         self.available = {}
         self.efforts = {}
         for operation, label in ANALYSIS_MODEL_LABELS.items():
-            purpose = "transcription" if operation == "transcription" else "text"
+            purpose = inference_purpose(operation)
             default = gateway_execution(purpose, operation)
             options = external_model_options(operation)
             efforts = {"": reasoning_efforts(default)} | {
@@ -179,11 +177,16 @@ class CaseAISettingsForm(forms.Form):
                     else "",
                 )
             )
+        from core.analysis.approval import hosted_destinations
+
+        self.destinations = hosted_destinations()
+        inventory["hosting"] = self.destinations
         self.expected_confirmation = execution_confirmation(
             "analysis.case.settings",
             [
                 str(case.pk),
-                case.ai_backend,
+                str(case.external_ai_revision),
+                case.external_ai_enabled,
                 saved,
                 case.external_analysis_efforts,
                 case.external_analysis_approval,

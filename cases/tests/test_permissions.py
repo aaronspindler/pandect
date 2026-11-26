@@ -4,7 +4,7 @@ from django.db import connection
 from django.http import Http404
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
-from django.urls import URLResolver, get_resolver
+from django.urls import URLResolver, get_resolver, reverse
 
 from cases.models import CaseMembership
 from cases.permissions import get_case
@@ -27,7 +27,21 @@ class CaseRouteTests(SimpleTestCase):
         self.assertTrue(views)
         for path, view in views:
             with self.subTest(path=path):
-                self.assertTrue(getattr(view, "product_login_required", False))
+                from core.evidence_chat.hosted_agent import callback
+
+                if view is callback:
+                    # The private Worker callback has its own turn-bound capability.
+                    self.assertEqual(
+                        self.client.post(
+                            reverse(
+                                "core:chat:agent_callback",
+                                args=(uuid4(), uuid4()),
+                            )
+                        ).status_code,
+                        403,
+                    )
+                else:
+                    self.assertTrue(getattr(view, "product_login_required", False))
 
 
 class CasePermissionTests(EvidenceViewTestMixin, TestCase):

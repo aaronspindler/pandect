@@ -13,7 +13,6 @@ from core.analysis.errors import AnalysisError
 from core.analysis.execution import transfer_scope
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.testing import external_grant_kwargs
-from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.analysis.worker import process_run
 from core.models import CaseAnalysisBatch
@@ -23,9 +22,12 @@ from phone.models import ConversationSession, TextMessageEvidence
 from phone.saved_summary_ranges import coverage_url
 
 
-@override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_ANALYSIS_MAX_SOURCES=2)
+@override_settings(
+    PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG, PANDECT_ANALYSIS_MAX_SOURCES=2
+)
 class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
     def make_session(self, bodies):
+        external_grant_kwargs(self.case, "session_summaries")
         for index, body in enumerate(bodies):
             TextMessageEvidence.objects.create(
                 case=self.case,
@@ -73,9 +75,8 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
     def complete(self, run):
         source = resolve_inputs(run, self.case)[0]
         with (
-            patch("core.analysis.local.LocalClient._validate_configuration"),
             patch(
-                "core.analysis.local.LocalClient.infer",
+                "core.analysis.gateway.GatewayClient.infer",
                 return_value={
                     "items": [
                         {
@@ -143,8 +144,8 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
         session = self.make_session(["First", "Second", "Third"])
         self.login("owner")
         external_grant_kwargs(self.case, "session_summaries")
-        self.case.ai_backend = "gateway"
-        self.case.save(update_fields=["ai_backend"])
+        self.case.external_ai_enabled = True
+        self.case.save(update_fields=["external_ai_enabled"])
         first = self.request_summary(session)
         execution = first.scope["executions"]["gateway"]
         approve_scopes(
@@ -172,13 +173,12 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
         first, last = batch.runs.order_by("created_at")
         self.complete(first)
         with (
-            patch("core.analysis.local.LocalClient._validate_configuration"),
             patch(
-                "core.analysis.local.LocalClient.infer",
-                side_effect=AnalysisError("local_ai_unavailable"),
+                "core.analysis.gateway.GatewayClient.infer",
+                side_effect=AnalysisError("gateway_unavailable"),
             ),
         ):
-            self.assertEqual(process_run(last.pk), "local_ai_unavailable")
+            self.assertEqual(process_run(last.pk), "gateway_unavailable")
         retry = self.request_summary(session).runs.get()
         self.assertEqual(
             retry.parameters["_saved_session_range"],
@@ -210,7 +210,7 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
             args=(self.case.pk, "text-message", run.inputs[0]["evidence_id"]),
         )
         self.assertEqual(self.client.post(archive).status_code, 302)
-        with patch("core.analysis.local.LocalClient.infer") as infer:
+        with patch("core.analysis.gateway.GatewayClient.infer") as infer:
             self.assertEqual(process_run(run.pk), "source_archived")
         infer.assert_not_called()
 
@@ -223,13 +223,12 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
         self.complete(first)
         self.complete(last)
         with (
-            patch("core.analysis.local.LocalClient._validate_configuration"),
             patch(
-                "core.analysis.local.LocalClient.infer",
-                side_effect=AnalysisError("local_ai_unavailable"),
+                "core.analysis.gateway.GatewayClient.infer",
+                side_effect=AnalysisError("gateway_unavailable"),
             ),
         ):
-            self.assertEqual(process_run(middle.pk), "local_ai_unavailable")
+            self.assertEqual(process_run(middle.pk), "gateway_unavailable")
         source = (self.case.pk, "text-message", first.inputs[0]["evidence_id"])
         self.assertEqual(
             self.client.post(reverse("core:evidence:archive", args=source)).status_code,

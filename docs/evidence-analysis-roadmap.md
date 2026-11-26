@@ -37,8 +37,8 @@ reviewable comparisons before they can contribute connections.
   alternatives; similarity establishes neither the same capture nor owner/driver.
 - **Structured documents:** define formats before adding tables, forms and
   transactions. Preserve units, headers, row/column meaning, subtotals and document
-  type before aggregation. PDF extraction reads existing text layers and uses
-  local OCR on pages without text.
+  type before aggregation. PDF extraction reads existing text layers. Case-approved Cloudflare OCR can
+  recognize pages without native text.
 - **Face grouping/reference comparison:** require quality screening, attributed
   references, false-match evaluation, no-match outcomes, review and a compatible
   configured inference route.

@@ -40,6 +40,9 @@ from phone.models import CallEvidenceAttachment
 
 MODEL_PARAMETERS = {
     "transcription": {},
+    "ocr": {},
+    "plate_ocr": {},
+    "narrative_relationships": {},
     "text_topics": {OPERATIONS["text_topics"].optional_inference[0]: True},
     "content_events": {},
     "session_summaries": {"gap_minutes": 60},
@@ -59,11 +62,10 @@ ANALYSIS_VERSION = 2
 def reprocessing_executions():
     """Return reviewable routes, never credentials or a connectivity probe."""
     routes = {
-        f"{operation}:{backend}": snapshot_execution(
-            operation, parameters | {"backend": backend}
+        f"{operation}:gateway": snapshot_execution(
+            operation, parameters | {"backend": "gateway"}
         )
         for operation, parameters in MODEL_PARAMETERS.items()
-        for backend in ("local", "gateway")
     }
     for operation in ("geocode_locations", "geographic_context"):
         routes[operation] = snapshot_execution(operation, {})
@@ -80,7 +82,11 @@ def analysis_scope(case, kinds):
     )
     operations = []
     if kinds - {"audio", *LOCATION_KINDS} or audio_routes:
-        operations.extend(("text_topics", "content_events"))
+        operations.extend(("text_topics", "content_events", "narrative_relationships"))
+    if kinds.intersection({"image", "document"}):
+        operations.append("ocr")
+    if "image" in kinds:
+        operations.append("plate_ocr")
     if "text-message" in kinds:
         operations.append("session_summaries")
     if kinds.intersection(COMMUNICATION_KINDS):
@@ -101,6 +107,9 @@ def analysis_scope(case, kinds):
                 executions[f"{operation}:{backend}"] = route
     return {
         "analysis_version": ANALYSIS_VERSION,
+        "search_revision": str(case.external_ai_revision)
+        if case.external_ai_enabled
+        else "",
         "executions": executions,
         "external_grants": {
             key.partition(":")[0]: case_grant_revision(
@@ -270,7 +279,9 @@ def _queue(batch, operation, choices, parameters=None, *, marker="", previous_ru
         raise ValidationError("This analysis requires an explicit context selection.")
     parameters = parameters or {}
     purpose = requires_inference(operation, parameters)
-    key = f"{operation}:{parameters.get('backend', 'local')}" if purpose else operation
+    key = (
+        f"{operation}:{parameters.get('backend', 'gateway')}" if purpose else operation
+    )
     route = batch.scope["executions"].get(key)
     if (purpose or operation in GEOGRAPHIC) and not route:
         return
@@ -323,22 +334,18 @@ def _model_checks(
         and OPERATIONS[operation].optional_inference
     ):
         parameters = parameters | {"_suggestions_only": True}
-    for backend in ("local", "gateway"):
-        _queue(
-            batch,
-            operation,
-            choices,
-            parameters | {"backend": backend},
-            marker=marker,
-            previous_run=previous_run,
-        )
+    _queue(
+        batch,
+        operation,
+        choices,
+        parameters | {"backend": "gateway"},
+        marker=marker,
+        previous_run=previous_run,
+    )
 
 
 def _has_model_route(batch, operation):
-    return any(
-        f"{operation}:{backend}" in batch.scope["executions"]
-        for backend in ("local", "gateway")
-    )
+    return f"{operation}:gateway" in batch.scope["executions"]
 
 
 def _groups(entries, *, count, characters):
@@ -409,6 +416,7 @@ def _text_checks(
     for choices in _groups(entries, count=min(20, limit), characters=16_000):
         models("text_topics", choices, {"include_summary": True})
         models("content_events", choices)
+        models("narrative_relationships", choices)
         direct = [choice for choice in choices if choice["id"] in direct_message_ids]
         if direct and _has_model_route(batch, "session_summaries"):
             group, parameters = _history_communication(
@@ -667,6 +675,7 @@ def _prepare_sources(batch, case, kind, additions, rows):
             text_rows[source_id(choice)] = (item, text)
         if kind == "document":
             operation = "native_text"
+            header = b""
             if versioned and row.file:
                 try:
                     with private_file(row, case.pk).open("rb") as original:
@@ -679,11 +688,13 @@ def _prepare_sources(batch, case, kind, additions, rows):
                     )
                     continue
             _queue(batch, operation, [choice], {"automatic_followup": True})
+            if versioned and operation == "native_text" and header.startswith(b"%PDF-"):
+                _model_checks(batch, "ocr", [choice], {"automatic_followup": True})
         elif kind == "image":
             if local_checks:
                 _queue(batch, "image_metadata", [choice])
-                _queue(batch, "plate_ocr", [choice])
-            _queue(batch, "ocr", [choice], {"automatic_followup": True})
+            _model_checks(batch, "plate_ocr", [choice])
+            _model_checks(batch, "ocr", [choice], {"automatic_followup": True})
         elif kind == "audio" or (additions and row.file):
             if local_checks:
                 _queue(batch, "audio_metadata", [choice])

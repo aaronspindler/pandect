@@ -26,9 +26,12 @@ from core.analysis.operations import get_operation
 from core.analysis.services import start_run
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.sources import output
-from core.analysis.testing import external_grant_kwargs, local_ocr_response
+from core.analysis.testing import external_grant_kwargs
 from core.analysis.testing import preview_image_bytes as image_bytes
+from core.analysis.tests.test_gateway import response as gateway_response
+from core.analysis.tests.test_openai_gateway import OPENAI, openai_reply
 from core.analysis.worker import process_run
+from core.case_search.tests.fixtures import indexed
 from core.models import (
     AnalysisArtifact,
     AnalysisResult,
@@ -42,12 +45,9 @@ from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from geo.testing import LOCAL_GEOCODER
 from image.models import ImageEvidence
-from image.testing import printed_layout
-from people.models import Person
-from phone.models import CommunicationContext, TextMessageEvidence
-from socialmedia.models import SocialAccount
 
 
+@override_settings(PANDECT_AI_GATEWAY=OPENAI)
 class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
     def test_malformed_worker_output_records_a_safe_specific_failure(self):
         original = self.image()
@@ -138,14 +138,16 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             image.case_id,
             "ocr",
             [{"kind": "image", "id": str(image.pk)}],
+            **external_grant_kwargs(image.case, "ocr"),
         )
         with patch(
-            "image.analysis.ai.run_parser", return_value=local_ocr_response(**reply)
+            "core.analysis.gateway.GatewayClient.read_image",
+            return_value=(reply.get("text", "Synthetic extraction phrase"), False),
         ):
             process_run(str(run.pk))
         run.refresh_from_db()
         self.assertIn(run.status, {"complete", "partial"}, run.error_code)
-        self.assertFalse(run.external_processing)
+        self.assertTrue(run.external_processing)
         self.assertFalse(GatewayRequest.objects.filter(run=run).exists())
         return image, run, run.result, AnalysisArtifact.objects.get(result__run=run)
 
@@ -156,8 +158,9 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "ocr",
             [{"kind": "image", "id": str(image.pk)}],
+            **external_grant_kwargs(image.case, "ocr"),
         )
-        self.assertFalse(run.external_processing)
+        self.assertTrue(run.external_processing)
         AnalysisRun.objects.filter(pk=run.pk).update(
             method_version="2", external_processing=True
         )
@@ -168,101 +171,16 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.method_version, "2")
         self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
 
-    def test_multi_source_layout_preserves_anchors_and_literal_message_labels(self):
-        selections = []
-        for model, kind, fixture in (
-            (ImageEvidence, "image", "chat"),
-            (DocumentEvidence, "document", "form"),
-        ):
-            content, _ = printed_layout(fixture)
-            item = model.objects.create(
-                case=self.case,
-                uploaded_by=self.users["owner"],
-                title=f"Synthetic {fixture}",
-                file=SimpleUploadedFile(f"{fixture}.png", content),
-            )
-            selections.append({"kind": kind, "id": str(item.pk)})
-        run, _ = start_run(self.users["editor"], self.case.pk, "ocr", selections)
-        with patch("core.analysis.gateway.GatewayClient.request") as gateway:
-            process_run(run.pk)
-            gateway.assert_not_called()
-        run.refresh_from_db()
-        self.assertIn(run.status, {"complete", "partial"}, run.error_code)
-        result = run.result
-        self.assertEqual(process_run(run.pk), run.status)
-        self.assertEqual(run.method_version, "6")
-        self.assertEqual(result.provenance["source_inputs"], run.inputs)
-        self.assertEqual(result.provenance["method_version"], "6")
-        for source, kind in zip(run.inputs, ("message", "form_field"), strict=True):
-            layout = result.data["visible_structure"][source["id"]]
-            self.assertIn(
-                kind, {candidate["kind"] for candidate in layout["candidates"]}
-            )
-            for word in layout["words"]:
-                line = result.data["items"][word["item"]]
-                self.assertEqual(line["source_ids"], [source["id"]])
-                self.assertEqual(line["values"]["Input SHA-256"], source["sha256"])
-                self.assertTrue(line["text"][word["start"] : word["end"]])
-        self.assertQuerySetEqual(
-            result.passages.order_by("item_index").values_list("text", flat=True),
-            [line["text"] for line in result.data["items"]],
-        )
-        self.assertFalse(TextMessageEvidence.objects.filter(case=self.case).exists())
-        self.assertFalse(CommunicationContext.objects.filter(case=self.case).exists())
-        self.assertFalse(SocialAccount.objects.filter(person__case=self.case).exists())
-        self.assertEqual(list(Person.objects.filter(case=self.case)), [self.person])
-        self.login("viewer")
-        url = self.analysis_url("download", run)
-        self.assertEqual(
-            json.loads(self.client.get(url).content)["result"]["visible_structure"],
-            result.data["visible_structure"],
-        )
-        CaseMembership.objects.filter(
-            case=self.case, user=self.users["viewer"]
-        ).delete()
-        self.assertEqual(self.client.get(url).status_code, 404)
-
-    def test_layout_at_publication_limit_preserves_recognized_lines(self):
-        original, _, baseline, _ = self.processed_ocr()
-        bare = dict(baseline.data)
-        del bare["visible_structure"]
-        limit = len(json.dumps(bare).encode()) + 100
-        with patch("core.analysis.result_validation.MAX_RESULT_BYTES", limit):
-            _, run, result, _ = self.processed_ocr(image=original)
-        self.assertEqual(run.status, "partial")
-        self.assertNotIn("visible_structure", result.data)
-        self.assertEqual(result.data["metrics"]["Partial/unreadable inputs"], 1)
-        self.assertIn(
-            "Visible structure omitted at the result size limit.",
-            result.data["warnings"],
-        )
-        self.assertEqual(result.data["items"], bare["items"])
-        self.assertEqual(result.passages.get().text, "Synthetic extraction phrase")
-
-    def test_missing_word_geometry_fails_privately_before_publication(self):
-        original = self.image()
-        run, _ = start_run(
-            self.users["editor"],
-            self.case.pk,
-            "ocr",
-            [{"kind": "image", "id": str(original.pk)}],
-        )
-        literal = "Sensitive synthetic wording"
-        prepared = local_ocr_response(text=literal)
-        del prepared["regions"][0]["words"]
-        with (
-            patch("image.analysis.ai.run_parser", return_value=prepared),
-            self.assertLogs("core.analysis.failures", level="ERROR") as logs,
-        ):
-            self.assertEqual(process_run(run.pk), "ocr_invalid_output")
-        self.assertNotIn(literal, "\n".join(logs.output))
-        self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
-        self.assertFalse(AnalysisArtifact.objects.filter(result__run=run).exists())
-
     def test_saved_v5_lines_stay_inspectable_after_new_layout_run(self):
         original = self.image()
         choices = [{"kind": "image", "id": str(original.pk)}]
-        previous, _ = start_run(self.users["owner"], self.case.pk, "ocr", choices)
+        previous, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "ocr",
+            choices,
+            **external_grant_kwargs(self.case, "ocr"),
+        )
         AnalysisRun.objects.filter(pk=previous.pk).update(
             method_version="5", status="complete"
         )
@@ -288,11 +206,21 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             case=self.case, run=previous, data=data
         )
         current, _ = start_run(
-            self.users["editor"], self.case.pk, "ocr", choices, previous_run=previous
+            self.users["editor"],
+            self.case.pk,
+            "ocr",
+            choices,
+            previous_run=previous,
+            **external_grant_kwargs(self.case, "ocr"),
         )
-        with patch("image.analysis.ai.run_parser", return_value=local_ocr_response()):
+        with patch(
+            "core.analysis.gateway.GatewayClient.read_image",
+            return_value=("Synthetic extraction phrase", False),
+        ):
             process_run(current.pk)
-        self.assertIn("visible_structure", current.result.data)
+        self.assertEqual(
+            current.result.data["items"][0]["text"], "Synthetic extraction phrase"
+        )
         historical.refresh_from_db()
         self.assertEqual(historical.data, data)
         self.login("viewer")
@@ -315,7 +243,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             [
                 {
                     "source_id": run.inputs[0]["id"],
-                    "region": [0.1, 0.2, 0.8, 0.6],
+                    "region": [0, 0, 1, 1],
                     "coordinate_space": "original_unoriented_pixels",
                 }
             ],
@@ -344,11 +272,6 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(result.provenance["source_inputs"], run.inputs)
         self.assertEqual(result.provenance["method_version"], run.method_version)
         self.login("viewer")
-        response = self.client.get(
-            self.url("list"), {"q": "Synthetic extraction phrase"}
-        )
-        self.assertContains(response, self.analysis_url("detail", run))
-        self.assertContains(response, "Extracted content")
         detail = self.client.get(self.analysis_url("detail", run))
         self.assertContains(detail, "Retained image preview")
         self.assertContains(
@@ -359,12 +282,43 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         text = "<img src=x onerror=alert(1)> Synthetic untrusted extraction"
         original, run, result, artifact = self.processed_ocr(text=text)
         self.login("viewer")
-        for response in (
-            self.client.get(self.analysis_url("detail", run)),
-            self.client.get(self.url("list"), {"q": "Synthetic untrusted extraction"}),
-        ):
+        for response in (self.client.get(self.analysis_url("detail", run)),):
             self.assertContains(response, "&lt;img src=x onerror=alert(1)&gt;")
             self.assertNotContains(response, "<img src=x onerror=alert(1)>")
+
+    def test_vision_gateway_records_usage_and_only_sends_a_prepared_image(self):
+        original = self.image()
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "ocr",
+            [{"kind": "image", "id": str(original.pk)}],
+            **external_grant_kwargs(self.case, "ocr"),
+        )
+        with patch("core.analysis.gateway.build_opener") as build:
+            build.return_value.open.return_value = gateway_response(
+                openai_reply({"text": "Receipt 421", "partial": False})
+            )
+            process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "complete", run.error_code)
+        request = build.return_value.open.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            f"https://gateway.ai.cloudflare.com/v1/{OPENAI['account']}/"
+            f"{OPENAI['gateway']}/openai/responses",
+        )
+        body = json.loads(request.data)
+        self.assertIs(body["store"], False)
+        text, photo = body["input"][0]["content"]
+        self.assertEqual(text["type"], "input_text")
+        self.assertTrue(photo["image_url"].startswith("data:image/jpeg;base64,"))
+        self.assertNotIn(original.original_filename, str(body))
+        usage = GatewayRequest.objects.get(case=self.case, run=run)
+        self.assertEqual(
+            (usage.status, usage.input_tokens, usage.output_tokens), ("complete", 17, 8)
+        )
+        self.assertEqual(run.result.passages.get().text, "Receipt 421")
 
     def test_no_text_ocr_publishes_coverage_without_searchable_candidate_text(self):
         original = self.image()
@@ -373,19 +327,19 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "ocr",
             [{"kind": "image", "id": str(original.pk)}],
+            **external_grant_kwargs(self.case, "ocr"),
         )
-        reply = local_ocr_response(status="partial") | {"regions": []}
-        with patch("image.analysis.ai.run_parser", return_value=reply):
+        with patch(
+            "core.analysis.gateway.GatewayClient.read_image", return_value=("", True)
+        ):
             process_run(run.pk)
         run.refresh_from_db()
         self.assertEqual(run.status, "partial", run.error_code)
         self.assertFalse(ExtractedPassage.objects.filter(result=run.result).exists())
-        self.assertEqual(run.result.data["metrics"]["Recognized text regions"], 0)
+        self.assertEqual(run.result.data["metrics"]["Uncertain or unreadable"], 1)
         self.login("viewer")
         response = self.client.get(self.analysis_url("detail", run))
-        self.assertContains(
-            response, "No text recognized. Inspect the original images."
-        )
+        self.assertContains(response, "Uncertain or unreadable")
         self.assertNotContains(response, "Produced 1 source-linked OCR findings")
 
     def test_private_preview_route_rechecks_current_case_run_and_original_access(self):
@@ -502,9 +456,13 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "ocr",
             [{"kind": "image", "id": str(image.pk)}],
+            **external_grant_kwargs(image.case, "ocr"),
         )
         with (
-            patch("image.analysis.ai.run_parser", return_value=local_ocr_response()),
+            patch(
+                "core.analysis.gateway.GatewayClient.read_image",
+                return_value=("Synthetic extraction phrase", False),
+            ),
             patch(
                 "core.analysis.worker.AnalysisArtifact.save",
                 side_effect=ValidationError("Synthetic publication failure"),
@@ -569,11 +527,14 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, "partial", run.error_code)
         self.assertEqual(ExtractedPassage.objects.filter(result=run.result).count(), 1)
+        self.enterContext(
+            indexed(self.case, [("passage", "", run.result.passages.get().pk)])
+        )
         self.login("viewer")
         response = self.client.get(
             self.url("list"), {"q": "Unique native search phrase"}
         )
-        self.assertContains(response, "Extracted content · Partial coverage")
+        self.assertContains(response, "Unique native search phrase")
         self.assertContains(response, self.analysis_url("detail", run))
         self.assertNotContains(response, "Unsupported binary")
         self.assertEqual(len(response.context["rows"]), 1)

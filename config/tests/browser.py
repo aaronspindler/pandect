@@ -31,6 +31,7 @@ from audio.models import AudioEvidence
 from cases.models import Case, CaseInvitation, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.bulk import prepare_case_analysis_batch
+from core.case_search.tests.fixtures import indexed
 from document.models import DocumentEvidence
 from geo.models import (
     LocationEvidence,
@@ -1756,6 +1757,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 )
                 self.capture(page, engine, "vehicle-detail-200-percent-text")
                 page.evaluate("document.documentElement.style.fontSize = ''")
+                self.db(
+                    self.enterContext,
+                    indexed(self.case, [("record", "vehicle", vehicle.pk)]),
+                )
                 page.get_by_role("link", name="Back to vehicles").click()
                 page.get_by_role("searchbox", name="Search vehicles").fill(
                     "no matching vehicle"
@@ -2277,6 +2282,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 self.db(record.refresh_from_db)
                 self.assertFalse(record.is_archived)
                 self.assertEqual(record.sha256, checksum)
+                self.db(
+                    self.enterContext, indexed(case, [("original", "text", record.pk)])
+                )
 
                 page.goto(self.url("core:evidence:list", case_id=case.pk))
                 page.get_by_label("Filter evidence", exact=True).fill("captured source")

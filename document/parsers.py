@@ -4,14 +4,11 @@ import base64
 import io
 import math
 import sys
-import time
 
 from core.parser_contract import MAX_BYTES, MAX_TEXT, ParserFailure
 
 MAX_PAGES = 100
 MAX_STREAM_BYTES = 4 * 1024 * 1024
-OCR_DEADLINE_SECONDS = 12
-OCR_MAX_SIDE = 3072
 
 
 def _pdf_reader(content):
@@ -33,12 +30,9 @@ def _pdf_reader(content):
     return PdfReader(io.BytesIO(content), strict=True)
 
 
-def _pdf(content, *, ocr_deadline=None):
+def _pdf(content):
     import pypdf
 
-    deadline = time.monotonic() + OCR_DEADLINE_SECONDS
-    if ocr_deadline is not None:
-        deadline = min(deadline, ocr_deadline)
     reader = _pdf_reader(content)
     if reader.is_encrypted:
         return {"status": "unsupported", "reason": "encrypted_pdf", "pages": []}
@@ -60,10 +54,6 @@ def _pdf(content, *, ocr_deadline=None):
         if text_bytes > MAX_TEXT:
             raise ParserFailure("extracted_text_limit")
         pages.append({"page": number, "text": text, "native_text": bool(text.strip())})
-    if any(not page["native_text"] for page in pages):
-        text_bytes += _scan_pages(content, pages, deadline)
-        if text_bytes > MAX_TEXT:
-            raise ParserFailure("extracted_text_limit")
     return {
         "status": "complete",
         "format": "PDF",
@@ -73,84 +63,12 @@ def _pdf(content, *, ocr_deadline=None):
     }
 
 
-def _scan_pages(content, pages, deadline):
-    import pypdfium2 as pdfium
-
-    from image.analysis import MIN_OCR_WORD_SCORE
-    from image.analysis.ai_parser import read_prepared_text, tesseract_version
-
-    pending = [page for page in pages if not page["native_text"]]
-    text_bytes = 0
-    try:
-        engine = tesseract_version(timeout=_ocr_time_remaining(deadline))
-        with pdfium.PdfDocument(content) as document:
-            if len(document) != len(pages):
-                raise ParserFailure("ocr_pdf_page_mismatch")
-            for page in pending:
-                _ocr_time_remaining(deadline)
-                try:
-                    image, width, height = _render_page(
-                        document, page["page"], max_side=OCR_MAX_SIDE, max_scale=4
-                    )
-                    regions = read_prepared_text(
-                        image, width, height, timeout=_ocr_time_remaining(deadline)
-                    )
-                except pdfium.PdfiumError:
-                    page["ocr_status"] = "ocr_pdf_render_failed"
-                    continue
-                except ParserFailure as error:
-                    if str(error) in {
-                        "ocr_not_installed",
-                        "ocr_failed",
-                        "parser_timeout",
-                        "extracted_text_limit",
-                    }:
-                        raise
-                    page["ocr_status"] = str(error)
-                    continue
-                minimum = min(
-                    (region["confidence"] for region in regions), default=None
-                )
-                page["text"] = "\n".join(region["text"] for region in regions)
-                page["ocr_status"] = "no_text"
-                page["ocr_engine"] = engine
-                page["ocr_renderer"] = str(pdfium.PYPDFIUM_INFO)
-                if minimum is not None:
-                    page["ocr_minimum_score"] = minimum
-                    page["ocr_status"] = (
-                        "low_score" if minimum < MIN_OCR_WORD_SCORE else "recognized"
-                    )
-                text_bytes += len(page["text"].encode("utf-8"))
-                if text_bytes > MAX_TEXT:
-                    raise ParserFailure("extracted_text_limit")
-    except pdfium.PdfiumError:
-        for page in pending:
-            page.setdefault("ocr_status", "ocr_pdf_render_failed")
-    except ParserFailure as error:
-        if str(error) == "extracted_text_limit":
-            raise
-        for page in pending:
-            page.setdefault("ocr_status", str(error))
-        if str(error) in {"ocr_not_installed", "ocr_failed"} and not any(
-            page["text"].strip() for page in pages
-        ):
-            raise
-    return text_bytes
-
-
-def _ocr_time_remaining(deadline):
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise ParserFailure("parser_timeout")
-    return remaining
-
-
-def _document(content, *, ocr_deadline=None):
+def _document(content):
     if content.startswith(b"%PDF-"):
         from pypdf.errors import LimitReachedError
 
         try:
-            return _pdf(content, ocr_deadline=ocr_deadline)
+            return _pdf(content)
         except LimitReachedError:
             raise ParserFailure("document_stream_limit") from None
     try:
@@ -226,5 +144,5 @@ def parse(operation, content, options):
     return (
         _preview(content, options)
         if operation == "document_preview"
-        else _document(content, ocr_deadline=options.get("ocr_deadline"))
+        else _document(content)
     )

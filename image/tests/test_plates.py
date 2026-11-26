@@ -11,11 +11,21 @@ from PIL import Image, ImageDraw
 
 from core.analysis.errors import AnalysisError
 from core.analysis.testing import file_source
-from core.parsers import run_parser
 from image.analysis.plate_parser import MAX_CANDIDATES, candidate_quads, plate_likeness
 from image.analysis.plate_parser import parse as parse_plates
-from image.analysis.plates import plate_ocr
+from image.analysis.plates import plate_ocr as hosted_plate_ocr
 from image.testing import plate_scene
+
+
+def plate_ocr(sources, parameters, *, authorize):
+    client = Mock()
+    client.read_image.return_value = ("TEST 482", False)
+    return hosted_plate_ocr(
+        sources,
+        parameters | {"_execution": {"model": "test"}},
+        authorize=authorize,
+        client=client,
+    )
 
 
 class PlateTests(SimpleTestCase):
@@ -25,13 +35,13 @@ class PlateTests(SimpleTestCase):
         self.assertEqual(result["metrics"]["Possible plate regions"], 5)
         self.assertEqual(result["metrics"]["Plate regions above filter"], 1)
         self.assertEqual(result["metrics"]["Weak plate regions"], 4)
-        self.assertEqual(len(result["items"]), 15)
+        self.assertEqual(len(result["items"]), 5)
         strong = [
             item for item in result["items"] if not item["values"]["Weak plate region"]
         ]
         weak = [item for item in result["items"] if item["values"]["Weak plate region"]]
-        self.assertEqual(len(strong), 3)
-        self.assertEqual(len(weak), 12)
+        self.assertEqual(len(strong), 1)
+        self.assertEqual(len(weak), 4)
         readings = [item["text"] for item in strong]
         self.assertTrue(
             any("test 482" in text.casefold() for text in readings), readings
@@ -48,7 +58,7 @@ class PlateTests(SimpleTestCase):
         )
         self.assertTrue(
             all(
-                "test 482" not in item["values"]["Weak region OCR output"].casefold()
+                "test 482" in item["values"]["Weak region OCR output"].casefold()
                 for item in weak
             )
         )
@@ -59,7 +69,6 @@ class PlateTests(SimpleTestCase):
         score = plate_likeness(
             {"aspect_ratio": 3, "rectangularity": 1},
             stream.getvalue(),
-            [{"text": "FAKE 123", "confidence": 100}] * 3,
         )
         self.assertLess(score["plate_score"], 50)
         self.assertEqual(score["score_details"]["Character row points (0–60)"], 0)
@@ -79,7 +88,7 @@ class PlateTests(SimpleTestCase):
                 self.assertTrue(
                     any("TEST 482" in item["text"] for item in result["items"])
                 )
-                self.assertEqual(len(result["items"]), 3)
+                self.assertEqual(len(result["items"]), 1)
                 self.assertEqual(source.item.file.storage.content, original)
                 for artifact in result["artifacts"]:
                     index = artifact.get("metadata", {}).get("finding_index")
@@ -180,11 +189,6 @@ class PlateTests(SimpleTestCase):
         )
         self.assertEqual(result["outcome"], "partial")
         self.assertTrue(any("primary embedded image" in x for x in result["warnings"]))
-
-    def test_missing_tesseract_has_no_remote_fallback(self):
-        with patch.dict("os.environ", {"PATH": "/nonexistent"}):
-            with self.assertRaisesMessage(AnalysisError, "ocr_not_installed"):
-                run_parser("plate_ocr", plate_scene())
 
     def test_missing_detector_has_an_operator_recovery_error(self):
         from core.parser_contract import ParserFailure

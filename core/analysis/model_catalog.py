@@ -46,7 +46,7 @@ AUDIO_APIS = {
 }
 
 # OpenAI Responses models expose different ranges. Keep this independent of the
-# generated Cloudflare catalog so direct and installation models use it too.
+# generated Cloudflare catalog so operator-configured models use it too.
 OPENAI_REASONING_EFFORTS = {
     "gpt-5": ("minimal", "low", "medium", "high"),
     "gpt-5-mini": ("minimal", "low", "medium", "high"),

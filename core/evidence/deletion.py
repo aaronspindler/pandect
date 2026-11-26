@@ -65,7 +65,6 @@ INVENTORY_LABELS = {
     "analysisfindingsource": "Finding source reference",
     "analysisartifact": "Generated file record",
     "extractedpassage": "Extracted text",
-    "searchparent": "Search outline",
     "gatewayrequest": "Processing usage",
     "communicationcontext": "Imported message source context",
     "callevidenceattachment": "Retained call material",
@@ -224,6 +223,46 @@ def _record_rows(model, objects, using):
     )
     for rows in collected_querysets(model, objects, using):
         yield from rows.values("id", *wanted).iterator(chunk_size=500)
+
+
+def _hosted_deletion_entries(plan, collector):
+    from core.models import HostedSearchIndex, HostedSearchItem
+
+    indexes = HostedSearchIndex.objects.filter(
+        case_key=plan.item.case_id, retired=False
+    )
+    if transaction.get_connection().in_atomic_block:
+        indexes = indexes.select_for_update()
+    active_ids = list(indexes.values_list("id", flat=True))
+    if not active_ids:
+        return
+    surfaces = {
+        "analysisresult": "report",
+        "analysisfinding": "finding",
+        "extractedpassage": "passage",
+        "callevidenceattachment": "attachment",
+        "vehicletrip": "trip",
+    }
+    for model, objects in collector.data.items():
+        kind = MODEL_KINDS.get(model)
+        surface = "original" if kind else surfaces.get(model._meta.model_name)
+        if surface is None:
+            continue
+        receipts = HostedSearchItem.objects.filter(
+            source__index_id__in=active_ids, source__surface=surface
+        )
+        if kind:
+            receipts = receipts.filter(source__kind=kind)
+        for group in collected_querysets(model, objects, collector.using):
+            for pk in receipts.filter(
+                source__source_key__in=group.values("pk")
+            ).values_list("pk", flat=True):
+                yield {
+                    "action": "Queue hosted removal",
+                    "type": "Cloudflare search passage",
+                    "name": "Private passage and indexing receipt",
+                    "id": str(pk),
+                }
 
 
 def _record_name(model, row):
@@ -524,6 +563,7 @@ def plan_deletions(items, kind):
                     }
                 )
                 plan.counts["files"] += 1
+    plan.entries.extend(_hosted_deletion_entries(plan, collector))
     plan.entries.extend(updates)
     plan.counts["updates"] = len(updates)
     impacts = selection_deletion_impacts(
