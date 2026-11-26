@@ -261,6 +261,35 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(hasattr(self.run, "result"))
         self.assertFalse(GatewayRequest.objects.exists())
 
+    def test_case_effort_reaches_new_requests_and_blocks_queued_drift(self):
+        from core.analysis.gateway import GatewayClient
+
+        self.case.external_analysis_efforts = {"content_events": "xhigh"}
+        self.case.save(update_fields=("external_analysis_efforts",))
+        with patch("core.analysis.gateway.build_opener") as build:
+            with self.assertRaisesMessage(AnalysisError, "execution_changed"):
+                self.gateway.infer("Synthetic", {})
+            build.assert_not_called()
+
+            run, _ = start_run(
+                self.users["owner"],
+                self.case.pk,
+                "content_events",
+                [{"kind": "text", "id": str(self.note.pk)}],
+                parameters={"backend": "gateway"},
+                **external_grant_kwargs(self.case, "content_events"),
+            )
+            build.return_value.open.return_value = response(openai_reply())
+            GatewayClient(run, lambda **kwargs: authorize_run(run, **kwargs)).infer(
+                "Synthetic", {}
+            )
+        payload = json.loads(build.return_value.open.call_args.args[0].data)
+        self.assertEqual(payload["reasoning"], {"effort": "xhigh"})
+        self.assertEqual(
+            run.parameters["_execution"]["inference_settings"]["reasoning"],
+            {"effort": "xhigh"},
+        )
+
     def test_exhausted_reasoning_budget_and_timeout_publish_no_partial_result(self):
         for failure, expected in (
             (

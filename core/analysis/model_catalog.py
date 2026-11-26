@@ -1,6 +1,7 @@
 """Release-bundled models and their exact Cloudflare serving routes."""
 
 import json
+import re
 from pathlib import Path
 
 from django.conf import settings
@@ -43,6 +44,44 @@ AUDIO_APIS = {
     "whisper-wav",
     "workers-ai",
 }
+
+# OpenAI Responses models expose different ranges. Keep this independent of the
+# generated Cloudflare catalog so direct and installation models use it too.
+OPENAI_REASONING_EFFORTS = {
+    "gpt-5": ("minimal", "low", "medium", "high"),
+    "gpt-5-mini": ("minimal", "low", "medium", "high"),
+    "gpt-5-nano": ("minimal", "low", "medium", "high"),
+    "gpt-5.1": ("none", "low", "medium", "high"),
+    "gpt-5.4": ("none", "low", "medium", "high", "xhigh"),
+    "gpt-5.4-mini": ("none", "low", "medium", "high", "xhigh"),
+    "gpt-5.4-nano": ("none", "low", "medium", "high", "xhigh"),
+    "gpt-5.4-pro": ("medium", "high", "xhigh"),
+    "gpt-5.5": ("none", "low", "medium", "high", "xhigh"),
+    "gpt-5.5-pro": ("medium", "high", "xhigh"),
+    "gpt-5.6": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-5.6-luna": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-5.6-sol": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-5.6-terra": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-6-astra": ("low", "medium", "high", "xhigh", "max"),
+    "gpt-6-luna": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-6-sol": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-6.1-sol": ("low", "medium", "high", "xhigh", "max"),
+    "gpt-6.1-terra": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-6.2-astra": ("low", "medium", "high", "xhigh", "max"),
+    "gpt-6.2-sol": ("low", "medium", "high", "xhigh", "max"),
+    "o3": ("low", "medium", "high"),
+    "o3-mini": ("low", "medium", "high"),
+    "o4-mini": ("low", "medium", "high"),
+}
+
+
+def reasoning_efforts(execution):
+    if execution["provider"] != "openai" or execution["api"] != "responses":
+        return ()
+    model = re.sub(
+        r"-\d{4}-\d{2}-\d{2}$", "", execution["model"].removeprefix("openai/")
+    )
+    return OPENAI_REASONING_EFFORTS.get(model, ())
 
 
 def model_group(model, provider):

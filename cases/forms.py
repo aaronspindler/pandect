@@ -13,6 +13,7 @@ from core.analysis.execution import (
     pin_model_choice,
 )
 from core.analysis.gateway import gateway_route_configured
+from core.analysis.model_catalog import reasoning_efforts
 
 from .models import Case, CaseInvitation, CaseMembership
 
@@ -28,6 +29,16 @@ ANALYSIS_MODEL_LABELS = {
     "question_synthesis": "Question-driven synthesis",
     "evidence_chat": "Evidence chat",
     "transcription": "Recording transcription",
+}
+EFFORT_CHOICES = {
+    "": "Default",
+    "none": "None",
+    "minimal": "Minimal",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "Extra high",
+    "max": "Maximum",
 }
 
 
@@ -51,14 +62,19 @@ class ConfirmForm(forms.Form):
 
 
 class ModelSelect(forms.Select):
-    def __init__(self, unavailable):
+    def __init__(self, unavailable, efforts, defaults):
         super().__init__()
         self.unavailable = unavailable
+        self.efforts = efforts
+        self.defaults = defaults
 
     def create_option(self, name, value, *args, **kwargs):
         option = super().create_option(name, value, *args, **kwargs)
         if value in self.unavailable:
             option["attrs"]["disabled"] = True
+        if efforts := self.efforts.get(value):
+            option["attrs"]["data-efforts"] = " ".join(efforts)
+            option["attrs"]["data-default-effort"] = self.defaults[value]
         return option
 
 
@@ -80,11 +96,20 @@ class CaseAISettingsForm(forms.Form):
         self.rows = []
         inventory = {}
         self.available = {}
+        self.efforts = {}
         for operation, label in ANALYSIS_MODEL_LABELS.items():
             purpose = "transcription" if operation == "transcription" else "text"
             default = gateway_execution(purpose, operation)
             options = external_model_options(operation)
-            inventory[operation] = [default, options]
+            efforts = {"": reasoning_efforts(default)} | {
+                option["value"]: option["efforts"] for option in options
+            }
+            defaults = {
+                "": default.get("inference_settings", {})
+                .get("reasoning", {})
+                .get("effort", "")
+            } | {option["value"]: option["default_effort"] for option in options}
+            inventory[operation] = [default, options, efforts[""]]
             selected = model_form_value(operation, saved.get(operation, ""), case=case)
             self.initial[operation] = selected
             groups = {}
@@ -111,16 +136,52 @@ class CaseAISettingsForm(forms.Form):
             self.fields[operation] = forms.ChoiceField(
                 label=label,
                 choices=choices,
-                widget=ModelSelect(unavailable),
+                widget=ModelSelect(unavailable, efforts, defaults),
                 required=False,
             )
             self.available[operation] = available
+            effort_name = f"{operation}_effort"
+            saved_effort = case.external_analysis_efforts.get(operation, "")
+            active_effort = (
+                saved_effort if saved_effort in efforts.get(selected, ()) else ""
+            )
+            effort_field = None
+            if purpose == "text" and (
+                saved_effort
+                or effort_name in self.data
+                or any(efforts.get(value) for value in ("", selected, *available))
+            ):
+                if active_effort:
+                    self.initial[effort_name] = active_effort
+                self.fields[effort_name] = forms.ChoiceField(
+                    label=f"Effort for {label}",
+                    choices=EFFORT_CHOICES,
+                    widget=forms.Select(attrs={"data-reasoning-effort": ""}),
+                    required=False,
+                )
+                self.efforts[operation] = efforts
+                effort_field = self[effort_name]
+            displayed_effort = active_effort or defaults.get(selected, "")
             self.rows.append(
-                (label, names.get(selected, selected) or default_label, self[operation])
+                (
+                    label,
+                    names.get(selected, selected) or default_label,
+                    self[operation],
+                    effort_field,
+                    EFFORT_CHOICES.get(displayed_effort, "")
+                    if displayed_effort
+                    else "",
+                )
             )
         self.expected_confirmation = execution_confirmation(
             "analysis.case.settings",
-            [str(case.pk), case.ai_backend, saved, case.external_analysis_approval],
+            [
+                str(case.pk),
+                case.ai_backend,
+                saved,
+                case.external_analysis_efforts,
+                case.external_analysis_approval,
+            ],
             inventory,
         )
         self.initial["confirmation"] = self.expected_confirmation
@@ -144,6 +205,19 @@ class CaseAISettingsForm(forms.Form):
                     operation,
                     "This model needs operator setup before it can be selected.",
                 )
+        for operation, efforts in self.efforts.items():
+            name = f"{operation}_effort"
+            effort = values.get(name)
+            model = (
+                values.get(operation)
+                if operation in self.data
+                else self.initial[operation]
+            )
+            if model is not None and effort and effort not in efforts.get(model, ()):
+                choices = ", ".join(
+                    EFFORT_CHOICES[level] for level in ("", *efforts.get(model, ()))
+                )
+                self.add_error(name, f"Effort choices for this model: {choices}.")
         return values
 
     def proposed_models(self):
@@ -159,6 +233,23 @@ class CaseAISettingsForm(forms.Form):
             elif value in self.available[operation]:
                 models[operation] = pin_model_choice(operation, value)
         return models
+
+    def proposed_efforts(self):
+        saved = self.case.external_analysis_efforts.copy()
+        for operation, efforts in self.efforts.items():
+            name = f"{operation}_effort"
+            if name in self.data:
+                if effort := self.cleaned_data[name]:
+                    saved[operation] = effort
+                else:
+                    saved.pop(operation, None)
+            elif operation in self.data:
+                model = self.cleaned_data[operation]
+                if model != self.initial[operation] and saved.get(
+                    operation
+                ) not in efforts.get(model, ()):
+                    saved.pop(operation, None)
+        return saved
 
 
 class MembershipRoleForm(forms.ModelForm):

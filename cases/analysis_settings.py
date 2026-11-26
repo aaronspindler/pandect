@@ -47,10 +47,12 @@ def change_ai_settings(actor, case_id, data):
 
     backend = form.cleaned_data["ai_backend"]
     models = form.proposed_models()
+    efforts = form.proposed_efforts()
     routes = {}
     if backend == Case.AIBackend.GATEWAY:
         proposed = copy(case)
         proposed.external_analysis_models = models
+        proposed.external_analysis_efforts = efforts
         routes = {
             op: route
             for op, route in configured_external_executions(proposed).items()
@@ -65,7 +67,8 @@ def change_ai_settings(actor, case_id, data):
     changed = {
         op
         for op in ANALYSIS_MODEL_LABELS
-        if op in form.data and form.cleaned_data[op] != form.initial[op]
+        if (op in form.data and form.cleaned_data[op] != form.initial[op])
+        or efforts.get(op) != case.external_analysis_efforts.get(op)
     }
     # Manage can review declined destinations even when every assignment is unchanged.
     if backend == case.ai_backend and (changed or action == "save"):
@@ -76,7 +79,10 @@ def change_ai_settings(actor, case_id, data):
 
     if action == "approve" or scopes:
         confirmation = case_approval_confirmation(
-            case, actor, "save", [form.expected_confirmation, backend, models, scopes]
+            case,
+            actor,
+            "save",
+            [form.expected_confirmation, backend, models, efforts, scopes],
         )
         selected = set(data.getlist("allow"))
         if action != "approve":
@@ -99,7 +105,14 @@ def change_ai_settings(actor, case_id, data):
 
     case.ai_backend = backend
     case.external_analysis_models = models
-    case.save(update_fields=("ai_backend", "external_analysis_models"))
+    case.external_analysis_efforts = efforts
+    case.save(
+        update_fields=(
+            "ai_backend",
+            "external_analysis_models",
+            "external_analysis_efforts",
+        )
+    )
     return AISettingsChange(case, form, "saved")
 
 

@@ -58,19 +58,22 @@
     <section class="ai-models" aria-labelledby="ai-models-heading">
       <h3 id="ai-models-heading">Models by task</h3>
       <p class="muted ai-local-hint">These assignments apply when you choose External AI.</p>
+      <p class="muted ai-effort-hint">Effort choices depend on the model. Higher effort can take longer and cost more.</p>
       {% if ai_settings_form.stale %}
         <div class="notice">
-          <h4>Latest saved models</h4>
+          <h4>Latest saved assignments</h4>
           <dl class="metadata-grid">
-            {% for label, model, field in ai_settings_form.rows %}<div><dt>{{ label }}</dt><dd>{{ model }}</dd></div>{% endfor %}
+            {% for label, model, field, effort_field, saved_effort in ai_settings_form.rows %}
+              <div><dt>{{ label }}</dt><dd>{{ model }}{% if saved_effort %} · Effort {{ saved_effort }}{% endif %}</dd></div>
+            {% endfor %}
           </dl>
         </div>
       {% endif %}
-      {% for label, model, field in ai_settings_form.rows %}
-        <div class="ai-model-row{% if field.errors %} field-error{% endif %}">
+      {% for label, model, field, effort_field, saved_effort in ai_settings_form.rows %}
+        <div class="ai-model-row">
           {% if field %}
             <label for="{{ field.id_for_label }}">{{ label }}</label>
-            <div class="ai-model-control">
+            <div class="ai-model-control{% if field.errors %} field-error{% endif %}">
               {{ field }}
               <button class="ai-model-trigger" type="button" aria-haspopup="dialog" hidden>
                 <span data-model-label></span>
@@ -80,6 +83,13 @@
             </div>
           {% else %}
             <span>{{ label }}</span><span class="muted">{{ model }}</span>
+          {% endif %}
+          {% if effort_field %}
+            <div class="ai-effort-control{% if effort_field.errors %} field-error{% endif %}">
+              <label for="{{ effort_field.id_for_label }}">Effort<span class="visually-hidden"> for {{ label }}</span></label>
+              {{ effort_field }}
+              {{ effort_field.errors }}
+            </div>
           {% endif %}
         </div>
       {% empty %}

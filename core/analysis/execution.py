@@ -14,6 +14,7 @@ from core.analysis.model_catalog import (
     catalog_execution,
     model_group,
     model_purpose,
+    reasoning_efforts,
 )
 from core.analysis.operations import OPERATIONS
 
@@ -51,6 +52,15 @@ INFERENCE_OPERATIONS = (
 
 def gateway_execution(purpose, operation, *, case=None):
     """Retain the selected provider and method, never its credentials."""
+    execution = _selected_gateway_execution(purpose, operation, case)
+    if case is not None and purpose == "text":
+        effort = case.external_analysis_efforts.get(operation)
+        if effort and effort in reasoning_efforts(execution):
+            execution["inference_settings"]["reasoning"] = {"effort": effort}
+    return execution
+
+
+def _selected_gateway_execution(purpose, operation, case):
     execution = _default_gateway_execution(purpose, operation)
     model = case.external_analysis_models.get(operation) if case is not None else None
     if not model:
@@ -226,6 +236,10 @@ def external_model_options(operation):
                 "label": record["label"] if record else model,
                 "group": group,
                 "available": True,
+                "efforts": reasoning_efforts(route),
+                "default_effort": route.get("inference_settings", {})
+                .get("reasoning", {})
+                .get("effort", ""),
             }
         )
     for model, record in MODELS.items():
@@ -238,6 +252,8 @@ def external_model_options(operation):
                 "label": record["label"],
                 "group": model_group(model, route["provider"]),
                 "available": gateway_route_configured(purpose, route),
+                "efforts": reasoning_efforts(route),
+                "default_effort": "",
             }
         )
     return tuple(rows)

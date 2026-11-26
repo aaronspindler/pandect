@@ -664,8 +664,12 @@ The case owner reviews and approves configured destinations under
 ### Model choices for case owners
 
 In [Case Settings](cases.md#external-analysis-approval), case owners can choose
-a different provider and model for each task. The installation default is shown
-beside its resolved model. Pandect ships a release snapshot of the
+a different provider and model for each task. Supported OpenAI Responses models
+also offer a per-task **Effort** setting. **Default** uses the task's configured
+effort or the provider default. Higher effort can increase latency and reasoning
+token usage. New requests use the saved effort and retain it with the execution
+settings. The installation model default is shown beside its resolved model.
+Pandect ships a release snapshot of the
 [Cloudflare model catalog](https://developers.cloudflare.com/ai/models/).
 Opening settings and searching its model list work offline. Available choices
 depend on the task, supported request format and installation configuration.

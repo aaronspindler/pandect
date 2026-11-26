@@ -96,9 +96,9 @@ The case owner chooses **Local AI** (the default) or **External AI** under
 **Case settings → AI processing**. The selection applies to new automatic checks,
 evidence reprocessing, and on-demand AI checks without a dedicated service.
 Each check uses the selected backend when available. Choose the processing
-location and models together, then use **Save changes**. Pandect opens a review
-when the selection enables a new external destination. Built-in checks and
-geographic services have their own requirements.
+location, models and reasoning effort together, then use **Save changes**.
+Pandect opens a review when the selection enables a new external destination.
+Built-in checks and geographic services have their own requirements.
 
 Changing the selection applies to new requests. Queued requests and saved
 results keep their original service. Revoke external approval to stop subsequent
@@ -107,7 +107,8 @@ requests to approved external destinations, including requests from queued work.
 ## External analysis approval
 
 Under **Case settings → AI processing**, choose a model for each task or
-keep its installation default. **Save changes** applies all assignments together.
+keep its installation default. For supported models, choose the task's **Effort**
+or leave it on **Default**. **Save changes** applies all assignments together.
 On first use of a destination, review the provider that receives the material,
 the gateway where applicable, and the transfer and retention details.
 **Approve and save** applies the reviewed settings. Cancelling keeps the
@@ -115,16 +116,16 @@ previous settings.
 
 Text approval covers the six listed text tasks, including Evidence chat
 questions, necessary follow-up context, relevant evidence excerpts and source
-references. Sharing recording chunks requires its own approval. Switch models
-freely within an approved destination and data scope. A change to the receiving
+references. Sharing recording chunks requires its own approval. Change models or
+effort within an approved destination and data scope. A change to the receiving
 service, gateway identity or transfer terms opens a new review. Earlier
 model-specific approvals continue to cover the settings originally reviewed.
 
 Use **Manage** beside the approval summary to inspect or revoke access. Each
-outbound request rechecks permission. A queued check whose model has changed
-stops before its next send. Start another attempt to use the new assignment.
-Revocation stops subsequent transfers. Provider retention applies to requests
-already sent.
+outbound request rechecks permission. A queued check whose model or effective
+effort has changed stops before its next send. Start another attempt to use the
+new assignment. Revocation stops subsequent transfers. Provider retention applies
+to requests already sent.
 
 New cases start without external approval. Owners and editors can start
 **Reprocess evidence** for retained material.

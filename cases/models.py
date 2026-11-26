@@ -30,6 +30,9 @@ class Case(models.Model):
     external_analysis_models = models.JSONField(
         default=dict, db_default={}, blank=True, editable=False
     )
+    external_analysis_efforts = models.JSONField(
+        default=dict, db_default={}, blank=True, editable=False
+    )
     search_generation_policy = models.JSONField(
         default=dict, db_default={}, blank=True, editable=False
     )

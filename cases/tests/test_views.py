@@ -225,7 +225,7 @@ class CaseInterfaceTests(TestCase):
     def test_first_use_requires_owner_review_and_model_switch_needs_only_save(self):
         self.login()
         action = self.url("case_ai_settings")
-        draft = self.ai_draft(content_events="gpt-6.2-sol")
+        draft = self.ai_draft(content_events="gpt-6.2-sol", content_events_effort="low")
         review = self.client.post(action, draft)
         self.assertContains(review, "Approve and save")
         self.assertContains(review, "chat questions")
@@ -233,6 +233,7 @@ class CaseInterfaceTests(TestCase):
         self.assertFalse(self.case.external_analysis_approval)
         self.assertEqual(self.case.ai_backend, "local")
         self.assertEqual(self.case.external_analysis_models, {})
+        self.assertEqual(self.case.external_analysis_efforts, {})
         for actor, status in (
             (self.viewer, 403),
             (self.editor, 403),
@@ -245,6 +246,9 @@ class CaseInterfaceTests(TestCase):
         self.assertEqual(self.client.get(action).status_code, 405)
         self.assertEqual(
             self.ai_confirm(review, content_events="gpt-6.1-terra").status_code, 409
+        )
+        self.assertEqual(
+            self.ai_confirm(review, content_events_effort="high").status_code, 409
         )
         self.assertEqual(self.ai_confirm(review).status_code, 302)
         self.case.refresh_from_db()
@@ -261,6 +265,7 @@ class CaseInterfaceTests(TestCase):
         self.case.refresh_from_db()
         route = available_executions(self.case, "content_events", {})["gateway"]
         self.assertEqual(route["model"], "gpt-6.1-terra")
+        self.assertEqual(route["inference_settings"]["reasoning"], {"effort": "low"})
         self.assertIn("gateway", available_executions(self.case, "evidence_chat", {}))
         self.assertEqual(self.case.external_analysis_approval, before)
         self.assertEqual(self.client.post(action, draft).status_code, 409)
@@ -269,6 +274,45 @@ class CaseInterfaceTests(TestCase):
         )
         self.case.refresh_from_db()
         self.assertEqual(self.case.external_analysis_models, {})
+
+    @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI | {"unified_billing": True})
+    def test_effort_choices_are_validated_and_saved_per_task(self):
+        self.login()
+        action = self.url("case_ai_settings")
+        review = self.client.post(action, self.ai_draft())
+        self.assertEqual(self.ai_confirm(review).status_code, 302)
+        self.case.refresh_from_db()
+        approval = self.case.external_analysis_approval
+        for model, effort in (("", "none"), ("openai/gpt-4o", "high"), ("", "invalid")):
+            response = self.client.post(
+                action, self.ai_draft(evidence_chat=model, evidence_chat_effort=effort)
+            )
+            self.assertTrue(
+                response.context["ai_settings_form"].has_error("evidence_chat_effort")
+            )
+        draft = self.ai_draft(evidence_chat_effort="max")
+        self.assertEqual(self.client.post(action, draft).status_code, 302)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_efforts, {"evidence_chat": "max"})
+        self.assertEqual(self.case.external_analysis_approval, approval)
+        routes = configured_external_executions(self.case)
+        self.assertEqual(
+            routes["evidence_chat"]["inference_settings"]["reasoning"],
+            {"effort": "max"},
+        )
+        self.assertEqual(
+            routes["content_events"]["inference_settings"]["reasoning"],
+            {"effort": "high"},
+        )
+        self.assertEqual(self.client.post(action, draft).status_code, 409)
+        self.assertEqual(
+            self.client.post(
+                action, self.ai_draft(evidence_chat_effort="")
+            ).status_code,
+            302,
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_efforts, {})
 
     @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
     def test_local_preferences_unavailable_models_and_legacy_exact_grants(self):
@@ -338,10 +382,15 @@ class CaseInterfaceTests(TestCase):
             ).status_code,
             302,
         )
+        # A previously saved effort can become unavailable after a default model change.
+        self.case.refresh_from_db()
+        self.case.external_analysis_efforts = {"evidence_chat": "none"}
+        self.case.save(update_fields=("external_analysis_efforts",))
         audio_review = self.client.post(action, {"action": "review_current"})
         self.assertEqual(len(audio_review.context["destinations"]), 1)
         self.assertEqual(self.ai_confirm(audio_review).status_code, 302)
         self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_efforts, {"evidence_chat": "none"})
         audio = available_executions(self.case, "transcription", {})["gateway"]
         audio_revision = case_grant_revision(self.case, "transcription", audio)
 
