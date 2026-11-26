@@ -116,13 +116,19 @@ citations again and publishes the qualified answer.
 
 Each ordinary turn shares a cumulative allowance across deliveries, including
 evidence-bearing model requests, transport retries, local prompt rendering,
-query embedding and passage reranking. The worker reserves each transfer before
+query embedding, passage reranking and optional OpenAI source selection.
+The worker reserves each transfer before
 dispatch. A turn allows up to 12 attempts, 256 KiB transferred, 98,304 input
 tokens and 32,768 output tokens. When exact token counts are unavailable, the
 worker charges a conservative bound. An interrupted attempt keeps its
 reservation. If the answer model reaches a limit, chat publishes any previously
 verified claims with a coverage notice. Explicit full reviews retain their own
-batch processing and authorization.
+batch processing and authorization. A turn can send at most one Decisions
+request across all deliveries. Decisions has no output-token limit parameter.
+Pandect reserves an estimate for that request, limits the response it reads
+to 4 KiB and reconciles reported token usage. After an interrupted send, the
+next delivery can continue with ordinary source selection using the remaining
+allowance.
 
 Worker milestones and a bounded sample of currently available source references
 drive the live activity disclosure. The worker saves these milestones separately

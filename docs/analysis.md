@@ -218,6 +218,17 @@ dates or uncertainty, chat favors passages that put the date or qualifier near
 the action it describes. For example, the date a photo was taken can differ
 from the date it was sent.
 
+With [OpenAI source selection](cases.md#evidence-chat-source-selection) approved,
+an ordinary comparison, disagreement or chronology question can use one additional
+lookup. Chat shortlists up to eight candidates from its case search, including
+eligible meaning-search matches. Questions about communication timing can also
+use saved timing reports. When search finds original messages, chat looks
+for reports that include any of those messages. If all candidates fit in the first
+answer, chat can read them directly. Otherwise Decisions can choose
+one source to open alongside the leading local matches. A refusal, uncertain
+choice or unavailable service returns chat to its usual passage ranking. The answer
+model checks the actual excerpts and Pandect verifies their citations.
+
 Chat can make up to two follow-up lookups with up to ten excerpts per answer
 call. It can search originals and extractions, search findings, follow a source
 to its supporting or neighboring records, or refine the broader search. Each

@@ -111,14 +111,14 @@ class TimingReportTests(EvidenceTestMixin, TestCase):
             [
                 m.locator
                 for m in reports.timing_materials(
-                    self.case, through=timezone.now(), source=source
+                    self.case, through=timezone.now(), sources=[source]
                 )
             ],
             [current[1].locator],
         )
         self.assertEqual(
             reports.timing_materials(
-                self.case, through=timezone.now(), source=source | {"kind": "text"}
+                self.case, through=timezone.now(), sources=[source | {"kind": "text"}]
             ),
             [],
         )

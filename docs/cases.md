@@ -167,6 +167,22 @@ the answer model. Revoking or changing the destination prevents subsequent
 ranking transfers under the old grant, including queued turns.
 [Reranking configuration](local-analysis.md#optional-passage-ranking)
 
+## Evidence chat source selection
+
+If the operator configures `OPENAI_API_KEY`, a case owner can open **Case
+settings → Evidence chat source selection** and choose **Approve OpenAI source
+selection**. Each case starts with this permission off. Approval allows the
+worker to send a harder question and up to eight shortlisted source types,
+labels (up to 120 characters) and excerpts (up to 200 characters) directly to
+`gpt-6-luna` at `https://api.openai.com/v1/decisions`. This also applies when
+the selected answer model is local. The OpenAI account's billing and retention
+settings apply. The chat composer shows the transfer before submission.
+
+Revoking approval stops subsequent routing transfers. A turn submitted before
+approval, or under an earlier approval, can continue through ordinary chat.
+The routing choice prioritizes a source. The investigator still controls
+whether to start analysis. [OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
+
 ## Account settings
 
 The Account link opens email, password, and timezone settings. Verified secondary

@@ -20,7 +20,7 @@ from core.case_search.indexing import authorize
 from core.case_search.parents import current_parent_ids
 from core.models import ChatMatch, ChatSource, ChatTurn
 
-from . import activity, ai, corpus, engine, engine_counts
+from . import activity, ai, corpus, decisions, decisions_approval, engine, engine_counts
 from .search_scope import question_filters, review_population
 
 logger = logging.getLogger(__name__)
@@ -29,9 +29,20 @@ WINDOW = 900
 OVERLAP = 120
 REVIEW_BATCH = 4
 STRUCTURED_BATCH = 64
+INITIAL_WINDOWS = 4
 ANSWER_WINDOWS = 10
 COMPLEX_SEARCH = re.compile(
     r"\b(compare|comparison|contradict\w*|disput\w*|conflict\w*|timeline|chronolog\w*|disagree\w*|sequence|reconcil\w*)\b",
+    re.I,
+)
+MESSAGE_TIMING = re.compile(
+    r"\b(?:timing|intervals?|latenc(?:y|ies)|response times?|reply times?|"
+    r"(?:message|response|reply) delays?)\b",
+    re.I,
+)
+COMMUNICATION_CONTEXT = re.compile(
+    r"\b(?:(?:text|direct) messages?|message timing|texts|texting|chats?|"
+    r"conversations?|repl(?:y|ies)|recorded exchanges?)\b",
     re.I,
 )
 LITERAL_CITATIONS_PER_RECORD = 4
@@ -330,7 +341,65 @@ def _review_clarification(turn, history):
     return None
 
 
-def _rank(turn, query, semantic_query, hints, prior, filters, *, surfaces=None):
+def _related_timing_reports(turn, windows, filters):
+    from .reports import timing_materials
+
+    if filters or not MESSAGE_TIMING.search(turn.question):
+        return []
+    messages = [
+        window.locator
+        for window in windows
+        if window.locator["surface"] == "original"
+        and window.locator["kind"] == "text-message"
+    ]
+    if not COMMUNICATION_CONTEXT.search(turn.question) and not (
+        messages and re.search(r"\bmessages?\b", turn.question, re.I)
+    ):
+        return []
+    return timing_materials(
+        turn.case, through=turn.started_at, sources=messages or None
+    )
+
+
+def _choose_initial_source(turn, windows, filters):
+    """Use a bounded preview selection only when it can change the answer context."""
+    candidates = windows
+    if reports := _related_timing_reports(turn, windows, filters):
+        candidates = windows[: decisions.MAX_CANDIDATES - len(reports)] + [
+            engine.Window(report.locator, 0, report.text[:WINDOW]) for report in reports
+        ]
+    if len(candidates) <= INITIAL_WINDOWS:
+        return candidates
+    previews = [
+        {
+            "type": f"{w.locator['surface']}/{w.locator['kind']}",
+            "label": w.locator["label"],
+            "preview": w.text,
+        }
+        for w in candidates
+    ]
+    activity.record(turn, "choose_source")
+    chosen = decisions.choose_source(
+        turn, previews, lambda: _authorize(turn, candidates)
+    )
+    if chosen is None:
+        return None
+    # Keep independently ranked evidence beside the chosen lead for comparison.
+    first = candidates[chosen]
+    return [first, *(w for w in windows if w != first)][:INITIAL_WINDOWS]
+
+
+def _rank(
+    turn,
+    query,
+    semantic_query,
+    hints,
+    prior,
+    filters,
+    *,
+    surfaces=None,
+    route_sources=False,
+):
     from core.case_search.rerank import rerank_order
 
     from .retrieval_route import related_for_turn
@@ -342,7 +411,8 @@ def _rank(turn, query, semantic_query, hints, prior, filters, *, surfaces=None):
         and not turn.rerank_started_at
         and (prior or COMPLEX_SEARCH.search(query))
     )
-    limit = ANSWER_WINDOWS if turn.plan.get("stage") == "refine" else 4
+    limit = ANSWER_WINDOWS if turn.plan.get("stage") == "refine" else INITIAL_WINDOWS
+    shortlist_limit = decisions.MAX_CANDIDATES if route_sources else limit
     semantic_hints = set() if turn.plan.get("refinement") else None
     with engine.timed(turn, "retrieval"):
         found = corpus.rank(
@@ -350,7 +420,7 @@ def _rank(turn, query, semantic_query, hints, prior, filters, *, surfaces=None):
             query,
             user=turn.asked_by,
             include_archived=turn.include_archived,
-            limit=24 if rerank else limit,
+            limit=24 if rerank else shortlist_limit,
             through=turn.started_at,
             hints=hints,
             filters=filters,
@@ -384,6 +454,10 @@ def _rank(turn, query, semantic_query, hints, prior, filters, *, surfaces=None):
                         ),
                     )
                 )
+        if route_sources:
+            selected = _choose_initial_source(turn, windows[:shortlist_limit], filters)
+            if selected is not None:
+                return selected
         if rerank and len(windows) > 1:
             activity.record(turn, "compare", windows)
             order = rerank_order(
@@ -598,7 +672,7 @@ def _lookup_windows(turn, query, semantic_query, hints, prior, scope):
             if scope:
                 return []
             materials = timing_materials(
-                turn.case, through=turn.started_at, source=anchor
+                turn.case, through=turn.started_at, sources=[anchor] if anchor else None
             )
         else:
             raise AnalysisError("model_result_structure")
@@ -661,7 +735,20 @@ def _run_lookup(turn, query, semantic_query, history, hints, prior, refined):
         if refined and turn.plan.get("scoped_clarification") != str(clarification.pk):
             raise AnalysisError("chat_review_scope_retired")
         turn.plan["scoped_clarification"] = str(clarification.pk)
-    windows = _lookup_windows(turn, query, semantic_query, hints, prior, scope)
+    routing = turn.plan.get("decisions_scope")
+    if (
+        routing
+        and not refined
+        and not clarification
+        and COMPLEX_SEARCH.search(turn.question)
+        and not engine.review_requested(turn.question)
+        and decisions_approval.scope(turn.case) == routing
+    ):
+        windows = _rank(
+            turn, query, semantic_query, hints, prior, scope, route_sources=True
+        )
+    else:
+        windows = _lookup_windows(turn, query, semantic_query, hints, prior, scope)
     if refined:
         # Keep the original clues and the new sources available for joint citation.
         missing = [w for w in prior if w not in windows]

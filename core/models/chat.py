@@ -10,6 +10,20 @@ from django.db.models.fields.json import KT
 from django.db.models.functions import Left
 
 
+class ChatRoutingApproval(models.Model):
+    """The latest owner decision for the optional external source selection."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.OneToOneField("cases.Case", on_delete=models.CASCADE)
+    destination = models.JSONField(default=dict)
+    revision = models.UUIDField(default=uuid4)
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    changed_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Chat routing approval for case {self.case_id}"
+
+
 class EvidenceChat(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)

@@ -11,6 +11,7 @@ STEPS = {
     "question": ("Reading the question", "Read the question"),
     "search": ("Searching case evidence", "Searched case evidence"),
     "compare": ("Comparing matching excerpts", "Compared matching excerpts"),
+    "choose_source": ("Choosing a source to read", "Checked the source shortlist"),
     "follow_up": (
         "Searching for follow-up evidence",
         "Searched for follow-up evidence",

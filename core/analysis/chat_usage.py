@@ -14,6 +14,10 @@ MAX_ATTEMPTS = 12
 MAX_TRANSFER_BYTES = 256 * 1024
 MAX_INPUT = 96 * 1024
 MAX_OUTPUT = 32 * 1024
+# Allow for four 900-character excerpts, the question, schema and instructions
+# in the first ordinary answer. Its exact size is checked again at dispatch.
+ANSWER_HEADROOM_BYTES = 24 * 1024
+ANSWER_HEADROOM_OUTPUT = 1024
 
 
 @dataclass(frozen=True)
@@ -76,10 +80,27 @@ def reserve(turn, purpose, size, *, output_limit=0, input_bound=None):
         output_used = sum(
             row.get("output_tokens", row["output_limit"]) for row in entries
         )
+        remaining_bytes = MAX_TRANSFER_BYTES - sum(row["bytes"] for row in entries)
+        if purpose == "decisions":
+            # A crashed routing delivery cannot send the shortlist again. Keep
+            # capacity for generation, including the local prompt render.
+            answer_attempts = 2 if turn.execution.get("backend") == "local" else 1
+            answer_bytes = min(
+                ANSWER_HEADROOM_BYTES,
+                turn.execution.get("max_request_bytes", ANSWER_HEADROOM_BYTES),
+            )
+            if (
+                any(row["purpose"] == purpose for row in entries)
+                or MAX_ATTEMPTS - len(entries) <= answer_attempts
+                or remaining_bytes - size < answer_attempts * answer_bytes
+                or MAX_INPUT - input_used - estimated_input < answer_bytes + 512
+                or MAX_OUTPUT - output_used - output_limit < ANSWER_HEADROOM_OUTPUT
+            ):
+                return None
         allowed = min(output_limit, max(0, MAX_OUTPUT - output_used))
         if (
             len(entries) >= MAX_ATTEMPTS
-            or size + sum(row["bytes"] for row in entries) > MAX_TRANSFER_BYTES
+            or size > remaining_bytes
             or estimated_input + input_used > MAX_INPUT
             or (output_limit and not allowed)
         ):

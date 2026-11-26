@@ -83,6 +83,56 @@ class ChatBrowserTests(BrowserTestCase):
                 return
         self.fail(f"Count stopped in {turn.status} ({turn.error_code}).")
 
+    @override_settings(PANDECT_DIRECT_AI={"openai_api_key": "synthetic-key"})
+    def test_owner_approves_and_revokes_routing_without_javascript(self):
+        case = self.db(Case.objects.create, owner=self.owner, name="Routing review")
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("cases:case_settings", case_id=case.pk))
+                section = page.get_by_role(
+                    "region", name="Evidence chat source selection"
+                )
+                approve = section.get_by_role(
+                    "button", name="Approve OpenAI source selection"
+                )
+                expect(section).to_contain_text("gpt-6-luna")
+                approve.focus()
+                expect(approve).to_be_focused()
+                section.scroll_into_view_if_needed()
+                self.capture(page, engine, "routing-desktop")
+                for width, height in [
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 800),
+                ]:
+                    page.set_viewport_size({"width": width, "height": height})
+                    expect(approve).to_be_visible()
+                    self.assertLessEqual(
+                        section.evaluate("node => node.scrollWidth - node.clientWidth"),
+                        1,
+                    )
+                    if width == 390:
+                        section.scroll_into_view_if_needed()
+                        self.capture(page, engine, "routing-mobile")
+                approve.press("Enter")
+                expect(
+                    section.get_by_text("Approved for this case.", exact=True)
+                ).to_be_visible()
+                page.emulate_media(
+                    color_scheme="dark", reduced_motion="reduce", forced_colors="active"
+                )
+                revoke = section.get_by_role(
+                    "button", name="Revoke OpenAI source selection"
+                )
+                revoke.focus()
+                revoke.press("Enter")
+                expect(approve).to_be_visible()
+
     def test_live_activity_shows_progress_and_linked_evidence(self):
         for browser in self.engines:
             with self.subTest(browser=browser):

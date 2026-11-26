@@ -9,7 +9,7 @@ from .analysis import (
     ExtractedPassage,
     GatewayRequest,
 )
-from .chat import ChatMatch, ChatSource, ChatTurn, EvidenceChat
+from .chat import ChatMatch, ChatRoutingApproval, ChatSource, ChatTurn, EvidenceChat
 from .evidence import DeletionReview, Evidence, FileEvidence, PendingFileDeletion
 from .important import ImportantItem, ImportantNote
 from .search import CaseSearchIndex, SearchDocument, SearchPassage
@@ -18,6 +18,7 @@ from .selection import SavedSelection
 
 __all__ = [
     "EvidenceChat",
+    "ChatRoutingApproval",
     "ChatTurn",
     "ChatSource",
     "ChatMatch",

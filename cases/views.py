@@ -190,6 +190,7 @@ def _render_case_settings(
     ai_settings_form=None,
 ):
     from core.case_search.generation import settings_rows
+    from core.evidence_chat.decisions_approval import approval_context
 
     review_search = request.GET.get("review_search") == "1"
     invitations = list(case.invitations.all())
@@ -213,6 +214,7 @@ def _render_case_settings(
         if review_search
         else (),
         rerank_approval=rerank_approval_context(case, request.user),
+        chat_routing=approval_context(case, request.user),
         instagram_scheduling_available=instagram_connector.scheduling_available(),
         instagram_target_approved=monitor_jobs.target_approved(case.pk),
         instagram_target=instagram_connector.PILOT_TARGET,

@@ -152,21 +152,30 @@ def _material(case, result, *, start=0, size=corpus.MAX_WINDOW):
     return found
 
 
-def timing_materials(case, *, through, source=None):
+def timing_materials(case, *, through, sources=None):
     """Read up to three recent, current selections visible at this turn's cutoff."""
     results = _results(case).filter(created_at__lte=through)
     latest = results.filter(
         run__equivalence_key=OuterRef("run__equivalence_key")
     ).order_by("-run__created_at", "-run_id")
     matches = results.filter(pk=Subquery(latest.values("pk")[:1]))
-    if source is not None:
-        if source.get("surface") != "original" or source.get("kind") != "text-message":
+    if sources is not None:
+        message_ids = {
+            source["pk"]
+            for source in sources
+            if source.get("surface") == "original"
+            and source.get("kind") == "text-message"
+        }
+        if not message_ids:
             return []
-        matches = matches.filter(
-            run__inputs__contains=[
-                {"kind": "text-message", "evidence_id": source["pk"]}
-            ]
-        )
+        linked = Q()
+        for message_id in message_ids:
+            linked |= Q(
+                run__inputs__contains=[
+                    {"kind": "text-message", "evidence_id": message_id}
+                ]
+            )
+        matches = matches.filter(linked)
     candidates = _metrics(matches).order_by("-run__created_at", "-run_id")[:MAX_REPORTS]
     return [
         material for candidate in candidates if (material := _material(case, candidate))

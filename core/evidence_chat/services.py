@@ -18,7 +18,7 @@ from core.evidence.queries import scoped_evidence
 from core.evidence.types import KINDS
 from core.models import AnalysisResult, ChatMatch, ChatTurn, EvidenceChat
 
-from . import ai, corpus, jobs, retrieval_route
+from . import ai, corpus, decisions_approval, jobs, retrieval_route
 
 
 def _edit_case(actor, case_id):
@@ -38,7 +38,10 @@ def submission_route(case, *, turn=None):
     ranking = rerank_scope(case)
     if turn and turn.plan.get("rerank_scope") != ranking:
         ranking = {}
-    return execution, revision, search, ranking
+    routing = decisions_approval.scope(case)
+    if turn and turn.plan.get("decisions_scope") != routing:
+        routing = {}
+    return execution, revision, search, ranking, routing
 
 
 def _route(case, expected, *, turn=None):
@@ -82,7 +85,7 @@ def submit_turn(
         if correct_chat and existing.question == question:
             return existing
         raise ValidationError("This submission reference has already been used.")
-    execution, revision, search, ranking = _route(case, expected_route)
+    execution, revision, search, ranking, routing = _route(case, expected_route)
     if chat_id:
         chat = get_object_or_404(EvidenceChat, pk=chat_id, case=case)
         _require_idle(chat)
@@ -109,6 +112,7 @@ def submit_turn(
                     "timezone": timezone.get_current_timezone_name(),
                     "hosted_search": search,
                     "rerank_scope": ranking,
+                    "decisions_scope": routing,
                 },
                 approval_revision=revision,
             )

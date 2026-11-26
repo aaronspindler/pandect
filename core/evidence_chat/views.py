@@ -40,12 +40,14 @@ def _route_context(case, *, turn=None):
         selected = services.submission_route(case, turn=turn)
     except AnalysisError as exc:
         return {"unavailable": error_message(exc.code), "route_token": ""}
-    execution, revision, search, ranking = selected
+    execution, revision, search, ranking, routing = selected
+    binding = [str(case.pk), revision, search, ranking]
+    if routing:
+        binding.append(routing)
     return {
         "selected_route": selected,
-        "route_token": execution_confirmation(
-            "chat.submit", [str(case.pk), revision, search, ranking], execution
-        ),
+        "route_token": execution_confirmation("chat.submit", binding, execution),
+        "decisions_destination": routing,
         "ranking_destination": ranking
         if ranking.get("provider") == "workers-ai"
         else {},
