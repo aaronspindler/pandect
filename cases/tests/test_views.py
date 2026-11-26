@@ -517,7 +517,7 @@ class CaseInterfaceTests(TestCase):
     def test_only_existing_assignment_can_keep_a_model_outside_the_text_picker(self):
         self.login()
         action = self.url("case_ai_settings")
-        saved_model = "@cf/zai-org/glm-5.3"
+        saved_model = "google/gemini-4-carbon"
         self.case.external_analysis_models = {"content_events": saved_model}
         self.case.save(update_fields=["external_analysis_models"])
         page = self.client.get(self.url("case_settings"))
@@ -527,18 +527,19 @@ class CaseInterfaceTests(TestCase):
         rejected = self.client.post(action, draft)
         self.assertTrue(rejected.context["ai_settings_form"].has_error("evidence_chat"))
 
-        gemini = "google/gemini-4-carbon"
+        claude = "anthropic/claude-sonnet-5.5"
         review = self.client.post(
-            action, draft | {"evidence_chat": gemini, "content_events": saved_model}
+            action, draft | {"evidence_chat": claude, "content_events": saved_model}
         )
         self.assertEqual(self.ai_confirm(review).status_code, 302)
         self.case.refresh_from_db()
         self.assertEqual(
             self.case.external_analysis_models,
-            {"content_events": saved_model, "evidence_chat": gemini},
+            {"content_events": saved_model, "evidence_chat": claude},
         )
         routes = configured_external_executions(self.case)
-        self.assertEqual(routes["evidence_chat"]["provider"], "google-vertex-ai")
+        self.assertEqual(routes["content_events"]["provider"], "google-vertex-ai")
+        self.assertEqual(routes["evidence_chat"]["provider"], "anthropic")
         self.assertEqual(
             routes["transcription"]["model"], "@cf/openai/whisper-large-v3-turbo"
         )

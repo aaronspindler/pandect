@@ -280,12 +280,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(chat_effort.locator('option[value=""]')).to_have_text("Default")
                 chat.press("Enter")
                 search.fill("Gemini")
-                expect(
-                    models.locator('optgroup[label="Gemini via Google Vertex AI"]')
-                ).to_have_count(1)
-                expect(
-                    models.locator('option[value="google/gemini-4-argon"]')
-                ).to_have_count(1)
+                expect(picker.get_by_text("No matching models.")).to_be_visible()
                 search.fill("anthropic")
                 models.select_option("anthropic/claude-haiku-4.5")
                 picker.get_by_role("button", name="Use model").press("Enter")

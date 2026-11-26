@@ -664,8 +664,7 @@ The case owner reviews and approves configured destinations under
 ### Model choices for case owners
 
 In [Case Settings](cases.md#external-analysis-approval), case owners can choose
-OpenAI, Anthropic Claude, or Google Gemini models for each text task. Gemini
-uses Google Vertex AI through Cloudflare AI Gateway. Recording transcription
+OpenAI or Anthropic Claude models for each text task. Recording transcription
 has its own model choices and defaults to Whisper Large v3 Turbo.
 
 Supported OpenAI Responses and Anthropic Messages models offer a per-task
@@ -716,7 +715,7 @@ actual serving provider.
 
 - For stored provider keys, configure the `default` alias on the gateway for
   each additional provider, then list its serving-provider ID in
-  `PANDECT_AI_STORED_KEY_PROVIDERS` (for example, `anthropic,google-vertex-ai`).
+  `PANDECT_AI_STORED_KEY_PROVIDERS` (for example, `anthropic`).
   The existing OpenAI provider-native connection supports a named key alias.
 - To allow Cloudflare credits, explicitly set `PANDECT_AI_UNIFIED_BILLING=true`
   and configure the account's funding and limits in Cloudflare. This setting

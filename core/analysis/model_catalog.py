@@ -132,8 +132,6 @@ def model_group(model, provider):
     author_id = model.removeprefix("@cf/").split("/")[0]
     author = PROVIDER_NAMES.get(author_id, author_id)
     recipient = PROVIDER_NAMES.get(provider, provider)
-    if model.startswith("google/gemini-"):
-        return f"Gemini via {recipient}"
     if recipient == author or recipient.startswith(f"{author} "):
         return recipient
     return f"{author} via {recipient}"

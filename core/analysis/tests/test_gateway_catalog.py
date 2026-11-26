@@ -135,7 +135,7 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
     def test_billing_requires_opt_in_and_stored_key_routes_block_fallback(self):
         with override_settings(PANDECT_AI_GATEWAY=CONFIG):
             choices = {o["value"]: o for o in external_model_options("content_events")}
-            self.assertFalse(choices["google/gemini-4-carbon"]["available"])
+            self.assertFalse(choices["anthropic/claude-sonnet-5.5"]["available"])
             self.assertNotIn("@cf/zai-org/glm-5.3", choices)
             self.assertTrue(
                 gateway_route_configured("text", self.route("@cf/zai-org/glm-5.3"))
@@ -151,18 +151,13 @@ class GatewayCatalogTests(EvidenceViewTestMixin, TestCase):
             )
         self.assertFalse(gateway_route_configured("text", route))
 
-    def test_picker_limits_text_choices_to_openai_anthropic_and_gemini(self):
+    def test_picker_limits_text_choices_to_openai_and_anthropic(self):
         choices = {
             row["value"]: row["group"]
             for row in external_model_options("content_events")
         }
-        self.assertEqual(
-            set(choices.values()),
-            {"OpenAI", "Anthropic", "Gemini via Google Vertex AI"},
-        )
-        self.assertEqual(
-            choices["google/gemini-4-carbon"], "Gemini via Google Vertex AI"
-        )
+        self.assertEqual(set(choices.values()), {"OpenAI", "Anthropic"})
+        self.assertNotIn("google/gemini-4-carbon", choices)
         self.assertEqual(choices["anthropic/claude-sonnet-5.5"], "Anthropic")
         self.assertEqual(choices["openai/gpt-6.2-sol"], "OpenAI")
         self.assertNotIn(CONFIG["models"]["text"], choices)

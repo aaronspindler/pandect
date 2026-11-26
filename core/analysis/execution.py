@@ -23,7 +23,7 @@ GEOGRAPHIC = {
     name: spec.geographic for name, spec in OPERATIONS.items() if spec.geographic
 }
 
-TEXT_MODEL_CHOICE_PREFIXES = ("openai/", "anthropic/", "google/gemini-")
+TEXT_MODEL_CHOICE_PREFIXES = ("openai/", "anthropic/")
 
 OPENAI_TEXT_MODELS = {
     "text_topics": "gpt-6-luna",

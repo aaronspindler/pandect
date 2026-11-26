@@ -183,13 +183,12 @@ edit the name or collaborators. Saved descriptions remain read-only.
 
 AI processing places the Local AI and External AI choices above the approved
 destinations summary. Each text task and recording transcription has an aligned
-model row. Group selectable text models under OpenAI, Anthropic, and Gemini via
-Google Vertex AI. Show the resolved installation default for each task and an
-Effort control beside models with supported levels. Stack the labels and fields
-on narrow screens. The owner saves assignments together. A first-use review
-identifies the recipient, data scope and transfer terms before applying changes.
-**Manage** opens the saved approvals. Meaning search has its own approval and
-indexing progress link.
+model row. Group selectable text models under OpenAI and Anthropic. Show the
+resolved installation default for each task and an Effort control beside models
+with supported levels. Stack the labels and fields on narrow screens. The owner
+saves assignments together. A first-use review identifies the recipient, data
+scope and transfer terms before applying changes. **Manage** opens the saved
+approvals. Meaning search has its own approval and indexing progress link.
 
 Person details show reported social accounts and POIs. Owners/editors manage
 accounts with confirmed removal; viewers inspect. Search includes platforms and
