@@ -20,7 +20,7 @@ from core.important.reader import reader_context
 from core.models.chat import ChatTurn, EvidenceChat
 from ui.live import render_live
 
-from . import services
+from . import activity, services
 from .forms import QuestionForm
 from .jobs import review_restart_code
 
@@ -62,7 +62,7 @@ def _row(request, case, turn):
     if turn.status == ChatTurn.Status.FAILED:
         row["error"] = error_message(turn.error_code)
     if turn.status != ChatTurn.Status.COMPLETE:
-        return row
+        return row | {"activity": activity.describe(turn)}
     answer = services.inspect_turn(turn)
     if answer is None:
         code = review_restart_code(turn)
@@ -84,6 +84,7 @@ def _row(request, case, turn):
         claims.append({"text": claim["text"], "references": numbers})
     return row | {
         "answer": answer,
+        "activity": activity.describe(turn),
         "claims": claims,
         "references": references,
         "important": reader_context(request, case, source_url=url, chat_turn=turn),

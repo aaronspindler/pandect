@@ -30,11 +30,17 @@ ANSWER = _object(
     lead=TEXT,
 )
 DECISION = _object(
-    action={"enum": ["answer", "ask", "refine", "review", "review_answer"]},
+    action={"enum": ["answer", "ask", "refine"]},
     question=TEXT,
     missing_fact=TEXT,
     independent_source={"type": "boolean"},
     **ANSWER["properties"],
+)
+REVIEW_DECISION = _object(
+    **(
+        DECISION["properties"]
+        | {"action": {"enum": ["answer", "ask", "refine", "review", "review_answer"]}}
+    )
 )
 REVIEW = _object(
     records=_array(
@@ -52,6 +58,29 @@ EXPLICIT_ENUMERATION = re.compile(
     r"(?:mentions?|match(?:es)?|occurrences?|references?|records?|messages?|sources?)\b",
     re.I,
 )
+EXHAUSTIVE_REQUEST = re.compile(
+    r"^\s*(?:(?:please|can you|could you)\s+)?(?:"
+    r"(?:(?:do|run|start|perform)\s+)?(?:a\s+)?(?:full|exhaustive)\s+(?:review|search)\b"
+    r"|(?:find|identify|search\s+for)\s+(?:me\s+)?(?:all(?!\s+you\b)|every|each)\s+\w"
+    r"|(?:after\s+)?(?:check(?:ing)?|review(?:ing)?|search(?:ing)?)\s+"
+    r"(?:all(?:\s+the)?|every|each)\s+(?:records?|sources?|messages?|items?)\b"
+    r"|(?:how\s+many|count)\b.*\b(?:across|in)\s+(?:the|this|my)\s+"
+    r"(?:(?:whole|entire)\s+)?case\b)",
+    re.I | re.S,
+)
+NEW_QUESTION = re.compile(
+    r"^\s*(?:please\s+)?(?:who|what|when|where|why|how|which|can|could|would|"
+    r"do|did|does|is|are|was|were|compare|explain|find|give|identify|list|outline|"
+    r"review|search|show|summari[sz]e|tell)\b",
+    re.I,
+)
+
+
+def review_requested(question):
+    unquoted = QUOTED_TEXT.sub(" ", question)
+    return bool(
+        EXPLICIT_ENUMERATION.match(unquoted) or EXHAUSTIVE_REQUEST.match(unquoted)
+    )
 
 
 def empty_answer(summary="", *, lead="", clarification=""):
@@ -164,8 +193,28 @@ ANSWER_INSTRUCTIONS = (
 )
 
 
-def decide(turn, authorize, history, windows, *, refined=False, remaining=2):
+def decide(
+    turn,
+    authorize,
+    history,
+    windows,
+    *,
+    refined=False,
+    remaining=2,
+    clarified_review=False,
+):
     """Answer directly when possible, or choose one bounded next action."""
+    allow_review = review_requested(turn.question) or clarified_review
+    review_instructions = (
+        "Use review for a requested complete enumeration or case-wide count, and "
+        "review_answer for an explicitly exhaustive narrative. Copy the exact "
+        "original question unless a follow-up resolves its pending clarification. "
+        "Preserve quoted text, conditions and scope. Leave answer fields empty for "
+        "reviews. If the investigator has moved on to a different question, answer "
+        "that question from relevant excerpts. "
+        if allow_review
+        else ""
+    )
     reply, used = _request(
         turn,
         authorize,
@@ -187,18 +236,11 @@ def decide(turn, authorize, history, windows, *, refined=False, remaining=2):
         "For timelines, distinguish the reported event from when it was recorded. "
         "Stop when you can answer, when more searching would repeat the same evidence, "
         "or when the search budget is spent. Leave claims empty if evidence is "
-        "insufficient. Weak results alone "
-        "never require a full review. Choose review only for a request for complete "
-        "coverage, an enumeration or case-wide count, and review_answer for an "
-        "explicitly exhaustive narrative. A total printed on a receipt, a quoted "
-        "phrase or an ordinary overview can be answered from relevant records. "
-        "A search with no relevant excerpts cannot establish absence across the case. "
-        "For ask put the clarification in question. For full review copy the exact "
-        "original question unless a follow-up reference requires resolution. "
-        "Preserve quotations, conditions, and the scope of the question "
-        "that a follow-up clarifies. Leave answer fields empty for ask and reviews. "
+        "insufficient. "
+        "Selected excerpts cannot establish a case-wide total or absence. "
+        "For ask put the clarification in question and leave answer fields empty. "
         "For all actions except refine, use an empty missing_fact and false "
-        "independent_source. " + ANSWER_INSTRUCTIONS,
+        "independent_source. " + review_instructions + ANSWER_INSTRUCTIONS,
         {
             "question": turn.question,
             "history": history,
@@ -211,12 +253,17 @@ def decide(turn, authorize, history, windows, *, refined=False, remaining=2):
             if refined and turn.plan.get("refinement")
             else {},
         },
-        DECISION,
+        REVIEW_DECISION if allow_review else DECISION,
         windows,
     )
     action = reply.get("action")
     if action not in ("answer", "ask", "refine", "review", "review_answer"):
         raise AnalysisError("model_result_structure")
+    if action in ("review", "review_answer") and not allow_review:
+        answer, used = representative_answer(
+            turn, authorize, turn.question, used, history=history
+        )
+        return "answer", answer, used
     if action not in ("ask", "review", "review_answer") and EXPLICIT_ENUMERATION.match(
         QUOTED_TEXT.sub(" ", turn.question)
     ):
@@ -288,13 +335,13 @@ def _citation(value, windows):
     }
 
 
-def representative_answer(turn, authorize, question, windows):
+def representative_answer(turn, authorize, question, windows, *, history=()):
     reply, used = _request(
         turn,
         authorize,
         "Discuss only what these representative examples show. Do not infer a "
         "case-wide aggregate from them. " + ANSWER_INSTRUCTIONS,
-        {"question": question},
+        {"question": question, **({"history": history} if history else {})},
         ANSWER,
         windows,
     )

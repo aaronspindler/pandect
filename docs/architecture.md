@@ -96,7 +96,8 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   Migrations `core.0018` through `core.0022` add durable file cleanup, short-lived
   deletion reviews, and concurrent dependency indexes. Migrations `core.0028`
   through `core.0030` index saved chat activity, ordered processing history,
-  and exact analysis-batch scope lookups. The `phone` and `geo` chronology
+  and exact analysis-batch scope lookups. `core.0031_chat_turn_activity` adds
+  bounded live milestones to saved turns. The `phone` and `geo` chronology
   migrations add partial indexes for active communications and location evidence
   by case and event time. Each new index builds concurrently in a separate
   migration. If a build is interrupted, check the named index for invalid state

@@ -394,6 +394,9 @@ and retries retain their original evidence scope.
 
 Open a full-review reply for its paginated cited matches and coverage gaps.
 Clarifications, AI suggestions, and suggested next checks carry their own labels.
+Pending replies show the current worker step and review counts when available.
+Expand the status for the activity history and a linked sample of evidence checked.
+The disclosure stays available as **Review activity** after the turn stops.
 Pending replies update on case events. With the event stream unavailable, a
 visible pending chat checks status every second and backs off after failures.
 Refresh status works without JavaScript. **Mark important** saves a reference to

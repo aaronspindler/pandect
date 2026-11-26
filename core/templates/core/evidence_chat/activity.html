@@ -1,0 +1,25 @@
+<details class="chat-activity" id="activity-{{ row.turn.pk }}" data-live-keep-focus>
+  <summary>
+    <span>{{ row.activity.label }}</span>
+    {% if row.turn.total %}
+      {% if row.turn.status == 'running' or row.turn.status == 'queued' %}
+      <span class="chat-activity-coverage">Reviewed {{ row.turn.reviewed }} of {{ row.turn.total }} source entries</span>
+      {% endif %}
+    {% endif %}
+  </summary>
+  <div class="chat-activity-body">
+    <ol class="chat-activity-steps">
+      {% for step in row.activity.steps %}
+      <li{% if step.current %} aria-current="step"{% endif %}>{{ step.label }}</li>
+      {% endfor %}
+    </ol>
+    {% if row.activity.sources %}
+    <h3>Sample of evidence checked</h3>
+    <ul class="chat-activity-sources">
+      {% for source in row.activity.sources %}
+      <li><a class="record-link" href="{{ source.url }}">{{ source.label }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</details>

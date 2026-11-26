@@ -12,7 +12,8 @@ from django.utils import timezone
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
-from core.evidence_chat import corpus
+from core.evidence.retention import set_evidence_archive
+from core.evidence_chat import ai, corpus, jobs
 from core.models import ChatSource, ChatTurn, EvidenceChat, ImportantItem
 from core.testing import EvidenceViewTestMixin
 
@@ -218,6 +219,50 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.login("outsider")
         self.assertIsNone(snapshot(self.other_case)["chat_progress"])
+
+    def test_live_activity_only_links_current_evidence_from_the_chat_case(self):
+        source = self.text()
+        self.form_data["question"] = "Where is the original café recorded?"
+        turn = self._ask()
+        reply = reverse("core:chat:reply", args=[self.case.pk, turn.chat_id, turn.pk])
+        status = reverse("cases:activity", args=[self.case.pk])
+        chat = {"chat": str(turn.chat_id)}
+        self.login("viewer")
+        self.assertIsNone(self.client.get(status, chat).json()["chat_activity"])
+        responses = {}
+
+        def infer(*_):
+            responses["fragment"] = self.client.get(
+                reply, headers={"X-Pandect-Live": "1"}
+            )
+            responses["snapshot"] = self.client.get(status, chat)
+            self.login("outsider")
+            responses["foreign_reply"] = self.client.get(reply)
+            responses["foreign_status"] = self.client.get(status, chat)
+            self.login("viewer")
+            set_evidence_archive(
+                self.users["owner"], self.case.pk, "text", source.pk, archived=True
+            )
+            responses["archived"] = self.client.get(reply)
+            raise AnalysisError("source_changed")
+
+        with patch.object(ai, "infer", side_effect=infer) as mock_infer:
+            jobs.process_turn(str(turn.pk), str(turn.delivery_token))
+        mock_infer.assert_called_once()
+        turn.refresh_from_db()
+        self.assertEqual(turn.error_code, "source_changed")
+        self.assertNotIn("sources", turn.activity)
+        self.assertContains(responses["fragment"], "Preparing an answer")
+        self.assertContains(responses["fragment"], source.title)
+        self.assertContains(responses["fragment"], self.url("detail", source))
+        self.assertIsNotNone(responses["snapshot"].json()["chat_activity"])
+        self.assertNotContains(responses["snapshot"], source.title)
+        self.assertEqual(responses["foreign_reply"].status_code, 404)
+        self.assertEqual(responses["foreign_status"].status_code, 404)
+        self.assertNotContains(responses["archived"], source.title)
+        stopped = self.client.get(reply)
+        self.assertContains(stopped, "Review activity")
+        self.assertNotContains(stopped, source.title)
 
     def test_marks_and_notes_validate_the_whole_reply(self):
         source = self.text()

@@ -136,7 +136,16 @@
       let outcome;
       for (const [region, fresh] of waiting) {
         if (!region.isConnected) { waiting.delete(region); continue; }
-        if (region.contains(document.activeElement) || region.querySelector("form[data-live-dirty]")) continue;
+        if (region.querySelector("form[data-live-dirty]")) continue;
+        const active = document.activeElement;
+        let nextFocus;
+        if (region.contains(active)) {
+          const disclosure = active.closest("details[data-live-keep-focus]");
+          if (!disclosure) continue;
+          const next = fresh.querySelector(`#${CSS.escape(disclosure.id)}`);
+          nextFocus = next ? [...next.querySelectorAll("a[href]")].find(link =>
+            link.getAttribute("href") === active.getAttribute("href")) || next.querySelector(":scope > summary") : region;
+        }
         const disclosures = new Map([...region.querySelectorAll("details")].map(item => [disclosureKey(item), item.open]));
         for (const item of fresh.querySelectorAll("details")) {
           const key = disclosureKey(item);
@@ -147,6 +156,7 @@
           outcome = fresh.dataset.liveOutcome;
         }
         region.replaceChildren(...fresh.childNodes);
+        nextFocus?.focus({preventScroll: true});
         if (fresh.hasAttribute("data-live-poll")) region.dataset.livePoll = fresh.dataset.livePoll;
         if (fresh.hasAttribute("data-live-saved")) {
           region.dataset.liveSaved = fresh.dataset.liveSaved;
@@ -191,7 +201,9 @@
         caseBusy = snapshot.active;
         updateBadge(snapshot);
         // Use the page URL including current filters and pagination.
-        const currentChat = pendingChat ? JSON.stringify(snapshot.chat_progress) : undefined;
+        const currentChat = pendingChat ? JSON.stringify([
+          snapshot.chat_progress, snapshot.chat_activity, snapshot.versions.evidence, snapshot.versions.findings,
+        ]) : undefined;
         const progressChanged = pendingChat ? chatProgress !== currentChat : changed && (discoversWork || localWork());
         if ((controls || discoversWork) && (forced || fragmentDue || progressChanged)) {
           fragmentDue = true;

@@ -119,15 +119,23 @@ class QuestionRoutingTests(SimpleTestCase):
             ("What total is printed on the receipt?", "answer"),
             ("Did the witness say “count me in”?", "answer"),
             ("Did the witness say “list every mention”?", "answer"),
+            ("Give an overview of the pickup across the case.", "answer"),
+            ("Find all you can about the pickup.", "answer"),
             ("List every mention of pickup", "review"),
             ("Show me every match", "review"),
         ):
             with self.subTest(original=original):
                 turn = SimpleNamespace(question=original)
                 rewrite = decision("answer", "List every mention")
-                with patch.object(engine, "_request", return_value=(rewrite, [])):
+                with patch.object(
+                    engine, "_request", return_value=(rewrite, [])
+                ) as request:
                     action, _, _ = engine.decide(turn, None, [], [])
                 self.assertEqual(action, expected)
+                self.assertIs(
+                    request.call_args.args[4],
+                    engine.REVIEW_DECISION if expected == "review" else engine.DECISION,
+                )
 
     def test_clarification_can_resume_an_exhaustive_request(self):
         history = [
@@ -139,10 +147,15 @@ class QuestionRoutingTests(SimpleTestCase):
         reply = decision("review", "List every north gate pickup.")
         with patch.object(engine, "_request", return_value=(reply, [])) as request:
             action, _, _ = engine.decide(
-                SimpleNamespace(question="The north gate."), None, history, []
+                SimpleNamespace(question="The north gate."),
+                None,
+                history,
+                [],
+                clarified_review=True,
             )
         self.assertEqual(action, "review")
         self.assertEqual(request.call_args.args[3]["history"], history)
+        self.assertIs(request.call_args.args[4], engine.REVIEW_DECISION)
 
     def test_literal_review_requires_an_unqualified_explicit_target(self):
         for question, literal in (
@@ -249,6 +262,102 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(len(answer["claims"]), 2)
         self.assertTrue(all(c["citations"][0]["url"] for c in answer["claims"]))
         self.assertIn("time", answer["lead"])
+
+    def test_model_cannot_expand_a_bounded_overview_into_a_full_review(self):
+        import hashlib
+
+        quote = "The pickup moved to Red Pier."
+        source = self.source(quote, "Pickup dispatch")
+        unrelated = "The refinery recorded a pressure reading."
+        unrelated_hash = hashlib.sha256(unrelated.encode()).hexdigest()
+        TextEvidence.objects.bulk_create(
+            [
+                TextEvidence(
+                    case=self.case,
+                    uploaded_by=self.users["owner"],
+                    title=f"Refinery log {i}",
+                    body=unrelated,
+                    sha256=unrelated_hash,
+                )
+                for i in range(40)
+            ]
+        )
+        turn = self.ask("Give an overview of the pickup across the case.")
+
+        def infer(active, authorize, prompt, schema):
+            authorize()
+            data = json.loads(prompt.split("\n", 1)[1])
+            self.assertEqual(data["question"], turn.question)
+            self.assertEqual(len(data["records"]), 1)
+            record = data["records"][0]
+            self.assertIn(quote, record["text"])
+            if schema is engine.DECISION:
+                self.assertCountEqual(
+                    schema["properties"]["action"]["enum"], ("answer", "ask", "refine")
+                )
+                return decision("review_answer", "Review every record for the pickup.")
+            self.assertIs(schema, engine.ANSWER)
+            return {
+                "claims": [
+                    {
+                        "text": quote,
+                        "citations": [
+                            {
+                                "id": record["id"],
+                                "quote": quote,
+                                "start": record["text"].index(quote),
+                            }
+                        ],
+                    }
+                ],
+                "clarification": "",
+                "lead": "",
+            }
+
+        with (
+            patch.object(ai, "infer", side_effect=infer) as model,
+            patch.object(corpus, "discover", wraps=corpus.discover) as discover,
+        ):
+            self.finish(turn)
+        self.assertEqual(model.call_count, 2)
+        discover.assert_not_called()
+        self.assertEqual((turn.mode, turn.total, turn.reviewed), ("ordinary", 1, 1))
+        self.assertEqual(turn.sources.get().evidence_id, source.pk)
+        citation = services.inspect_turn(turn)["claims"][0]["citations"][0]
+        self.assertEqual(citation["quote"], quote)
+        self.assertTrue(citation["url"])
+
+    def test_earlier_exhaustive_clarification_does_not_authorize_a_later_question(self):
+        self.source("The timetable lists departures on Fridays.")
+        first = self.ask("Search for every match. type:image")
+        with patch.object(ai, "infer", return_value=decision("ask", "Which dispatch?")):
+            self.finish(first)
+
+        second = self.ask("Please summarize the timetable.", chat_id=first.chat_id)
+
+        def infer(active, authorize, prompt, schema):
+            authorize()
+            self.assertIs(schema, engine.DECISION)
+            payload = json.loads(prompt.split("\n", 1)[1])
+            history = payload["history"]
+            if active.pk == second.pk:
+                self.assertIn(
+                    "The timetable lists departures", payload["records"][0]["text"]
+                )
+            self.assertEqual(
+                [entry["question"] for entry in history],
+                [first.question]
+                if active.pk == second.pk
+                else [first.question, second.question],
+            )
+            return decision("answer")
+
+        with patch.object(ai, "infer", side_effect=infer):
+            self.finish(second)
+            turn = self.ask("Where did the pickup happen?", chat_id=first.chat_id)
+            self.finish(turn)
+        self.assertEqual(second.mode, "ordinary")
+        self.assertEqual(turn.mode, "ordinary")
 
     def test_full_literal_review_tracks_exact_mentions_and_window_boundaries(self):
         cited = self.source(" " * 898 + "MICA went first. Mica returned.")
@@ -390,7 +499,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
 
         def review(active, authorize, prompt, schema):
             authorize()
-            if schema is engine.DECISION:
+            if schema is engine.REVIEW_DECISION:
                 return decision("review", "List every mention of Mica's departure.")
             records = json.loads(prompt.split("\n", 1)[1])["records"]
             return {
@@ -468,7 +577,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             nonlocal calls
             authorize()
             data = json.loads(prompt.split("\n", 1)[1])
-            if schema is engine.DECISION:
+            if schema is engine.REVIEW_DECISION:
                 return decision("answer")
             calls += 1
             if calls == 2:
@@ -767,13 +876,23 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
     def test_rewritten_full_review_rechecks_other_sources_at_dispatch(self):
         from django.utils import timezone
 
-        first = self.ask("Search for every match.")
+        first = self.ask("Search for every match. type:text on:2026-01-15")
         with patch.object(ai, "infer", return_value=decision("ask", "Which dispatch?")):
             self.finish(first)
         originals = [
             self.source("Harbour dispatch recorded Northgate under the code Vireo."),
             self.source("Vireo recorded East Pier."),
         ]
+        other = self.source(
+            "Harbour dispatch Vireo recorded an out-of-scope departure."
+        )
+        day = datetime(2026, 1, 15, 12, tzinfo=UTC)
+        TextEvidence.objects.filter(pk__in=[row.pk for row in originals]).update(
+            collected_at=day
+        )
+        TextEvidence.objects.filter(pk=other.pk).update(
+            collected_at=day.replace(day=16)
+        )
         turn = self.ask("The harbour dispatch.", chat_id=first.chat_id)
         with patch.object(
             ai,
@@ -784,11 +903,17 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
                     "review_answer", "Explain all Northgate and East Pier matches."
                 ),
             ],
-        ):
+        ) as model:
             self.process(turn)
             self.process(turn)
+        self.assertEqual(model.call_count, 2)
+        for call in model.call_args_list:
+            records = json.loads(call.args[2].split("\n", 1)[1])["records"]
+            self.assertTrue(records)
+            self.assertFalse(any(other.body in row["text"] for row in records))
         self.assertEqual(turn.plan["stage"], "review")
         self.assertEqual(len(turn.plan["review_question_sources"]), 2)
+        self.assertEqual(turn.total, 2)
         checked_review = jobs._checked_review
 
         def change_source_after_batch_read(active, windows, spans):
@@ -822,6 +947,23 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         transport.assert_not_called()
         self.assertEqual(turn.error_code, "source_changed")
         self.assertFalse(turn.answer)
+
+    def test_legacy_refinement_does_not_send_unscoped_clarification_context(self):
+        self.source("Harbour dispatch recorded code Vireo.")
+        first = self.ask("Review every source about the dispatch. type:text")
+        with patch.object(ai, "infer", return_value=decision("ask", "Which dispatch?")):
+            self.finish(first)
+        turn = self.ask("The harbour dispatch.", chat_id=first.chat_id)
+        with patch.object(ai, "infer", return_value=decision("refine", "Vireo")):
+            self.process(turn)
+        self.assertEqual(turn.plan.pop("scoped_clarification"), str(first.pk))
+        turn.save(update_fields=["plan"])
+        with patch.object(corpus, "rank") as rank, patch.object(ai, "infer") as model:
+            self.process(turn)
+        rank.assert_not_called()
+        model.assert_not_called()
+        self.assertEqual(turn.error_code, "chat_review_scope_retired")
+        self.assertEqual(jobs.review_restart_code(turn), turn.error_code)
 
     def test_typed_date_and_participant_counts_with_missing_date(self):
         other = Person.objects.create(case=self.case, first_name="Adrian")
@@ -956,7 +1098,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
             records = json.loads(prompt.split("\n", 1)[1])["records"]
             self.assertEqual(len(records), 1)
             self.assertIn(first.body, records[0]["text"])
-            if schema is engine.DECISION:
+            if schema is engine.REVIEW_DECISION:
                 return decision("answer")  # The explicit enumeration forces a review.
             self.assertIs(schema, engine.REVIEW)
             return {
@@ -1104,7 +1246,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
         def infer(turn, authorize, prompt, schema):
             authorize()
             data = json.loads(prompt.split("\n", 1)[1])
-            if schema is engine.DECISION:
+            if schema is engine.REVIEW_DECISION:
                 return decision("review_answer", turn.question)
             refs = []
             for row in data["records"]:
@@ -1143,7 +1285,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
 
         def review(turn, authorize, prompt, schema):
             authorize()
-            if schema is engine.DECISION:
+            if schema is engine.REVIEW_DECISION:
                 return decision("review", turn.question)
             records = []
             for item in json.loads(prompt.split("\n", 1)[1])["records"]:
@@ -1171,6 +1313,7 @@ class ChatWorkerTests(EvidenceViewTestMixin, TestCase):
 
         def followup(turn, authorize, prompt, schema):
             authorize()
+            self.assertIs(schema, engine.DECISION)
             self.assertNotIn("Blue Pier", prompt)
             history = json.loads(prompt.split("\n", 1)[1])["history"][-1]
             self.assertIn("Red Pier dispatch", history["reply_context"])

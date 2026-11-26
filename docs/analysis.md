@@ -195,6 +195,11 @@ withheld until the sources are restored. Ask a fresh question to replace a stopp
 question submitted with archived evidence enabled or an older reply whose
 history sources could not be verified.
 
+While a reply runs, its status names the current step. Expand that status to see
+steps taken and a linked sample of the evidence checked so far. Completed
+replies keep **Review activity** alongside any citations. The linked sample can
+differ from the reply's citations, which identify the sources for specific claims.
+
 Ordinary questions use a case-scoped PostgreSQL index. Chat combines keyword
 matches, identifiers, eligible meaning-search passages and matches in document
 sections, saved conversations and their summaries. A summary can lead chat to
@@ -234,10 +239,13 @@ conflicting accounts can prompt a suggested next check. Investigator notes and
 chat replies are excluded from evidence retrieval. **Mark important** saves the
 whole reply and its references in the case's Important list.
 
+Ordinary questions and follow-ups use selected search excerpts. A full review
+that uses AI to interpret evidence requires an explicit request for exhaustive
+coverage, such as “After checking every record, explain the pickup change.”
+Chat can also start that review after the investigator answers a clarifying
+question about the request. Explicit type and date filters constrain the review.
 Supported structured counts and recognized requests for every record containing
-literal wording start a full review directly. Other questions are routed using
-the question and available context. Chat can open a full review, ask for
-clarification, or answer from selected sources, such as a total printed on one receipt.
+literal wording start a full review directly.
 Processing and the reply show progress against a frozen set of source entries.
 One record may contribute several entries, such as a document and its OCR passages.
 Structured counts use recorded fields for supported questions. A request such

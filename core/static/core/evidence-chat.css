@@ -130,20 +130,56 @@
 .chat-answer, .chat-references blockquote { white-space: pre-wrap; }
 .chat-reply-actions { margin-block: .5rem 0; }
 
-.chat-sources {
+.chat-activity, .chat-sources {
   margin-block: .75rem;
   padding-inline: .75rem;
   border: 1px solid var(--divider);
   border-radius: var(--radius);
 }
 
-.chat-sources summary {
+.chat-activity summary, .chat-sources summary {
   min-height: 44px;
   padding-block: .625rem;
   color: var(--accent);
   font-weight: 600;
   cursor: pointer;
 }
+
+.chat-activity {
+  margin-block-start: 0;
+  background: var(--background);
+  overflow-wrap: anywhere;
+}
+
+.chat-activity-coverage {
+  display: block;
+  margin-inline-start: 1rem;
+  color: var(--secondary);
+  font-size: .875rem;
+  font-weight: 400;
+}
+
+.chat-activity-body {
+  padding-block: .75rem;
+  border-block-start: 1px solid var(--divider);
+}
+
+.chat-activity-steps, .chat-activity-sources {
+  margin-block: 0;
+  padding-inline-start: 1.25rem;
+}
+
+.chat-activity-steps {
+  list-style-type: disc;
+  color: var(--secondary);
+  font-size: .875rem;
+}
+
+.chat-activity-steps li + li { margin-block-start: .25rem; }
+.chat-activity-steps [aria-current] { color: var(--text); font-weight: 600; }
+
+.chat-activity-sources li + li { border-block-start: 1px solid var(--divider); }
+.chat-activity-sources a { min-width: 44px; }
 
 .chat-references {
   margin-block: .25rem .75rem;

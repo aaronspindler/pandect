@@ -1,9 +1,12 @@
 """Shared chat from a question through clarification, source inspection and notes."""
 
 import json
+from threading import Event
 from unittest.mock import patch
 
+from django.db import connections
 from django.test import override_settings
+from django.urls import reverse
 from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
@@ -31,10 +34,10 @@ class ChatBrowserTests(BrowserTestCase):
         self.assertEqual(turn.status, "complete", turn.error_code)
 
     @staticmethod
-    def _respond(turn, authorize, prompt, schema):
+    def _respond(turn, authorize, prompt, schema, *, clarify=True):
         authorize()
         data = json.loads(prompt.split("\n")[-1])
-        if not data["history"]:
+        if clarify and not data["history"]:
             return {
                 "action": "ask",
                 "question": "Which pickup do you mean?",
@@ -79,6 +82,120 @@ class ChatBrowserTests(BrowserTestCase):
             if turn.status == "complete":
                 return
         self.fail(f"Count stopped in {turn.status} ({turn.error_code}).")
+
+    def test_live_activity_shows_progress_and_linked_evidence(self):
+        for browser in self.engines:
+            with self.subTest(browser=browser):
+                case = self.db(
+                    Case.objects.create,
+                    owner=self.owner,
+                    name=f"Harbour activity ({browser})",
+                )
+                source = self.db(self._source, case)
+                with self.browser_page(browser) as (_, page):
+                    self.sign_in(page)
+                    page.goto(self.url("core:chat:list", case_id=case.pk))
+                    page.get_by_role("textbox", name="Question", exact=True).fill(
+                        "When did the harbour pickup move?"
+                    )
+                    page.get_by_role("button", name="Ask question").press("Enter")
+                    activity = page.locator("details.chat-activity")
+                    summary = activity.locator("summary")
+                    expect(summary).to_have_text("Queued")
+                    summary.press("Enter")
+                    expect(activity).to_have_js_property("open", True)
+                    expect(summary).to_be_focused()
+
+                    turn = self.db(ChatTurn.objects.get, case=case, status="queued")
+                    release = Event()
+
+                    def paused_answer(*args, release=release):
+                        response = self._respond(*args, clarify=False)
+                        if not release.wait(timeout=60):
+                            raise TimeoutError(
+                                "Browser did not release the mock answer"
+                            )
+                        return response
+
+                    def process(turn_id, token):
+                        try:
+                            jobs.process_turn(turn_id, token)
+                        finally:
+                            connections.close_all()
+
+                    with patch.object(ai, "infer", side_effect=paused_answer):
+                        work = self.database_worker.submit(
+                            process, turn.pk, turn.delivery_token
+                        )
+                        try:
+                            expect(summary).to_contain_text("Preparing an answer")
+                            expect(summary).to_be_focused()
+                            expect(activity).to_have_js_property("open", True)
+                            expect(
+                                activity.locator('[aria-current="step"]')
+                            ).to_contain_text("Preparing an answer")
+                            expect(
+                                activity.get_by_text("Searched case evidence")
+                            ).to_be_visible()
+                            evidence = activity.get_by_role(
+                                "link", name="Text · Witness statement", exact=True
+                            )
+                            expect(evidence).to_be_visible()
+                            expect(evidence).to_have_attribute(
+                                "href",
+                                reverse(
+                                    "core:evidence:detail",
+                                    args=(case.pk, "text", source.pk),
+                                ),
+                            )
+                            self.capture(page, browser, "desktop-activity")
+                            page.emulate_media(
+                                color_scheme="dark", reduced_motion="reduce"
+                            )
+                            self.capture(page, browser, "desktop-activity-dark")
+                            for width, height in [
+                                (1440, 1024),
+                                (768, 1024),
+                                (390, 844),
+                                (320, 800),
+                            ]:
+                                page.set_viewport_size(
+                                    {"width": width, "height": height}
+                                )
+                                self.assertLessEqual(
+                                    page.evaluate(
+                                        "document.documentElement.scrollWidth"
+                                    ),
+                                    page.evaluate(
+                                        "document.documentElement.clientWidth"
+                                    )
+                                    + 1,
+                                )
+                                if width == 390:
+                                    evidence.scroll_into_view_if_needed()
+                                    self.capture(page, browser, "mobile-activity")
+                            page.evaluate(
+                                "document.documentElement.style.fontSize = '200%'"
+                            )
+                            page.emulate_media(forced_colors="active")
+                            self.assertLessEqual(
+                                page.evaluate("document.documentElement.scrollWidth"),
+                                page.evaluate("document.documentElement.clientWidth")
+                                + 1,
+                            )
+                            evidence.focus()
+                            expect(evidence).to_be_focused()
+                        finally:
+                            release.set()
+                            work.result(timeout=15)
+
+                    expect(summary).to_have_text("Review activity")
+                    expect(activity).to_have_js_property("open", True)
+                    expect(activity.get_by_text("Worked on a reply")).to_be_visible()
+                    expect(evidence).to_be_focused()
+                    expect(
+                        page.get_by_text("The witness reported a change to Friday.")
+                    ).to_be_visible()
 
     def test_live_full_review_and_paged_evidence(self):
         for browser in self.engines:
@@ -162,6 +279,11 @@ class ChatBrowserTests(BrowserTestCase):
                     page.get_by_role("link", name="Refresh status").press("Enter")
                     expect(
                         page.get_by_text("Which pickup do you mean?", exact=True)
+                    ).to_be_visible()
+                    activity = page.locator("details.chat-activity")
+                    activity.locator("summary").press("Enter")
+                    expect(
+                        activity.get_by_text("Searched case evidence")
                     ).to_be_visible()
                     self.db(self._source, case)
                     page.get_by_role("link", name="Jump to follow-up").press("Enter")

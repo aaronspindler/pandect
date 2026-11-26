@@ -8,9 +8,8 @@
   <div class="chat-reply">
     <p class="chat-meta"><strong>Evidence reply</strong></p>
     <div class="chat-reply-body">
-      {% if row.turn.status == 'queued' or row.turn.status == 'running' %}
-        <p><strong>{{ row.turn.get_status_display }}</strong>{% if row.turn.total %} · Reviewed {{ row.turn.reviewed }} of {{ row.turn.total }} source entries{% endif %}</p>
-      {% elif row.error %}
+      {% if row.activity %}{% include 'core/evidence_chat/activity.html' %}{% endif %}
+      {% if row.error %}
         <p><strong>Needs attention</strong> · {{ row.error }}</p>
         {% if can_edit and single %}
           {% if route_token %}
@@ -23,7 +22,7 @@
         {% endif %}
       {% elif row.withheld %}
         <p>{{ row.withheld }}</p>
-      {% else %}
+      {% elif row.turn.status == 'complete' %}
         {% if row.answer.clarification %}
           <p><strong>Clarification requested</strong></p><p class="chat-answer">{{ row.answer.clarification }}</p>
         {% else %}

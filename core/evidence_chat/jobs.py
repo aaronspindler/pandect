@@ -20,7 +20,7 @@ from core.case_search.indexing import authorize
 from core.case_search.parents import current_parent_ids
 from core.models import ChatMatch, ChatSource, ChatTurn
 
-from . import ai, corpus, engine, engine_counts
+from . import activity, ai, corpus, engine, engine_counts
 from .search_scope import question_filters
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,8 @@ FULL_REVIEW_VERSION = 1
 
 
 def review_restart_code(turn):
+    if turn.error_code == "chat_review_scope_retired":
+        return turn.error_code
     if turn.mode != "full" or turn.plan.get("review_version") == FULL_REVIEW_VERSION:
         return ""
     if question_filters(turn):
@@ -274,12 +276,44 @@ def _history(turn, *, hints=None):
     return [history[ordinal] for ordinal in sorted(history)]
 
 
-def _rank(turn, query, semantic_query, hints, prior):
+def _review_clarification(turn, history):
+    """Allow a reply to continue only the immediately preceding clarification."""
+    if (
+        not history
+        or not history[-1]["reply_context"]
+        or engine.NEW_QUESTION.match(turn.question)
+        or turn.question.rstrip().endswith("?")
+        or engine.review_requested(turn.question)
+    ):
+        return None
+    previous = (
+        ChatTurn.objects.filter(
+            case_id=turn.case_id,
+            chat_id=turn.chat_id,
+            ordinal=turn.ordinal - 1,
+            status="complete",
+            mode="clarification",
+        )
+        .only("question", "answer", "plan")
+        .first()
+    )
+    if previous:
+        clarification = previous.answer.get("clarification")
+        if (
+            clarification
+            and history[-1]["question"] == previous.question[:300]
+            and history[-1]["reply_context"] == clarification[:400]
+            and engine.review_requested(previous.question)
+        ):
+            return previous
+    return None
+
+
+def _rank(turn, query, semantic_query, hints, prior, filters):
     from core.case_search.rerank import rerank_order
 
     from .retrieval_route import related_for_turn
 
-    filters = question_filters(turn)
     scope = turn.plan.get("rerank_scope")
     rerank = (
         scope and not turn.rerank_started_at and (prior or COMPLEX_SEARCH.search(query))
@@ -325,6 +359,7 @@ def _rank(turn, query, semantic_query, hints, prior):
                     )
                 )
         if rerank and len(windows) > 1:
+            activity.record(turn, "compare", windows)
             order = rerank_order(
                 turn.case,
                 semantic_query,
@@ -360,6 +395,7 @@ def _store_context(turn, windows):
 
 def _complete(turn, result):
     turn.plan.pop("context_bodies", None)
+    activity.keep_ledger_sample(turn)
     turn.answer = result
     turn.status = "complete"
     turn.completed_at = timezone.now()
@@ -373,30 +409,32 @@ def _complete(turn, result):
             "reviewed",
             "gaps",
             "plan",
+            "activity",
         )
     )
 
 
-@transaction.atomic
 def _publish_answer(turn, result, windows):
-    case = _authorize(turn, windows, lock=True)
-    _store_context(turn, windows)
-    known = {w.locator["key"]: w.locator for w in windows}
-    for claim in result["claims"]:
-        for cite in claim["citations"]:
-            if not corpus.cite(
-                case,
-                known[cite["key"]],
-                cite["start"],
-                cite["quote"],
-                include_archived=turn.include_archived,
-            ):
-                raise AnalysisError("source_changed")
-    turn.mode = "clarification" if result["clarification"] else "ordinary"
-    entries = turn.sources.filter(case=case)
-    turn.total = turn.reviewed = entries.count()
-    turn.gaps = entries.exclude(gap="").count()
-    _complete(turn, result)
+    activity.record(turn, "publish")
+    with transaction.atomic():
+        case = _authorize(turn, windows, lock=True)
+        _store_context(turn, windows)
+        known = {w.locator["key"]: w.locator for w in windows}
+        for claim in result["claims"]:
+            for cite in claim["citations"]:
+                if not corpus.cite(
+                    case,
+                    known[cite["key"]],
+                    cite["start"],
+                    cite["quote"],
+                    include_archived=turn.include_archived,
+                ):
+                    raise AnalysisError("source_changed")
+        turn.mode = "clarification" if result["clarification"] else "ordinary"
+        entries = turn.sources.filter(case=case)
+        turn.total = turn.reviewed = entries.count()
+        turn.gaps = entries.exclude(gap="").count()
+        _complete(turn, result)
 
 
 def _continue(turn):
@@ -407,10 +445,13 @@ def _continue(turn):
     enqueue_turn(turn)
 
 
-def _freeze(turn, question, filters, context=(), *, narrative=False, literal=""):
+def _freeze(
+    turn, question, filters, context=(), *, narrative=False, literal="", scope=None
+):
     # Persist one consistent database snapshot, streaming only identities and
     # digests into the manifest. Later tasks resolve bounded content windows.
-    explicit_scope = question_filters(turn)
+    activity.record(turn, "select")
+    explicit_scope = question_filters(turn) if scope is None else scope
     nested = connection.in_atomic_block
     with transaction.atomic():
         if not nested:
@@ -461,6 +502,7 @@ def _freeze(turn, question, filters, context=(), *, narrative=False, literal="")
 
 
 def _decide(turn):
+    activity.record(turn, "question")
     filters, clarification = engine_counts.structured_question(turn, turn.question)
     if clarification:
         _publish_answer(turn, engine.empty_answer(clarification=clarification), [])
@@ -480,11 +522,30 @@ def _decide(turn):
             (entry for entry in history if "earlier_turn" in entry), history[-1]
         )
         search += " " + context["question"] + " " + context["reply_context"]
-    windows = _rank(turn, search, turn.question, hints, [])
-    _respond(turn, history, windows)
+    activity.record(turn, "search")
+    _answer_search(turn, search, turn.question, history, hints, ())
 
 
-def _respond(turn, history, windows, *, prior=(), refined=False):
+def _answer_search(
+    turn, query, semantic_query, history, hints, prior, *, refined=False
+):
+    clarification = _review_clarification(turn, history)
+    inherited = question_filters(clarification) if clarification else {}
+    scope = inherited | question_filters(turn)
+    if inherited:
+        # Old in-flight searches did not constrain the provisional answer and its
+        # sources. Do not replay that checkpoint against a newly restricted scope.
+        if refined and turn.plan.get("scoped_clarification") != str(clarification.pk):
+            raise AnalysisError("chat_review_scope_retired")
+        turn.plan["scoped_clarification"] = str(clarification.pk)
+    windows = _rank(turn, query, semantic_query, hints, prior, scope)
+    if refined:
+        # Keep the original clues and the new sources available for joint citation.
+        missing = [w for w in prior if w not in windows]
+        windows = (windows[:6] + missing[:2] + windows[6:] + missing[2:])[
+            :ANSWER_WINDOWS
+        ]
+
     def with_prior(fragments):
         return [w for w in prior if w not in fragments] + list(fragments)
 
@@ -506,6 +567,7 @@ def _respond(turn, history, windows, *, prior=(), refined=False):
         remaining = (
             2 if not refined else int(new_material and len(previous_queries) < 2)
         )
+        activity.record(turn, "answer", windows)
         action, result, used = engine.decide(
             turn,
             authorize_context,
@@ -513,6 +575,7 @@ def _respond(turn, history, windows, *, prior=(), refined=False):
             windows,
             refined=refined,
             remaining=remaining,
+            clarified_review=clarification is not None,
         )
         if action == "refine" and result["query"].casefold().split() in [
             q.casefold().split() for q in [turn.question, *previous_queries]
@@ -536,7 +599,14 @@ def _respond(turn, history, windows, *, prior=(), refined=False):
     for key in ("refinement", "refine_query", "refine_windows", "search_queries"):
         turn.plan.pop(key, None)
     if action in ("review", "review_answer"):
-        _freeze(turn, result, {}, context, narrative=action == "review_answer")
+        _freeze(
+            turn,
+            result,
+            {},
+            context,
+            narrative=action == "review_answer",
+            scope=scope,
+        )
     else:
         turn.plan["stage"] = "complete"
         _publish_answer(turn, result, context)
@@ -612,6 +682,7 @@ def _advances(target, windows, prior):
 
 
 def _refine(turn):
+    activity.record(turn, "follow_up")
     locators = dict(
         turn.sources.filter(case=turn.case, status="context").values_list(
             "key", "locator"
@@ -633,12 +704,7 @@ def _refine(turn):
     target = turn.plan.get("refinement")
     query = target["query"] if target else turn.plan["refine_query"]
     turn.plan.setdefault("search_queries", [query])
-    windows = _rank(turn, query, query, hints, prior)
-    # Budget room for the original clues that led to a new source, so a
-    # multi-step answer can cite both ends of the chain in the same prompt.
-    missing = [w for w in prior if w not in windows]
-    windows = (windows[:6] + missing[:2] + windows[6:] + missing[2:])[:ANSWER_WINDOWS]
-    _respond(turn, _history(turn), windows, prior=prior, refined=True)
+    _answer_search(turn, query, query, _history(turn), hints, prior, refined=True)
 
 
 def _checked_review(turn, windows, spans):
@@ -731,6 +797,7 @@ def _review_batch(turn):
     work, readable, spans = _read_review_spans(
         turn, pending, filters, literal=bool(literal)
     )
+    activity.record(turn, "review", spans)
     outcomes = []
     if filters:
         evaluated = engine_counts.evaluate(turn.case, pending, filters)
@@ -844,6 +911,7 @@ def _draft_review(turn):
         engine.Window(hit.source.locator, hit.start, hit.quote) for hit in examples
     ]
     if windows:
+        activity.record(turn, "summary", windows)
 
         def authorize_examples(fragments, **kwargs):
             return _authorize(turn, fragments, **kwargs)
@@ -869,6 +937,7 @@ def _versions(case, *, lock=False):
 
 def _verify_batch(turn):
     """Verify outside the case lock and pin the revisions at publication."""
+    activity.record(turn, "verify")
     case = _authorize(turn)
     versions = _versions(case)
     accounted = turn.sources.filter(case=case).exclude(status="context")
@@ -959,4 +1028,11 @@ def process_turn(turn_id, token):
 def _fail(turn, active_token, code):
     ChatTurn.objects.filter(
         pk=turn.pk, delivery_token=active_token, status="running"
-    ).update(status="failed", error_code=code, completed_at=timezone.now())
+    ).update(
+        status="failed",
+        error_code=code,
+        completed_at=timezone.now(),
+        activity={
+            key: value for key, value in turn.activity.items() if key != "sources"
+        },
+    )

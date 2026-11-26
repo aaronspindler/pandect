@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from django.db.models import Count, Exists
+from django.db.models.fields.json import KT
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_safe
 
@@ -80,12 +81,22 @@ def status(request, case_id):
             chat_id = UUID(chat)
         except ValueError:
             chat_id = None
-        snapshot["chat_progress"] = (
+        progress = (
             ChatTurn.objects.filter(case=case, chat__case=case, chat_id=chat_id)
             .order_by("-ordinal")
-            .values_list("pk", "status", "mode", "reviewed", "total", "gaps")
+            .values_list(
+                "pk",
+                "status",
+                "mode",
+                "reviewed",
+                "total",
+                "gaps",
+                KT("activity__revision"),
+            )
             .first()
         )
+        snapshot["chat_progress"] = progress[:-1] if progress else None
+        snapshot["chat_activity"] = progress[-1] if progress else None
     response = JsonResponse(snapshot)
     response["Cache-Control"] = "private, no-store"
     return response

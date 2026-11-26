@@ -112,6 +112,10 @@ terms, cited provisional answer and its original references. A retry resumes
 from that checkpoint and rechecks sources used from earlier turns. If the
 search finds no relevant new material, the worker verifies the provisional
 citations again and publishes the qualified answer.
+Worker milestones and a bounded sample of currently available source references
+drive the live activity disclosure. The worker saves these milestones separately
+from recovery checkpoints. Completed replies draw their sample from the saved
+source ledger.
 A full review saves its source versions, window positions, matches and progress
 before queuing its continuation. The worker reads adjacent windows together
 and reuses a verified body digest while the case evidence revision matches.
