@@ -27,6 +27,21 @@ Independent external AI analysis can use a bounded pool of
 [parallel local workers](background-tasks.md#parallel-local-workers) without
 replacing an active worker.
 
+The local PostgreSQL container gives `/dev/shm` 512 MiB for dynamic shared
+memory used by parallel queries. If PostgreSQL reports `could not resize shared
+memory segment` with `No space left on device`, check the shared-memory mount
+with `docker compose exec -T db df -h /dev/shm`. Its capacity is separate from
+free space on the database volume. `make run` drains the workers and applies
+Compose configuration changes, recreating the database container as needed with
+the existing named volume.
+
+The local Compose web service sets `PGOPTIONS=-c jit=off` for its PostgreSQL
+connections to avoid query compilation latency on case pages. Background workers
+use the database JIT default. If the configured app image matches the running
+one, apply this configuration with
+`docker compose up -d --no-deps --no-build --pull never --wait web`. Verify that
+`SHOW jit` returns `off` on a fresh web service connection.
+
 ## Database backup and restoration
 
 ### Upgrade an existing PostgreSQL 18 installation for case search

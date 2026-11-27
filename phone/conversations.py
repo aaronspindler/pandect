@@ -55,11 +55,19 @@ def reported_pair(first_id, second_id):
     )
 
 
-def imported_contexts(case):
+def imported_contexts(case, *, pair=None, message_ids=None):
+    """Scope contexts through either all case messages or one active pair."""
+    messages = (
+        pair_messages(case, *pair)
+        if pair is not None
+        else scoped_evidence(case, "text-message")
+    )
+    if message_ids is not None:
+        messages = messages.filter(pk__in=message_ids)
     return CommunicationContext.objects.filter(
         case=case,
         source_document__case=case,
-        message__in=scoped_evidence(case, "text-message"),
+        message__in=messages,
     )
 
 

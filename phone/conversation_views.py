@@ -118,8 +118,9 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
     search_form = ConversationSearchForm(request.GET if "q" in request.GET else None)
     query = search_form.cleaned_data["q"] if search_form.is_valid() else ""
 
-    messages = pair_messages(case, first, second)
-    contexts = imported_contexts(case).filter(message__in=messages)
+    pair = (first, second)
+    messages = pair_messages(case, *pair)
+    contexts = imported_contexts(case, pair=pair)
     groups = matching_copy_groups(contexts)
     timeline = timeline_messages(messages, contexts, groups)
     visible_timeline = timeline.select_related("sender", "recipient")
@@ -216,7 +217,9 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
 
     visible_contexts = {
         context.message_id: context
-        for context in contexts.filter(message_id__in=[row.pk for row in rows])
+        for context in imported_contexts(
+            case, pair=pair, message_ids=[row.pk for row in rows]
+        )
         .select_related("source_document")
         .only("message_id", "source_document__title", "source_row", "native_message_id")
     }
