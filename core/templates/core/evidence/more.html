@@ -2,7 +2,7 @@
   <summary class="button button-secondary" aria-label="More" data-tooltip="More" title="More">{% include 'ui/components/icon.html' with name='dots' %}<span class="evidence-toolbar-label">More</span></summary>
   <div class="evidence-more-panel">
     {% if can_edit %}
-    {% if not item.is_archived %}{% include 'core/important/reader_actions.html' with important_menu=True %}{% endif %}
+    {% if not item.is_archived and important_marked %}{% include 'core/important/reader_actions.html' with important_menu=True %}{% endif %}
     {% if kind == 'document' and not item.is_archived %}<a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}?document={{ item.pk }}">Import message CSV</a>{% endif %}
     {% if kind == 'document' and call_history_csv and not item.is_archived %}<a class="record-link" href="{% url 'phone:call_history_upload' case_id=case.pk %}?document={{ item.pk }}">Import call history CSV</a>{% endif %}
     {% partialdef checks inline %}

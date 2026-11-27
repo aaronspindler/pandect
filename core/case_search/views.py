@@ -20,6 +20,9 @@ from .indexing import prepare_case_search, search_index_status
 from .material import kind_label
 from .sources import TYPE_CHOICES
 
+CASE_RESULT_LIMIT = 30
+CROSS_CASE_RESULT_LIMIT = 4
+
 
 class SearchForm(forms.Form):
     q = forms.CharField(max_length=200, required=False)
@@ -108,12 +111,15 @@ def results(request, case_id):
     form = SearchForm(request.GET)
     context = case_context(case, request.user) | {
         "search_form": form,
-        "case_search_query": request.GET.get("q", ""),
+        "case_search_query": request.GET.get("q", "").strip(),
         "index": search_index_status(case, count_passages=False),
+        "result_limit": CASE_RESULT_LIMIT,
     }
     if form.is_valid() and (query := form.cleaned_data["q"]):
         try:
-            context["rows"] = result_rows(case, request.user, query, 30, form.filters())
+            context["rows"] = result_rows(
+                case, request.user, query, CASE_RESULT_LIMIT, form.filters()
+            )
         except HostedSearchError as exc:
             context["notice"] = NOTICES.get(exc.code, NOTICES["search_unavailable"])
     return render(
@@ -161,7 +167,7 @@ def all_cases(request):
     if query:
         for case in page:
             try:
-                rows = result_rows(case, request.user, query, 4)
+                rows = result_rows(case, request.user, query, CROSS_CASE_RESULT_LIMIT)
                 groups.append({"case": case, "rows": rows})
             except Http404, PermissionDenied:
                 continue
@@ -188,7 +194,12 @@ def all_cases(request):
     return render(
         request,
         "core/case_search/all_cases.html",
-        {"groups": groups, "query": query, "page": page},
+        {
+            "groups": groups,
+            "query": query,
+            "page": page,
+            "result_limit": CROSS_CASE_RESULT_LIMIT,
+        },
     )
 
 

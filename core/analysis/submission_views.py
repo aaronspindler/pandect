@@ -226,6 +226,7 @@ def create(request, case_id, kind=None, evidence_id=None):
         "sources_reverse": sources_reverse,
         "selected_sources": (exact_source,) if exact_source else (),
     }
+    reset_source_page = False
     try:
         form = analysis_form(posted, **form_options)
     except Http404:
@@ -233,7 +234,7 @@ def create(request, case_id, kind=None, evidence_id=None):
             raise
         form_options.update(sources_page=1, sources_cursor="", sources_reverse=False)
         form = analysis_form(posted, **form_options)
-        messages.info(request, "The source list changed. Showing the first page.")
+        reset_source_page = True
     if operation == "claim_comparison" and browse == "review":
         choices = dict(form.fields["sources"].choices)
         if any(value not in choices for value in posted.getlist("sources")):
@@ -305,9 +306,17 @@ def create(request, case_id, kind=None, evidence_id=None):
         from django.forms.utils import ErrorDict
 
         form._errors = ErrorDict()
+    source_update = (
+        browse in {"search", "clear", "next", "previous", "remove"}
+        and request.headers.get("X-Pandect-Analysis-Browse") == "1"
+    )
+    if reset_source_page and not source_update:
+        messages.info(request, "The source list changed. Showing the first page.")
     return render(
         request,
-        "core/analysis/create.html",
+        "core/analysis/create.html#source_update"
+        if source_update
+        else "core/analysis/create.html",
         chooser_context
         | {
             "form": form,
@@ -329,6 +338,7 @@ def create(request, case_id, kind=None, evidence_id=None):
                 for value in (form["sources"].value() or ())
             ),
             "search_notice": form.search_notice,
+            "source_page_reset": reset_source_page and source_update,
             "source_options": [
                 (
                     choice,

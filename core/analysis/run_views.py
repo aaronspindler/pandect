@@ -1,11 +1,12 @@
 """Open a saved analysis run and handle its lifecycle and estimate actions."""
 
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 from uuid import uuid4
 
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -43,10 +44,17 @@ from core.analysis.retries import acknowledge_failure, retry_analysis, retry_rou
 from core.analysis.services import cancel_run, case_run
 from core.analysis.source_resolution import resolve_active_inputs
 from core.important.navigation import return_params
-from core.models import AnalysisRun
+from core.models import AnalysisResult, AnalysisRun
 from geo.analysis import presentation as geo_presentation
 from people.models import Person
+from text.analysis.attributed_sources import (
+    result_batches,
+    source_batches,
+    verify_membership,
+    writing_scope,
+)
 from ui.live import render_live
+from ui.navigation import list_query
 
 
 @product_login_required
@@ -56,17 +64,47 @@ def detail(request, case_id, run_id):
     run = case_run(case, run_id)
     source_error = None
     source_review_changed = False
+    source_page = None
+    writing_sources = []
     try:
-        sources = resolve_active_inputs(run, case, require_current_review=False)
-        try:
-            require_current_geocode_reviews(run, sources)
-        except AnalysisError as error:
-            if error.code != "geocode_review_required":
-                raise
-            source_review_changed = True
+        if writing := writing_scope(run.operation, run.parameters):
+            source_page = Paginator(run.inputs, 50).get_page(
+                request.GET.get("source_page")
+            )
+            writing_sources = [
+                source
+                for batch in source_batches(
+                    case, writing, source_page.object_list, with_content=False
+                )
+                for source in batch
+            ]
+            data = (
+                AnalysisResult.objects.filter(case=case, run=run)
+                .values_list("data", flat=True)
+                .first()
+            )
+            sources = writing_sources
+            if data:
+                verify_membership(case, writing, run.inputs)
+                sources = [
+                    source
+                    for batch in result_batches(
+                        case, writing, run.inputs, data, with_content=False
+                    )
+                    for source in batch
+                ]
+        else:
+            sources = resolve_active_inputs(run, case, require_current_review=False)
+            try:
+                require_current_geocode_reviews(run, sources)
+            except AnalysisError as error:
+                if error.code != "geocode_review_required":
+                    raise
+                source_review_changed = True
     except (AnalysisError, Http404) as error:
         source_error = error
         sources = []
+        writing_sources = []
     if (
         source_error is None
         and run.operation == "sighting_group"
@@ -138,18 +176,25 @@ def detail(request, case_id, run_id):
         and source_error.code == "source_archived",
         "source_review_changed": source_review_changed,
         "sources": sources,
+        "writing_source_page": source_page,
+        "writing_sources": writing_sources,
     }
     if run.operation in {"style_profiles", "style_change"} and (
         scope := run.parameters.get("writing_scope")
     ):
         if person := Person.objects.filter(case=case, pk=scope["person_id"]).first():
             context["writing_person"] = person
+            writing_query = dict(parse_qsl(list_query(request)))
+            if run.operation == "style_change":
+                writing_query["mode"] = "compare"
             context["writing_url"] = reverse(
                 "people:writing_style",
                 args=[case.pk, person.pk],
-                query={"mode": "compare"} if run.operation == "style_change" else None,
+                query=writing_query,
             )
     evidence_keys = {(source.kind, source.item.pk) for source in sources}
+    if source_page is not None and source_page.paginator.count != 1:
+        evidence_keys.clear()
     if len(evidence_keys) == 1:
         kind, evidence_id = next(iter(evidence_keys))
         context["evidence_analysis_url"] = (
@@ -162,6 +207,7 @@ def detail(request, case_id, run_id):
         if not key.startswith("_")
         and not context.get("source_unavailable")
         and run.operation != "journey_claims"
+        and not (source_page is not None and key == "writing_scope")
     }
     context["assumptions"] = measurement_formatter(
         assumptions, case=case, sources=sources, query=request.GET
@@ -177,6 +223,12 @@ def detail(request, case_id, run_id):
                 finding_history=finding_history,
             )
         )
+    if source_page is not None and (selected := context.get("data", {}).get("metrics")):
+        context["writing_coverage"] = {
+            "selected": selected["sources_selected"],
+            "usable": selected["sources_usable"],
+            "omitted": selected["sources_selected"] - selected["sources_usable"],
+        }
     if (
         settings.PANDECT_MAP_TILE_URL
         and not context["source_unavailable"]

@@ -1,7 +1,7 @@
 # Security policy
 
-Pandect is in active development. Reports against the current `main` branch are
-in scope. Include the affected commit or release and your deployment type.
+Report issues affecting the current `main` branch. Include the affected commit
+or release and your deployment type.
 
 Use the [GitHub private reporting form](https://github.com/aaronspindler/pandect/security/advisories/new)
 when available. If the form is unavailable, [request a private security

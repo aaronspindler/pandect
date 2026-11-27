@@ -1,116 +1,59 @@
 # Background-worker foundation
 
-Django's Tasks API and `django-tasks-db` use Pandect's PostgreSQL database
-asynchronously even with `DEBUG=true`. Ordinary work uses the `default` queue.
-There is no Redis, scheduler or external queue. `core` owns diagnostics/AI
-integration; its `core.analysis` subpackage owns case analysis.
+Django's Tasks API and `django-tasks-db` use PostgreSQL for background work,
+including with `DEBUG=true`. The `default` queue handles most jobs. Pandect's
+domain records own progress, authorization and recovery.
 
-The nonce diagnostic, [analysis](analysis.md), [vehicle CSV imports](vehicle-location-imports.md),
-and [call CSV imports](evidence.md#call-history-csv-import) share this queue. Domain records
-retain case-scoped progress/recovery independently. Eligible evidence and its
-checks commit together; original retention, invitations and file cleanup remain
-synchronous. Other lengthy ingestion must implement authorization, idempotency
-and recovery before using the queue.
+Automatic analysis and **Reprocess evidence** retain a `CaseAnalysisBatch` with
+exact source/import membership or reviewed evidence types and eligible AI routes.
+Each continuation commits its cursor and next task together, rechecking edit
+access, execution settings and approval. Failed methods leave other results
+intact. Preparation records up to 100 source or method errors.
 
-Automatic analysis and **Reprocess evidence** retain `CaseAnalysisBatch`
-scopes with exact evidence or import membership, or selected evidence types for
-reprocessing. The scope captures the case's selected, eligible AI routes.
-Bounded continuations prepare independent and grouped methods,
-commit the cursor and next task atomically, and schedule follow-ups from exact
-extraction results. They recheck verified edit access, execution settings, and
-case approval. Changes stop affected routes. Method failures preserve other
-results. Preparation retains up to 100 safe source/method errors.
-
-**Summarize missing instances** retains the reviewed saved group IDs and selected
-execution route in an `instance_summaries` batch. Each preparation task visits up
-to ten instances. For a long saved session, preparation records the next message
-ordinal and queues bounded ranges. Each report retains the session and exact
-ordinals that were reviewed.
-Unavailable instances are counted in Processing, where investigators can also
-follow or retry individual runs. Preparation rechecks verified edit access and
-the execution snapshot before each step.
-
-Message additions, CSV imports, and message reprocessing also group the affected
-reported pairs. **Group this conversation** requests the same local work from
-the reader. The worker saves its chronological position and membership rows
-together. A revision becomes visible once its source count and checksums match
-the reviewed scope. Automatic batches can share the work for an identical pair,
-method, and set of originals. A changed pair needs a fresh grouping. Other pairs
-in an automatic batch can finish, and earlier publications remain available.
+Conversation grouping publishes a revision only after its source count and
+checksums match the reviewed originals. A changed pair needs fresh grouping,
+while other pairs and earlier publications stay available. **Summarize missing
+instances** retains the reviewed groups and route. Preparation queues at most
+ten instances at a time and uses bounded message ranges for long sessions.
+See [communication analysis](analysis-communications.md).
 
 ## Investigator progress and completed imports
 
-**Processing** separates active work/history and preparation/execution.
-The overview counts work items, including one per preparation batch, as well as
-individual analysis checks, evidence chats, call and vehicle imports, trip generations,
-Instagram checks, and hosted search indexing when configured. Trip
-generations count once across trip preparation and address lookup phases. Counts
-include earlier attempts. **Processed** includes checks that finished with partial
-results, no findings, insufficient evidence, or unsupported input. Vehicle imports
-or call imports awaiting investigator action, cancelled work, and superseded work are excluded
-from the cards.
+**Processing** shows active work and history. Its totals count work items,
+including earlier attempts. A preparation batch and each of its checks count
+separately. Trip preparation and address lookup count as one generation.
+**Processed** includes checks that finished with partial results, no findings,
+insufficient evidence, or unsupported input. Pending review, cancelled and
+superseded work are outside the totals.
 
-Message analysis adds checks as preparation advances. Each check can cover several
-messages, and each message can contribute to several checks. Active message import
-batches show how many imported messages have been prepared, the retained import
-total when available, and the initial checks created so far. Check statuses track
-execution separately. A batch with the **Checks queued** status has finished
-preparation, and its checks and follow-ups may still be active.
+**In progress** shows queued and running work. **Needs attention** shows
+pending CSV reviews, current failures, and stopped work. Imports and batch
+preparation report counts as they become available. **Checks queued** means
+preparation finished, while individual checks and follow-ups may still be
+running. See the [Processing workflow](interface-design.md#case-tools-processing-and-additional-analysis)
+for the investigator's view.
 
-An individual check shows **Queued**, **Checking sources**, **Running analysis**,
-or **Saving results**. Running checks show their start time. The progress bar is
-indeterminate while the worker runs a method or saves its result. The outcome
-appears once publication commits. Imports and batch preparation show measured
-row, source, or check counts as they become available.
-**Needs attention** shows work that requires an investigator to act.
-It includes saved vehicle and call CSVs awaiting preparation or review, stopped attempts,
-and current trip or address preparation failures. **In progress** shows queued
-or running work. Earlier attempts remain inspectable in history.
+Owners and editors can **Retry all failed checks** across the saved history.
+Retry preparation reports reviewed, queued and unavailable checks, and skips
+checks with a newer attempt. It revalidates access, sources and approval, and
+uses current settings for the original processing backend. Retries and
+follow-ups retain the parent batch even when another editor retries.
 
-**Retry all failed checks** lets a case owner or editor request new attempts
-across all pages of failed check history. Retry preparation runs in the background
-and reports how many checks were reviewed, queued, or could not be retried.
-Checks with a newer attempt are skipped. Each retry keeps its original selection
-and uses the current service for its original processing backend. Preparation
-rechecks edit access, source versions, and case approval. Resolve any blockers
-and use the same action to retry checks still in need of attention.
-
-New runs carry explicit parent-batch references, preserved through retries and
-follow-ups even when another authorized editor retries. Historical membership is
-never guessed. See the [Processing workflow](interface-design.md#case-tools-processing-and-additional-analysis)
-for filters, review, recovery, and automatic updates to visible progress/results.
-Refresh remains available without JavaScript; there is no notification scheduler.
-
-Confirmed vehicle and message CSV publication starts analysis for newly published
-observations and messages using retained import relationships. Preview, excluded
-and reused rows start no batch. Vehicle trip preparation is independent. Bounded
-continuations retain each run's scope and distinguish preparation from execution.
-Processing groups do not limit the number of rows an import can publish within
-the existing file and row constraints.
-
-Call history preparation and publication show progress on the import review.
-Preparation checks the retained CSV and stores the reviewed rows. Publication
-rechecks current edit access, source integrity, people and possible overlaps
-before committing calls. Changed overlap candidates return the import to review.
-Retry a failed phase from its status page. Recover work marked running only
-after confirming the original worker has stopped. New calls with two confirmed
-people can queue bounded conversation checks after publication.
-
-On upgrade, apply the case approval migration before serving with matching web
-and worker versions. Finish earlier authorized external work before cutover if
-needed. Any remaining external run without a case approval stops recoverably.
-Existing results remain available and cases receive no retrospective processing.
-Before starting older workers during rollback, stop queued grant-backed external
-work or disable external services. Older workers cannot enforce case approval.
+Vehicle and message CSV publication queues analysis for newly published rows.
+Preview, excluded and reused rows start no analysis batch. Vehicle trip
+preparation runs independently. Call history publication rechecks edit access,
+source integrity, people and overlap candidates before committing calls. Changed
+overlaps return the import to review. Recover running imports only after the
+original worker has stopped. See [vehicle CSV imports](vehicle-location-imports.md)
+and [call history CSV imports](evidence.md#call-history-csv-import).
 
 ## Evidence chat recovery
 
-A queue delivery advances a checkpoint in the case's Cloudflare investigation.
-The Worker asks Django to authorize each tool or model call. Current case access,
-the owner's permission revision, turn cutoff and remaining budget are checked
-again when work resumes. A completed answer stays available in Pandect.
-Inspect processing errors and retry the affected operation in the case.
-See [the investigation Agent](cloudflare-agent.md).
+A queue delivery advances a turn in the Cloudflare investigation Worker. Django
+rechecks case access, the owner's approval revision, cutoff and remaining
+budget for each operation and saves the reply in Pandect. Retry from the
+affected reply. See [Case Chat recovery](cloudflare-agent.md#investigation-and-recovery)
+for interrupted deliveries.
 
 ## Hosted search indexing
 
@@ -133,33 +76,19 @@ case-scoped recovery. Live scheduling requires a qualified roster source.
 
 ## Saved vehicle trips
 
-`geo` owns vehicle trip state, generations, retained inputs and ordered membership.
-Authorized evidence/import/archive changes invalidate the revision and atomically
-queue rebuilding. Each task handles 500 observations at most, committing staged
-output, cursor/token and continuation together. Trips use active observations.
-Processing rechecks verified edit access, source relationships and revision.
-Before resuming a trip, it verifies the checkpoint against the generation's
-retained inputs. Address preparation uses current, verified originals for the
-published generation. Only complete current generations publish.
-Failed or superseded work stays unpublished. Total history has no
-100/500-observation cutoff.
+Source changes invalidate saved trip generations and queue successors for
+authorized editors. Each task stages up to 500 observations with its cursor and
+continuation. It rechecks access, retained inputs and revision. Only complete,
+current generations publish. Use **Prepare trips** to initialize trips for
+existing evidence. Running-work recovery requires confirmation the old worker
+stopped. Complete-inventory deletion includes dependent generations. A
+superuser with viewer-only access can delete after review, and a case editor
+then prepares the replacement.
 
-Map/report/vehicle pages read saved trips. **Prepare trips** initializes existing
-evidence through an authorized idempotent POST; GET/startup remain read-only.
-Processing exposes progress/history. Retries preserve prior generations, use new
-delivery tokens and allow three attempts. Running-work recovery requires explicit
-confirmation that its worker stopped. Source deletion inventories include every
-dependent generation, including observations producing no trip; deletion
-transactions invalidate/rebuild remaining evidence. A superuser with viewer-only
-access can confirm complete-inventory deletion but cannot queue rebuilding; an
-owner/editor prepares the replacement.
-
-After publication, separate continuations prepare local geocode runs with at most
-25 distinct addresses and the configured source ceiling per run. Their progress
-and recovery never block trip summaries. Maps use reported positions or selected
-local estimates. Lookup or selection changes refresh geometry without resegmentation.
-See [trip rules](analysis-locations.md#automatic-vehicle-trips) and
-[map lookups](maps.md#local-address-lookup).
+Address lookups use separate continuations of up to 25 distinct addresses.
+Trips remain available while lookup runs, and estimate changes refresh the map
+without rebuilding trips. See [trip rules](analysis-locations.md#automatic-vehicle-trips)
+and [map lookups](maps.md#local-address-lookup).
 
 ## Startup and diagnostics
 
@@ -264,22 +193,17 @@ arguments, results and uncaught task exceptions/tracebacks. Protect the database
 and its backups. Inspect tracebacks only in trusted sessions and sanitize before
 sharing.
 
-Analysis tasks can return normally after recording a failed domain run. Use
-the trusted operator shell to compare the saved outcome with recent deliveries:
+Compare a saved analysis outcome with its ten most recent deliveries:
 
 ```sh
 docker compose exec web python manage.py check_task_worker --analysis-run RUN_UUID
 ```
 
-This read-only command shows the saved status and safe error code plus up to ten
-retained queue deliveries. A `SUCCESSFUL` delivery can accompany a failed
-analysis. `GatewayRequest` records external AI request status,
-byte counts and token usage without response bodies. Known model validation
-failures retain their safe error code. When a completed request is followed by
-a generic `processing_failed` run, use the safe analysis log to locate the later
-validation or publication failure.
-Older failures without these diagnostics may have no recoverable
-cause. Keep quotation validation strict. External retries require current case-owner approval for the destination.
+This read-only diagnostic shows the outcome and safe error code. A successful
+delivery can accompany a failed analysis. `GatewayRequest` records status,
+byte counts and token usage. For a generic `processing_failed` after a
+completed request, inspect the safe analysis log for validation or publication
+errors. External retries require current case-owner approval.
 
 The queue framework leaves retries and stale-task recovery to each operation.
 See [hosted search indexing](#hosted-search-indexing) for its retry schedule.
@@ -313,30 +237,14 @@ evidence bodies, credentials or invitation tokens. Return small operational
 results. Drain or deliberately migrate queued work before changing task paths or
 argument shapes.
 
-Enqueue inside the originating domain transaction. Both records use the default
-PostgreSQL connection, so neither is visible before commit and rollback removes
-both. For example, in a future authorized service:
+Enqueue within the domain transaction when the write and task must commit
+together. Both use the default PostgreSQL connection. An `on_commit` callback
+would leave a gap for a failed queue insert.
 
-```python
-from django.db import transaction
-from my_app.tasks import process_submission  # Example future task, not implemented.
-
-with transaction.atomic():
-    submission = create_authorized_submission()  # Example domain operation.
-    process_submission.enqueue(str(submission.pk))
-```
-
-Using `on_commit` would leave a domain-write/queue-insert gap. Reassess this
-atomicity if the backend changes.
-
-Workers must recheck current case/role access, same-case references and revocation
-before further processing/publication. Bound time, inputs, requests and concurrency;
-make effects idempotent and publication atomic. Preserve originals/provenance,
-sanitize errors and provide progress/bounded recovery. The queue supplies none of
-these safeguards. See [Cloudflare model processing](local-analysis.md) for routing and
-limits, [extraction](analysis-extraction.md) for OCR,
-[operations](operations.md) for backup/upgrades and [validation](validation.md)
-for PostgreSQL/separate-process checks.
+Workers recheck case/role access, same-case references and revocation.
+Bound resources, preserve originals and provenance, sanitize errors, make
+effects idempotent, and publish atomically. Domain workflows own progress and
+recovery. See [validation](validation.md) for separate-process checks.
 
 References: [Django Tasks](https://docs.djangoproject.com/en/6.1/topics/tasks/),
 [django-tasks-db](https://github.com/RealOrangeOne/django-tasks-db).

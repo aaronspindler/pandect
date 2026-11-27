@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlsplit
 from django.test import TestCase
 
 from cases.models import CaseMembership
+from core.evidence.packet import MAX_EXHIBITS
 from core.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
@@ -127,6 +128,44 @@ class EvidencePacketTests(EvidenceViewTestMixin, TestCase):
             self.login(role)
             for name in ("packet", "packet_review"):
                 self.assertEqual(self.client.get(self.url(name)).status_code, status)
+
+    def test_oversized_selection_keeps_the_packet_and_shows_how_to_recover(self):
+        items = [self.text() for _ in range(MAX_EXHIBITS + 1)]
+        self.login("editor")
+        picker = self.url("packet")
+
+        too_many = self.client.post(
+            picker, {"source": [self.ref(item) for item in items]}
+        )
+        self.assertContains(
+            too_many, f"Choose up to {MAX_EXHIBITS} sources per packet."
+        )
+        self.assertNotContains(too_many, "Choose active evidence from this case.")
+        self.assertEqual(too_many.context["selected_sources"], [])
+
+        retained = items[:-2]
+        two_more = [self.ref(item) for item in items[-2:]]
+        selection = self.prepare(*retained)
+        selected_picker = picker + f"?selection={selection}"
+        response = self.client.post(selected_picker, {"source": two_more})
+        self.assertContains(
+            response, "Choose fewer new sources or remove a selected source."
+        )
+        self.assertEqual(response.context["selection"], selection)
+        self.assertEqual(
+            [row["ref"] for row in response.context["selected_sources"]],
+            [self.ref(item) for item in retained],
+        )
+        for ref in two_more:
+            self.assertContains(response, f'name="source" value="{ref}" checked')
+
+        added = self.client.post(selected_picker, {"source": two_more[:1]}, follow=True)
+        self.assertContains(
+            added, f"Selected sources ({MAX_EXHIBITS} of {MAX_EXHIBITS})"
+        )
+        self.assertContains(added, "Remove a selected source to add a different one.")
+        self.assertContains(added, "Prepare exhibits")
+        self.assertNotContains(added, "Add selected sources")
 
     def test_archived_or_revoked_sources_stop_review_and_download(self):
         item = self.text()

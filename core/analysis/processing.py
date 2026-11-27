@@ -23,6 +23,7 @@ from core.evidence.types import KIND_LABELS, KINDS
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, ChatTurn
 from geo.models import VehicleLocationImport, VehicleTripGeneration
 from geo.trip_processing import latest_generations
+from people.models import Person
 from phone.models import CallHistoryImport
 from socialmedia.models import InstagramCheck
 from socialmedia.monitor_jobs import check_message
@@ -148,6 +149,8 @@ def index(request, case_id):
         second_kind=F("inputs__1__kind"),
         import_phase=F("parameters__phase"),
         execution=F("parameters___execution"),
+        writing_person=F("parameters__writing_scope__person_id"),
+        writing_scope_version=F("parameters__writing_scope__version"),
         has_saved_result=Exists(
             AnalysisResult.objects.filter(case=case, run=OuterRef("pk"))
         ),
@@ -203,6 +206,17 @@ def index(request, case_id):
     page = Paginator(runs, 25).get_page(request.GET.get("page"))
     message_reviews = list(ready_messages[:6]) if not showing_message_reviews else []
     displayed_runs = [*active_runs, *page, *message_reviews[:5]]
+    people = {
+        str(person.pk): str(person)
+        for person in Person.objects.filter(
+            case=case,
+            pk__in={
+                run.writing_person
+                for run in displayed_runs
+                if run.writing_scope_version == 1
+            },
+        ).only("first_name", "last_name", "email", "phone_number")
+    }
     titles = {}
     for kind in {run.first_kind for run in displayed_runs} & KINDS.keys():
         titles.update(
@@ -226,11 +240,14 @@ def index(request, case_id):
         if run.operation == "imessage_import" and run.import_phase == "preview":
             run.label = "Prepare message review"
         run.failure_message = error_message(run.error_code) if run.error_code else ""
-        run.source_title = titles.get(
-            (run.first_kind, run.first_evidence), "Source unavailable"
-        )
-        if run.second_kind:
-            run.source_title += " and other selected sources"
+        if run.writing_scope_version == 1:
+            run.source_title = people.get(run.writing_person, "Selected messages")
+        else:
+            run.source_title = titles.get(
+                (run.first_kind, run.first_evidence), "Source unavailable"
+            )
+            if run.second_kind:
+                run.source_title += " and other selected sources"
     all_batches = CaseAnalysisBatch.objects.filter(case=case).defer(
         "preparation_errors"
     )

@@ -1,14 +1,18 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}Narrative relationships · {{ case.name }}{% endblock %}
 {% block content %}
-<header class="page-header"><div><h1>Narrative relationships</h1><p>Inspect the passage behind each suggested relationship. Names are recorded as written in the source.</p></div></header>
+<header class="page-header">
+  <div><h1>Narrative relationships</h1><p>Inspect the passage behind each suggested relationship. Names are recorded as written in the source.</p></div>
+  <a class="button button-secondary" href="{% url 'core:analysis:connections' case.pk %}" data-workspace-link>Repeated identifiers</a>
+</header>
 <ul class="analysis-finding-rows">
 {% for edge in page_obj %}
-<li>{% if edge.source_url %}<strong>{{ edge.subject }} · {{ edge.predicate }} · {{ edge.object }}</strong>
+<li id="relationship-{{ edge.pk }}" tabindex="-1">{% if edge.source_url %}<strong>{{ edge.subject }} · {{ edge.predicate }} · {{ edge.object }}</strong>
 <p>{{ edge.qualification|capfirst }} · {{ edge.decision|default:"Awaiting review"|capfirst }}</p>
 <blockquote>{{ edge.quote }}</blockquote>
 <a href="{{ edge.source_url }}">Open source</a> · <a href="{{ edge.finding_url }}">Inspect analysis and passage location</a>
 {% if can_edit %}<form method="post" action="{% url 'core:analysis:relationship_review' case.pk edge.pk %}" class="actions">{% csrf_token %}
+<input type="hidden" name="page" value="{{ page_obj.number }}">
 <button name="decision" value="accepted" class="button button-secondary">Accept lead</button>
 <button name="decision" value="rejected" class="button button-secondary">Reject lead</button>
 <button name="decision" value="unresolved" class="button button-secondary">Mark unresolved</button>

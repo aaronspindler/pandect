@@ -43,14 +43,10 @@ UUIDs and the recorded event time when present. Pandect resolves display names
 locally. Automatic requests can include bounded relevant case history as
 described under [message import analysis](#message-csv-imports).
 
-Suggestions require exact source quotations.
-An exact quote that appears once in its cited source can be located without a
-model-supplied offset. An ambiguous repeated quote needs the correct offset.
-Review negation, sarcasm, hearsay, quotation, relative dates, missing exchanges,
-conflicts and planned/completed actions in the originals.
-Topic and claim requests allow up to 128,000 selected characters and 100
-suggestions. Runtime context and request limits also apply without truncation.
-The case owner enables the configured [Cloudflare AI route](analysis.md#external-ai-configuration) before these checks can run. A record without usable text is reported as insufficient.
+Topic and claim requests allow up to 128,000 selected characters. The case owner
+approves the [Cloudflare route](analysis.md#external-ai-configuration) before
+these checks run. Empty text yields insufficient evidence. See
+[citation validation](#conversation-sessions-and-interaction).
 
 ## Compare a claim
 
@@ -63,27 +59,18 @@ context to identify one occurrence if the wording repeats. The comparison
 accepts up to 12,000 characters across the selection and up to 1,000 characters
 for the claim. Runtime limits can require a smaller selection.
 
-**Back to evidence selection** restores the selected sources, search query, and
-source page. If that page is unavailable, the picker opens the first page with
-the same search query and available selections. The picker reports any deleted
-selections it clears. From an Evidence record that needs an extraction,
-**Choose from all case evidence** broadens the search while keeping the
-original return link. **Cancel** and the result's **Back to evidence** link
-retain the starting record and filters. If that record was removed, they open
-the filtered Evidence collection.
+**Back to evidence selection** restores the search and available selections.
+**Choose from all case evidence** broadens the search when the starting record
+needs an extraction. **Cancel** and the result's **Back to evidence** restore
+the starting evidence and filters when available.
 
-The queued comparison uses the case-approved [Cloudflare model](analysis.md#external-ai-configuration).
-The result retains the original claim, source-linked quotations, and potentially
-supporting, potentially conflicting, or unresolved suggestions. Matching
-checksums flag exact copies. Every selected source remains available for review.
-Check attribution, dates, negation, cancellation, and contradictory or missing
-context in the originals. A matching checksum establishes common bytes. A
-different checksum leaves source independence unresolved.
-
-Owners and editors queue comparisons. Current case viewers can read saved results
-and their available sources. Archived or unavailable inputs stop processing and
-withhold the result until the exact selection is available again. Processing
-keeps the selected input versions, execution settings, retry, and download.
+The queued comparison retains the original claim, exact source versions and
+quotations, matching checksum warnings and potentially supporting, conflicting
+or unresolved suggestions. Review attribution, dates, negation, cancellation
+and missing context in the originals. Different hashes leave source independence
+unresolved. Owners and editors queue work. Current viewers can inspect available
+results. Archived or unavailable inputs stop processing and withhold saved
+results. Processing provides retry and download controls.
 
 ## Descriptive writing profiles
 
@@ -142,28 +129,36 @@ shared account. Results describe the selected writing and cite its sources.
 They cannot verify who wrote a message.
 
 Date filters use the reported message time and include both boundary dates in
-your display timezone. A profile without date filters includes undated messages.
-Setting either boundary limits the profile to dated messages. A comparison
-requires separate earlier and later periods, each with a start and end date.
-Submitted runs retain their exact sources. If a selection exceeds the source or
-text limit, narrow the dates and submit again.
+your display timezone. A profile without date filters also includes undated
+messages and imports that supply only a calendar date. Date-only messages
+cannot establish a writing time or interval boundary. A comparison requires
+separate earlier and later periods, each with a start and end date.
+The form shows the matching count before submission. A run supports up to 10,000
+messages and 16 MiB of message text. Narrow the dates when a selection exceeds
+either limit. Within those limits, the run retains the exact ordered originals
+and their checksums. Processing shows progress, and retries keep the same
+originals and periods. If an original is archived or access is removed before
+publication, the run stops without publishing a result.
+
+The worker reads messages in bounded batches and calculates measurements across
+each entire period. Results show the examined and usable counts, with a
+selection of cited examples. Displayed examples and terms are limited for
+readability. The result's selected messages list is paginated, and the download
+retains full provenance. Each included message links to the analysis from its
+evidence history, even when the report does not use the message as an example.
 
 ## Conversation sessions and interaction
 
-Shared cited model processing supplies the model with the same limits enforced
-on its response: at most 100 suggestions, 1–10 citations per suggestion, and
-4,000 characters per suggestion or quotation. Citation source IDs must come from
-the selected inputs. Quotations must copy contiguous source text exactly,
-including punctuation, whitespace and Unicode characters. For topics and claims,
-Pandect can correct an offset when the quotation occurs exactly once in its
-cited source. If a suggestion has an invalid citation, the entire suggestion is
-omitted. When other suggestions can be verified, the result is marked partial
-and counts the omissions. If all are rejected, claim analysis fails and topic
-analysis can still retain its independently calculated keywords. Links and
-session summaries stop on any invalid citation. Cross-channel links allow up to
-64,000 characters. Session summaries use the smaller chunks described below.
-[Safe worker diagnostics](background-tasks.md#failure-inspection-and-recovery)
-identify the rejected category without retaining source text or model responses.
+Cited model methods allow up to 100 suggestions, 1–10 citations per suggestion,
+and 4,000 characters per suggestion or quotation. Quotations must copy
+contiguous selected text exactly. Topic and claim analysis can correct the
+offset of a unique quote and retain a partial result when other suggestions
+fail validation. If all are rejected, claims fail and topics can retain
+independent keywords. Links and session summaries fail on any invalid citation.
+Cross-channel links allow up to 64,000 characters. Check negation, sarcasm,
+hearsay, relative dates and missing exchanges in the cited sources.
+[Worker diagnostics](background-tasks.md#failure-inspection-and-recovery)
+record the rejection category without payloads.
 
 The [conversation reader](evidence.md#reading-conversations) groups active
 messages for the reported pair in a local background job. It carries the open
@@ -246,21 +241,12 @@ Pandect imports direct and group conversations from the iMessage and WhatsApp
 CSV profiles below. Previously retained HTML source documents, messages, and
 imported context remain readable. Use CSV to prepare a new import.
 
-Both profiles use `imessage_import` and result key `imessage`, with parser
-versions `imessage-csv-v1` and `whatsapp-csv-v1`. The fresh pre-release
-database/queue baseline applies. Earlier serialized formats require a new review
-from the retained source. Source files preserve their bytes and historical
-provenance.
-
-Choose **Add evidence → Import records → Import message CSV** or a retained
-Document's **More** action. Upload or select one active CSV and confirm its export
-timezone. If the source is archived during a review, restore it before continuing.
-When starting from a retained document, the form shows that CSV first. Open
-**Limit by date** to enter a **Start date**, an **End date**, or both. Both
-dates include the entire calendar day in the confirmed export timezone, including
-when a source timestamp carries its own offset. Leaving both fields blank reviews
-all dates. Pandect detects the profile from the exact header set and shows it
-in review. Each profile accepts its headers in any order.
+Choose **Import message CSV** from Conversations, Add evidence, or a retained
+document's **More** menu. Upload or select an active CSV and confirm its export
+timezone. Restore any source archived during review before continuing.
+**Limit by date** accepts either or both boundaries, inclusive of the complete
+day in the export timezone. Leave both blank to review all dates. Pandect
+detects the format from the exact headers in any order.
 
 **iMessage (18 columns)** uses `Chat Session`, `Message ID`, `Message Date`,
 `Delivered Date`, `Read Date`, `Edited Date`, `Deleted Date`, `Service`, `Type`,
@@ -305,47 +291,25 @@ WhatsApp system notifications, and unsupported directions are excluded.
 The full CSV remains available for source review.
 Confirmation publishes only ready messages from the reviewed selection.
 
-Publication queues built-in methods and eligible checks on the
-[case's selected AI backend](cases.md#external-ai-and-hosted-search) for newly added messages.
-Publication captures those execution settings when it queues analysis.
+**Review excluded rows** and **Review all message rows** show 25 matching rows
+per page. Review and confirmation share a budget of 10 requests per minute per
+user and 30 per case. Excess requests return HTTP 429 before source reads or
+queueing. Summary and progress pages remain available.
 
-Confirmation queues method 2, separate from the immutable preview run. Publication
-rechecks edit access/integrity and atomically creates requested people, messages,
-contexts and results. Repeated confirmation/retries create no duplicates. Conflicting
-source-row interpretations preserve originals. Document/row identity, as in HTML,
-does not deduplicate distinct exports by native IDs.
+Confirmation queues a separate publication run. It verifies current edit access,
+source integrity and the reviewed interpretation before atomically saving people,
+messages, source links and results. Reruns reuse identical source rows. Distinct
+exports remain distinct even when their native IDs match. Local file checkpoints
+can speed review. Earlier previews or storage without verified checkpoints use
+whole-file verification. Changing eligibility or interpretation requires fresh
+review. Earlier serialized previews also need a new review from the retained CSV.
 
-Method 2 retains compact summaries/digests of reviewed interpretation and excerpts
-from up to three initial rows. Ordinary review reads that retained summary;
-automatic updates read only authorized run progress and offer a link when review
-is ready. **Review excluded rows** and **Review all message rows** deliberately
-show 25 matching rows using the retained interpretation and any verified file
-checkpoints from the preview. Checkpoints require a stable local original.
-Earlier previews, changed files and other storage backends use whole-file
-verification. The worker stages verified local rows in private temporary storage
-before the case write lock. With other storage backends, it verifies the original
-and interpretation again during publication. Publication is atomic. Errors appear
-on the import status page. Row review and confirmation share a limit of 10 per
-minute per user and 30 per minute per case across web processes. Excess requests
-return 429 before reading the source or queueing publication.
-Summary pages and progress remain available. Eligibility/time changes need
-fresh review. Result item/byte ceilings never truncate imports: messages are not
-individual result items. Bounded publication groups share one transaction and
-roll back entirely on conflict/failure. The completed import shows how many
-messages were added, reused or excluded. For direct imports, **View conversation**
-opens the message stream at the first newly published message or a matching
-retained message when all rows were reused. For group imports, **View retained
-message** opens an individual evidence record, and **Retained messages** lists
-the messages from the confirmed selection, including reused records. The
-retained CSV and row review remain available. Direct messages from both services
-can appear together when the investigator maps their exports to the same case-person
-pair.
-
-Nullable `CommunicationContext.import_run` retains publishing runs; apply its
-additive migration before updated web/workers. Existing messages/contexts stay
-unchanged. Within `imessage_import`, historical method-1 results/local-check
-membership remain readable; old previews need fresh reviews, and queued method 1
-needs a method-2 run.
+The completed import shows added, reused and excluded counts. **View conversation**
+opens the first newly published direct message or a reused message within the
+reviewed selection. For groups, **View retained message** opens an individual
+message and **Retained messages** lists the confirmed selection, including reused
+records. Direct messages from both services can appear together for the same
+confirmed case-person pair.
 
 Decoded **Text** is preserved untrimmed with source row/exact character range;
 CSV bytes stay exact. **Message ID**/**Replying to** retain native references;
@@ -356,49 +320,26 @@ and `Attachment info` stay in this metadata. `Message Date` determines the
 message time. Reactions create no messages, markers recover no history, and
 attachments are never opened or fetched.
 
-Publication atomically queues analysis only for newly created messages. Previews,
-excluded/reused rows start no batch. **Follow message analysis** shows progress
-and check counts. After the work settles, use **View conversation** for a direct
-import or **View retained message** for a group import. If a date-limited import
-reuses every row, its result links to a retained message within the reviewed
-export-timezone range. Insufficient input has its
-own count alongside completed checks. Incomplete coverage and stopped work
-remain visible. **Analysis details** opens preparation and checks.
-**Run import analysis again** creates a new batch under the case's current
-analysis configuration and approval. Historical imports receive no automatic
-backfill.
+Publication queues checks for newly created messages using the current
+configuration and approval. **Follow message analysis** shows progress, including
+insufficient inputs and stopped work. **Analysis details** opens individual
+checks and preparation. **Run import analysis again** starts a new batch under
+current settings. Historical imports receive no automatic backfill.
 
-The suite covers identifiers, dates, keywords, sessions, timing, reported writing
-profiles, repeated wording, and temporal exchanges. Eligible AI checks add topic
-suggestions, claims, session summaries, and semantic exchanges.
-Group messages are eligible for applicable wording and content checks. Inferred
-sessions, pair timing, session summaries, and cross-channel exchange comparisons
-require direct messages for any text-message inputs.
-Writing profiles separate reported senders. Comparisons split
-each sender's earlier/later timed samples near the middle at a distinct timestamp,
-never dividing ties. Fewer than two times cannot compare; adequacy guards yield
-insufficient evidence, never authorship attribution.
+Applicable checks include identifiers, dates, keywords, reported writing
+profiles, repeated wording, and approved model topics and claims. Sessions,
+pair timing, summaries and cross-channel exchange comparisons require direct
+messages. Writing comparisons split timed samples by reported sender without
+dividing equal timestamps. Insufficient samples produce counts and coverage.
 
-Current import preparation visits up to 25 new messages per step, in reported-time
-order with unknowns last. Older queued imports can use steps of 250. Text and
-model checks retain their own count and character limits. Selected reports list
-the exact inputs they cover. The separate local grouping job follows the
-complete active pair across pages and saves every membership before publishing
-the revision. A transactional pair revision detects changes during review and
-publication. A processing limit cannot start an inferred session.
+Preparation processes up to 25 new messages per step, with unknown times last.
+Individual checks keep their own input limits and can include bounded active
+case history for matching participants or native threads. Session checks can
+include neighboring messages that qualify for the four-hour continuation rule.
+Saved results disclose the actual scope. The separate local grouping job
+follows the complete active pair across pages.
 
-Automatic comparisons can include active same-case material with matching
-participants or a retained native thread. Session timing and summary selections
-can also include a neighbouring question or reply that qualifies for the
-four-hour continuation rule, within their existing budgets. Other text methods
-keep their own comparison windows. Each report lists its actual inputs. A case owner's approval also covers relevant history
-used by approved external methods. Results disclose the scope used.
-
-Automatic models use retained execution settings and quotation validation. Missing
-configuration, drift, capacity and provider/output errors remain visible/retryable,
-preserving messages and independent checks. Preparation and execution check
-the retained route and approval. Failures stay with their original run.
-Preparation/execution recheck verified editing access. Cursor,
-runs and continuation commit together; retries queue no duplicates. After confirming
-the old worker stopped, rerun failed preparation from the import page; individual
-failures use normal Processing recovery.
+Preparation and execution verify current edit access and approval. Retrying a
+failed preparation resumes without duplicating checks. Confirm the interrupted
+worker stopped before using recovery. See
+[Processing recovery](analysis.md#retained-processing).

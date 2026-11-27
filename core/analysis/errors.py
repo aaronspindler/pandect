@@ -202,6 +202,9 @@ ERROR_MESSAGES = {
         "A selected source differs from the retained processing input. Review "
         "the source and start a new selection."
     ),
+    "writing_evidence_changed": (
+        "Case evidence changed while this result was being verified."
+    ),
     "source_material_limit": (
         "The retained material exceeds this analysis's input limit. "
         "Choose fewer or shorter sources and start a new run."

@@ -138,6 +138,100 @@ class AnalysisBrowserTests(BrowserTestCase):
             page.evaluate("document.documentElement.clientWidth") + 1,
         )
 
+    def test_source_pages_preserve_the_workspace_and_selection(self):
+        for index in range(28):
+            TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=f"Source for paging {index:02d}",
+                body="Synthetic retained source.",
+            )
+        reader = (
+            self.url(
+                "core:evidence:detail",
+                case_id=self.case.pk,
+                kind="text",
+                evidence_id=self.text.pk,
+            )
+            + "?type=text"
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.owner)
+                page.goto(reader)
+                page.get_by_text("Analyze evidence", exact=True).click()
+                page.get_by_role("link", name="Extract identifiers and dates").click()
+                expect(
+                    page.get_by_role("heading", name="Extract identifiers and dates")
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Back to evidence")
+                ).to_have_attribute("href", urlsplit(reader).path + "?type=text")
+                expect(
+                    page.locator(
+                        f'input[type="hidden"][name="sources"][value="text:{self.text.pk}"]'
+                    )
+                ).to_have_count(1)
+                first_choice = page.locator(
+                    '.analysis-source-option input[type="checkbox"]'
+                ).first
+                first_choice.check()
+                value = first_choice.get_attribute("value")
+                page.evaluate(
+                    "document.querySelector('#case-search').dataset.testMarker = 'kept'"
+                )
+                next_button = page.get_by_role("button", name="Next sources")
+                expect(next_button).to_be_visible()
+                next_button.press("Enter")
+                expect(page.get_by_label("Source choice pages")).to_contain_text(
+                    "Page 2"
+                )
+                expect(page.locator("#case-search")).to_have_attribute(
+                    "data-test-marker", "kept"
+                )
+                expect(page.locator("#analysis-source-heading")).to_be_focused()
+                expect(
+                    page.locator(
+                        f'input[type="hidden"][name="sources"][value="{value}"]'
+                    )
+                ).to_have_count(1)
+                self.capture(page, engine, "source-picker-in-place")
+                page.get_by_role("button", name="Previous sources").press("Enter")
+                expect(
+                    page.locator(f'input[type="checkbox"][value="{value}"]')
+                ).to_be_checked()
+                self.assertFalse(
+                    self.db(AnalysisRun.objects.filter(case=self.case).exists)
+                )
+
+    def test_report_filter_updates_the_totals_and_keeps_the_case_header(self):
+        url = self.live_server_url + reverse(
+            "core:analysis:report", args=(self.case.pk, "calls")
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.owner)
+                page.goto(url)
+                page.locator("#report-filters").press("Enter")
+                page.locator('input[name="start"]').fill("2070-01-01T00:00")
+                page.evaluate(
+                    "document.querySelector('#case-search').dataset.testMarker = 'kept'"
+                )
+                page.get_by_role("button", name="Update report").press("Enter")
+                expect(page).to_have_url(re.compile(r"[?&]start=2070-01-01T00"))
+                expect(
+                    page.get_by_role("heading", name="No records in this selection")
+                ).to_be_visible()
+                expect(page.locator("#case-search")).to_have_attribute(
+                    "data-test-marker", "kept"
+                )
+                page.locator("#report-filters").press("Enter")
+                page.get_by_role("link", name="Reset selection").press("Enter")
+                expect(page).to_have_url(url)
+                expect(page.locator("#case-search")).to_have_attribute(
+                    "data-test-marker", "kept"
+                )
+
     def test_focused_imported_correction_separates_suggestion_and_quotation(self):
         participant = Person.objects.get(case=self.case)
         quote = "I was wrong. The delivery is Friday, not Thursday."
@@ -545,9 +639,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 index_url = self.url("core:analysis:processing", case_id=self.case.pk)
                 page.goto(index_url)
-                actions = page.locator("#processing-actions > summary")
-                actions.press("Enter")
-                link = page.get_by_role("link", name="Reprocess evidence", exact=True)
+                link = page.locator("#processing-actions").get_by_role(
+                    "link", name="Reprocess evidence", exact=True
+                )
                 expect(link).to_be_visible()
                 expect(
                     page.get_by_role("button", name="Run local checks")
@@ -664,13 +758,16 @@ class AnalysisBrowserTests(BrowserTestCase):
                 history = page.locator("#processing-history")
                 expect(history).not_to_have_attribute("open", "")
                 history.locator(":scope > summary").press("Enter")
-                page.locator("#processing-history summary").filter(
-                    has_text="Filter history"
-                ).press("Enter")
-                page.get_by_label("Status", exact=True).select_option("cancelled")
-                page.get_by_role("button", name="Filter history", exact=True).press(
-                    "Enter"
+                history_filters = history.get_by_role(
+                    "form", name="Filter processing history"
                 )
+                expect(history_filters).to_be_visible()
+                history_filters.get_by_label("Status", exact=True).select_option(
+                    "cancelled"
+                )
+                history_filters.get_by_role(
+                    "button", name="Filter history", exact=True
+                ).press("Enter")
                 expect(
                     page.get_by_text("No checks match these filters.", exact=True)
                 ).to_be_visible()

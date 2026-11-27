@@ -19,6 +19,8 @@ class CaseSearchBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_text("External AI is disabled for this case.")
                 ).to_be_visible()
+                evidence = page.get_by_role("link", name="Browse case evidence")
+                expect(evidence).to_be_visible()
                 page.get_by_text("Filter passages").click()
                 expect(page.get_by_label("Record type")).to_be_visible()
                 page.set_viewport_size({"width": 320, "height": 844})
@@ -26,3 +28,7 @@ class CaseSearchBrowserTests(BrowserTestCase):
                     page.evaluate("document.documentElement.scrollWidth"), 321
                 )
                 self.capture(page, engine, "case-search-filters")
+                evidence.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Evidence", exact=True)
+                ).to_be_visible()

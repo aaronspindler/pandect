@@ -61,7 +61,7 @@
     if (collection) {
       notice = document.createElement("a");
       notice.className = "record-link";
-      notice.textContent = "Refresh results";
+      notice.textContent = "Show updated results";
       notice.dataset.refreshResults = "";
       notice.hidden = true;
       noticeStatus = document.createElement("span");
@@ -83,6 +83,9 @@
       }
       notice.hidden = upToDate;
       noticeStatus.textContent = upToDate ? "" : "Updated results are available.";
+      if (!upToDate && collection.hasAttribute("data-collection-empty")) {
+        document.dispatchEvent(new Event("pandect:fill-empty-collection"));
+      }
     }
     document.addEventListener("pandect:collection-refreshed", event => {
       if (event.detail?.versions) {
@@ -95,6 +98,18 @@
     function announce(text, quiet = false) {
       message.classList.toggle("visually-hidden", quiet);
       if (message.textContent !== text) message.textContent = text;
+    }
+    function hideRetry() {
+      if (document.activeElement === retry) return;
+      if (controls) retry.hidden = true;
+      else feedback.hidden = true;
+    }
+    function showProgress(outcome) {
+      if (!controls) return;
+      if (outcome) announce(outcome, true);
+      else if (waiting.size) announce("Updates are waiting while you use this section.");
+      else if (localWork()) announce("Progress updates automatically.");
+      else announce(changedSaved.size ? "Updated results are available." : "", true);
     }
     function schedule() {
       clearTimeout(timer);
@@ -169,9 +184,7 @@
         }
         savedControls.hidden = !changedSaved.size;
       }
-      if (controls) announce(outcome || (waiting.size ? "Updates are waiting while you use this section." :
-        localWork() ? "Progress updates automatically." :
-          changedSaved.size ? "Updated results are available." : "Up to date."), Boolean(outcome));
+      showProgress(outcome);
     }
     async function refresh() {
       clearTimeout(timer);
@@ -201,7 +214,8 @@
           snapshot.chat_progress, snapshot.chat_activity, snapshot.versions.evidence, snapshot.versions.findings,
         ]) : undefined;
         const progressChanged = pendingChat ? chatProgress !== currentChat : changed && (discoversWork || localWork());
-        if ((controls || discoversWork) && (forced || fragmentDue || progressChanged)) {
+        const needsFragment = (controls || discoversWork) && (forced || fragmentDue || progressChanged);
+        if (needsFragment) {
           fragmentDue = true;
           const requestedUrl = location.href;
           const fragment = await fetch(requestedUrl, {...options, headers: {"X-Pandect-Live": "1", Accept: "text/html"}});
@@ -241,8 +255,9 @@
         versions = snapshot.versions;
         displayed ??= versions;
         showCollectionChange();
-        if (!controls) feedback.hidden = true;
+        if (!needsFragment && failures) showProgress();
         failures = 0;
+        hideRetry();
         if (source?.readyState === window.EventSource?.CLOSED && nextStreamAttempt && Date.now() >= nextStreamAttempt) {
           openStream(activity);
         }
@@ -253,9 +268,14 @@
         if (failures >= 3) {
           stopped = true;
           closeStream();
+          retry.hidden = false;
+          if (controls) {
+            retry.textContent = "Retry updates";
+            retry.href = location.href;
+          }
         }
         if (controls || stopped) feedback.hidden = false;
-        announce(stopped ? (controls ? "Automatic updates paused. Use Refresh status to try again." : "Automatic updates paused.") :
+        announce(stopped ? "Automatic updates paused." :
           "Could not update progress. Retrying shortly.");
       } finally {
         clearTimeout(timeout);
@@ -285,12 +305,14 @@
       if (waiting.size) setTimeout(() => { if (waiting.size && !stopped) applyWaiting(); }, 0);
     }, listeners);
     retry.addEventListener("click", event => {
+      if (controls && !window.PandectPage.isPlainClick(event)) return;
       event.preventDefault();
       stopped = false;
       failures = 0;
       openStream(activity);
       forceRefresh();
     }, listeners);
+    retry.addEventListener("blur", () => { if (!failures) hideRetry(); }, listeners);
     document.addEventListener("visibilitychange", () => {
       clearTimeout(timer);
       if (document.hidden) closeStream();
@@ -309,6 +331,7 @@
       controller?.abort();
     }, listeners);
     if (controls && localWork()) announce("Progress updates automatically.");
+    hideRetry();
     refresh();
     return {
       invalidate() {

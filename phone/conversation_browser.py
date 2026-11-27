@@ -11,7 +11,7 @@ from django.urls import reverse
 from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
-from config.tests.browser_base import BrowserTestCase
+from config.tests.browser_base import BrowserTestCase, DrainableBrowserLiveServerThread
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import project_result
 from core.analysis.navigation import finding_url
@@ -28,6 +28,11 @@ from phone.models import CommunicationContext, TextMessageEvidence
 
 class ConversationBrowserTests(BrowserTestCase):
     artifact_subdirectory = "conversations-browser"
+    server_thread_class = DrainableBrowserLiveServerThread
+
+    def _fixture_teardown(self):
+        with self.server_thread.httpd.drained_connections():
+            super()._fixture_teardown()
 
     def setUp(self):
         super().setUp()
@@ -95,6 +100,44 @@ class ConversationBrowserTests(BrowserTestCase):
                 "second_person_id": second,
             },
         )
+
+    def test_editors_can_add_messages_from_empty_and_populated_conversations(self):
+        editor = self.make_user("conversation-browser-editor")
+        empty_case = Case.objects.create(
+            owner=self.owner, name="Synthetic empty conversations"
+        )
+        for case in (self.case, empty_case):
+            CaseMembership.objects.create(case=case, user=editor, role="editor")
+
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, editor)
+                for case, state in ((self.case, "populated"), (empty_case, "empty")):
+                    page.goto(self.url("phone:conversation_list", case_id=case.pk))
+                    add = page.get_by_role("link", name="Add text message", exact=True)
+                    upload = page.get_by_role(
+                        "link", name="Import message CSV", exact=True
+                    )
+                    expect(add).to_have_attribute(
+                        "href",
+                        reverse("core:evidence:create", args=(case.pk,))
+                        + "?kind=text-message",
+                    )
+                    expect(upload).to_have_attribute(
+                        "href", reverse("phone:imessage_upload", args=(case.pk,))
+                    )
+                    for width, height in ((1440, 900), (390, 844), (320, 844)):
+                        page.set_viewport_size({"width": width, "height": height})
+                        expect(add).to_be_visible()
+                        expect(upload).to_be_visible()
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                        )
+                        self.capture(page, engine, f"entry-actions-{state}-{width}")
 
     def test_case_shell_stays_mounted_between_conversations_and_chronology(self):
         for engine in self.engines:
@@ -200,6 +243,10 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Conversations", exact=True)
                 ).to_be_visible()
+                for label in ("Add text message", "Import message CSV"):
+                    expect(
+                        page.get_by_role("link", name=label, exact=True)
+                    ).to_have_count(0)
                 page.locator(f'a[href="{self.reader_path}"]').click()
                 panel = page.get_by_role("complementary", name="Message details")
                 expect(panel).to_be_hidden()

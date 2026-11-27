@@ -17,82 +17,49 @@ validation. Report local checks, hosted CI, and live verification separately.
 
 ## Local checks
 
-Complete [local setup](development.md#first-run), then start the database and load
-Django's environment:
+Use the [local configuration](development.md#configuration) with a disposable
+PostgreSQL database. The database role must be able to create and delete
+`test_<POSTGRES_DB>`. Keep investigation and shared hosted databases separate.
 
 ```sh
 uv sync --locked
 docker compose up -d --wait db
 uv run --locked --env-file .env python manage.py migrate
 uv run --locked --env-file .env make check
-make compose-smoke
-make security-check
 ```
 
-`make check` runs repository hygiene, Ruff lint/format, PostgreSQL tests, uv
-lockfile validation, Django database/system checks, migration drift detection,
-and Compose configuration validation. The database role must create/delete
-`test_<POSTGRES_DB>`. Never use an investigation or shared hosted database.
+`make check` combines:
 
-`make lint`, `make test`, and `make validate` run individual groups; management
-checks need the local `uv run --env-file .env` wrapper. `make format` applies Ruff
-fixes and formatting.
+- `make static-check` runs repository hygiene, Ruff lint and format checks,
+  `uv lock --check`, and Compose configuration validation.
+- `make test` runs the PostgreSQL tests with `config.test_settings`.
+- `make database-check` runs Django's database/system checks and checks for
+  missing migrations.
 
-CI runs `make static-check` once for repository hygiene, Ruff, lock validation,
-and Compose configuration. `make database-check` runs Django's database/system
-checks and migration drift detection. `make check` still includes both groups
-and the full PostgreSQL test suite; `make validate` retains configuration and
-database validation.
+`make validate` runs configuration and database checks. `make format` rewrites
+files. Direct test commands need `--settings=config.test_settings`. Override
+Make's module with `TEST_SETTINGS=<module>` for another test configuration.
+Routine tests use synthetic fixtures and storage, source assets, and mocked
+provider transport. Test settings clear live provider destinations and credentials.
 
-Native Dokploy image deployment and the live web, event listener, database, and worker checks
-are documented in [the Dokploy deployment procedure](operations.md#first-dokploy-deployment).
-The development Compose smoke does not validate public DNS, TLS, or a remote rollout.
+`make compose-smoke` needs Docker with Compose v2 and host `python3`. It uses a
+temporary project, fresh volumes, random loopback ports, and synthetic
+configuration. It exercises the non-debug static manifest, shared web/worker
+image, startup, private storage, processing and worker recovery. See the
+[smoke script](../scripts/compose-smoke.sh). Use
+`sh scripts/compose-smoke.sh <local-image>` to test a prebuilt local image by ID.
+The database and optional proxy images can still be pulled.
 
-`make test` and `make browser-check` select `config.test_settings`: PostgreSQL and
-application settings with source assets, without a release manifest. Test settings
-clear live gateway destinations and external AI credentials. Compose smoke also
-uses isolated synthetic configuration. Provider tests supply synthetic settings
-and mock HTTP transport. Direct test commands also need
-`--settings=config.test_settings`; override Make's module with
-`TEST_SETTINGS=<module>` for a separate test database configuration. Static tests
-exercise manifest collection/cache headers; Compose smoke checks the non-debug build.
-Synthetic test users use a fast password hasher only in test settings. A focused
-authentication regression selects production hashers and exercises successful
-and failed sign-in; production password settings are unchanged.
+With the development Chromium installed,
+`PANDECT_SMOKE_WORKSPACE_BROWSER=1 make compose-smoke` exercises job updates
+through a temporary nginx proxy under concurrent uploads, downloads and streams.
+It checks a two-second local p95 target. Use the
+[hosted rollout checks](operations.md#first-dokploy-deployment) for the actual
+ingress and deployment.
 
-Tests live with their apps, generate synthetic content in code, and use temporary
-storage. Domain guides explain behavior; test modules own coverage inventories.
-
-`make compose-smoke` needs Docker with Compose v2 and a host `python3` on
-`PATH`. It uses synthetic configuration, random loopback ports, and fresh
-volumes in a disposable project to exercise startup, storage, processing, and
-worker restart. It runs production worker startup and verifies the shared
-worker and web image. The non-debug HTTP probe requests
-assets through the production manifest and checks their content type and immutable
-caching. See [`scripts/compose-smoke.sh`](../scripts/compose-smoke.sh) for coverage. One successful
-probe does not establish exactly-once delivery after crashes. The script clears
-inherited `PANDECT_` settings, ignores your `.env`/data, and removes only its own
-containers/volumes on exit.
-
-With the project's Playwright Chromium installed, run
-`PANDECT_SMOKE_WORKSPACE_BROWSER=1 make compose-smoke` to measure queued,
-running, and finished job badges through a temporary nginx proxy to the unified
-ASGI web process. The probe holds a multipart upload and a private download open
-while 30 browser contexts receive events. It checks the transfer contents, web
-worker memory growth, early upload rejection, and that healthy streams stop polling.
-Its local p95 target is two seconds. The deployment proxy needs a separate live check.
-
-To exercise a prebuilt local image without rebuilding it, run
-`sh scripts/compose-smoke.sh <local-image>`. The script resolves that reference
-to an immutable local image ID, uses it for web and worker, and rejects
-missing images or a running-image mismatch. Application images are never pulled
-or rebuilt in this mode; PostgreSQL and the optional probe proxy image may still be pulled. The no-argument Make
-target retains its normal local build. The application image's uv download cache
-uses a BuildKit cache mount and is not included in the shipped image.
-
-`make security-check` runs pip-audit on the hash-locked graph, including developer
-tools, without re-resolving. It needs advisory-service internet access and removes
-temporary exports on exit.
+`make security-check` needs advisory-service internet access. It uses pip-audit
+on the hash-locked Python graph, including developer dependencies.
+For the Cloudflare Worker, follow the [local checks](cloudflare-agent.md#configure-the-private-route).
 
 ## Repository hygiene
 
@@ -143,8 +110,7 @@ See [the Agent integration](cloudflare-agent.md) and [search lifecycle](cloudfla
 
 ## Browser checks
 
-Install the locked developer tools and browser engines, then run the focused
-live-server suite against the same isolated PostgreSQL test setup:
+Run the live-server suites with the same isolated PostgreSQL setup:
 
 ```sh
 uv sync --locked
@@ -152,55 +118,21 @@ uv run --locked playwright install chromium webkit
 uv run --locked --env-file .env make browser-check
 ```
 
-On Linux, install Playwright's OS dependencies (CI uses
-`playwright install --with-deps chromium webkit`). `make browser-check` runs the
-[Makefile](../Makefile) modules with `config.test_settings`, separately from unit
-tests, using synthetic accounts/material and temporary private storage. Never share
-a test database between competing Django processes or use an investigation database.
+On Linux, also install browser OS dependencies with
+`uv run --locked playwright install --with-deps chromium webkit`. The
+[Makefile](../Makefile) owns the suite list. `PANDECT_BROWSER_ENGINES` accepts
+`chromium`, `webkit`, or `chromium,webkit` (the default). The four Instagram
+collector modules use Chromium only. The monitor journey runs on both engines.
 
-Use accessible roles for controls and named regions for displayed evidence or
-limitations. Wait for the expected navigation before reading a redirected URL and
-for initial rendering to settle before simulating a refresh or retry.
+Capture defaults live with the test modules. `PANDECT_BROWSER_ARTIFACTS`
+overrides paths for the shared harness and marketing within
+`data/validation/`. Paths and symlinks escaping that directory are rejected.
+Map captures use `data/validation/maps`. Keep artifacts local and synthetic.
 
-`PANDECT_BROWSER_ENGINES` selects `chromium`, `webkit`, or both (comma-separated,
-default both). The four Instagram collection modules listed under
-`INSTAGRAM_COLLECTOR_TESTS` in the Makefile use Chromium and are omitted from
-the WebKit-only target. The shared Instagram monitor journey runs on both
-engines. `PANDECT_BROWSER_ARTIFACTS` overrides captures for the shared
-harness and marketing within the checkout's `data/validation/` directory. Paths
-and symlinks resolving outside that directory are rejected. Map captures always
-use `data/validation/maps`. Defaults are listed below. Artifacts are ignored local
-output; keep fixtures synthetic.
-
-| Suite | Default captures |
-| --- | --- |
-| `config.tests.browser` | `data/validation/browser` |
-| `core.evidence.bulk_admin_browser` | `data/validation/browser` |
-| `core.evidence.packet_browser` | `data/validation/evidence-packet` |
-| Message CSV import | `data/validation/message-csv-browser` |
-| Call history CSV import | `data/validation/call-history-browser` |
-| `marketing.browser` | `data/validation/marketing-browser` |
-| `core.analysis.browser` | `data/validation/analysis-browser` |
-| `core.analysis.context_browser` | `data/validation/context-browser` |
-| `core.analysis.workflow_browser` | `data/validation/investigation-workflows` |
-| `core.analysis.sighting_browser` | `data/validation/sighting-browser` |
-| `core.analysis.reprocessing_browser` | `data/validation/reprocessing-browser` |
-| `core.case_search.browser` | `data/validation/case-search` |
-| `core.evidence_chat.browser` | `data/validation/evidence-chat` |
-| `text.writing_browser` | `data/validation/writing-style-browser` |
-| `document.browser` | `data/validation/original-preview-browser` |
-| `audio.browser` | `data/validation/m4a-recording-browser` |
-| `phone.conversation_browser` | `data/validation/conversations-browser` |
-| `image.browser` | `data/validation/plate-browser` |
-| `geo.map_browser` | `data/validation/maps` |
-| `geo.journey_claim_browser` | `data/validation/plan-comparisons` |
-| `socialmedia.monitor_browser` | `data/validation/instagram-monitors` |
-| `ui.live_browser` | `data/validation/live-updates` |
-
-Inspect captures at [DESIGN.md](../DESIGN.md) viewport/density targets. Manual
-screen-reader testing requires an explicit user request and does not block
-delivery. Builds or HTTP readiness do not establish interaction behavior, full
-accessibility compliance, recognition accuracy, or live deployment health.
+Inspect affected journeys and captures at [design review viewports](../DESIGN.md#completion-and-design-review).
+Use accessible roles and named regions in tests and wait for the expected
+navigation or content before checking results. Manual screen-reader testing
+requires an explicit request.
 
 ## Focused checks
 
@@ -264,114 +196,53 @@ routing, usage and citation outcomes.
 
 ## GitHub Actions
 
-- **CI** first classifies changes and runs architecture-independent static
-  checks once, with full history for repository hygiene. uv reads
-  `.python-version` and installs from `uv.lock`.
-- Full application runs retain fresh PostgreSQL migrations, tests, database
-  validation, and Compose smoke on native Linux amd64 and arm64 runners.
-- Separate Linux amd64 Chromium and WebKit jobs run their respective
-  [browser suites](#browser-checks) with independent PostgreSQL services and
-  synthetic configuration.
-- A separate application-run job audits locked dependencies without database
-  credentials. The scheduled audit also continues independently of source changes.
-- CI and the scheduled audit share uv dependency caches keyed by `.python-version`,
-  `pyproject.toml`, and `uv.lock`; setup-uv also separates the runner OS/version and
-  architecture. Source-only changes retain reuse, while runtime/dependency changes
-  invalidate the cache. The static job seeds amd64 before its dependent jobs;
-  only the arm64 check and the independent scheduled/manual audit additionally
-  save caches. Downstream amd64 jobs restore only. Every job still installs or
-  audits the locked graph. The current setup-uv pin and cache settings live in
-  the [CI workflow](../.github/workflows/ci.yml).
-- Native smoke builds and production publication reuse architecture-specific
-  GitHub Actions BuildKit layer caches. Only upstream `main` CI smoke builds and
-  CD builds export those caches; PR and manual CI runs restore only. Cache misses
-  use cold builds, and cache export failures do not hide build, smoke, or
-  publication failures.
-  Smoke exercises the exact locally loaded image; publication rebuilds from the
-  tested source using the matching architecture's layer cache.
-  The Dockerfile installs dependencies before copying source and sets release
-  metadata after static collection, so source/release changes retain earlier
-  layers. Its uv cache mount is local to the builder and is not exported by the
-  [GitHub Actions layer cache](https://docs.docker.com/build/ci/github-actions/cache/#cache-mounts).
-  Browser jobs install fresh binaries and get host packages from Ubuntu's public
-  APT mirrors. Playwright
-  [does not recommend browser caching](https://playwright.dev/python/docs/ci#caching-browsers)
-  because restore/download times are comparable and Linux dependencies still need
-  installation.
-- Successful full CI for a `main` push in the operator repository is eligible
-  for [continuous deployment](operations.md#continuous-deployment), which owns
-  image publication, rollout, and release sequencing.
-- **Scheduled security audit** reruns the dependency audit weekly and on demand.
-- **CodeQL** uses GitHub-managed default setup in the repository's security
-  settings. Upstream scans Python, JavaScript/TypeScript, and Actions with extended
-  queries and remote/local threat models. Forks must configure their own setup.
-  Keep advanced CodeQL workflow files out while default setup is enabled:
-  [GitHub rejects their analysis uploads](https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/two-codeql-workflows).
+The [CI workflow](../.github/workflows/ci.yml) always classifies changes, uses
+full Git history for repository hygiene, and runs static and automation contract
+checks. Full runs also exercise:
 
-Workflows use pinned action commits and default to read-only contents permissions.
-CD's native build, combined-image, and final release jobs receive package-write
-permission; the final job uses it to promote the verified version tag. The deploy
-job receives package-read permission and the production environment's deployment
-secrets. Preflight receives Actions read permission to inspect CI results, and
-release preparation receives contents-read permission, without production
-secrets. The final release job also receives contents-write permission through
-the built-in GitHub token, without deployment secrets. These workflows do not perform container or secret scanning.
-CI's classification job receives deployment-read permission to check the latest
-explicit production rollout before skipping application work. CD's production
-job receives deployment-write permission to record that rollout's actual tested
-commit and outcome; repository content writes stay isolated in the release job.
+- Fresh PostgreSQL migrations, application tests, database validation and Compose
+  smoke on native Linux AMD64 and ARM64 runners.
+- Chromium and WebKit journeys in separate Linux jobs with isolated PostgreSQL.
+- Local installation, tests and bundling of the Cloudflare investigation Worker.
+- The locked Python dependency audit. A [separate workflow](../.github/workflows/security.yml)
+  runs it weekly and on demand.
 
-The deployment and release helpers have mocked API and failure-path tests without
-credentials, network access, or a database:
+The workflow owns uv cache settings and native BuildKit cache scopes. Smoke
+uses the image built locally in CI. [CD](operations.md#continuous-deployment)
+builds again from the tested source and uses the matching architecture's cache.
+The release checks below cover public image scans. Set up GitHub-managed CodeQL
+for repositories that use it and verify it in security settings. GitHub
+[rejects advanced workflow uploads while default setup is enabled](https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/two-codeql-workflows).
+
+Deployment and release helpers have offline mocked tests covering identity, ordering,
+failures and version conflicts:
 
 ```sh
 uv run --locked python -m unittest config.tests.test_dokploy_deploy config.tests.test_github_release
 ```
 
-These cover immutable deployment identity, startup commands, worker-before-web
-ordering, bounded failures, ancestry guards, consecutive release allocation,
-release reruns, and tag conflicts. GitHub permissions, GHCR/Dokploy access, and
-publication require live verification.
-Hosted checks run after upload; local checks do not prove their execution or
-deployed behavior.
+Treat local checks, hosted CI and live deployment verification as separate evidence.
 
 ### Documentation-only runs
 
-CI always starts and reports a final **CI status** check. Changes limited to
-Markdown under `docs/` and the root `README.md`, `AGENTS.md`, `DESIGN.md`,
-`PRINCIPLES.md`, and `SECURITY.md` can skip application tests, browsers, dependency
-audit, and the subsequent CD image publication. Static checks and changed-range
-whitespace checks still run. Review documentation accuracy and affected links
-during handoff.
-The final check accepts skipped jobs only after successful explicit classification;
-unexpected skips, failures, and cancellations fail it. Requiring this status in
-branch rules is an operator setting, not a workflow side effect.
+CI always reports **CI status**. Static checks and automation contract tests
+still run for documentation-only changes. The eligible paths are Markdown under
+`docs/` and the root `README.md`, `AGENTS.md`, `DESIGN.md`, `PRINCIPLES.md`,
+and `SECURITY.md`. The final check accepts skipped application jobs only after
+successful explicit classification.
 
-PR classification compares the merge base with the PR head, including both
-sides of renames. Upstream `main` uses the newest explicit GitHub deployment
-record for task `pandect-rollout` in `production`. Its latest status must confirm
-success, and its tested commit must lie on current first-parent history. The
-classifier checks every changed path since that commit, including intermediate
-application changes later reverted. Release publication time and the deployment
-workflow's own source revision do not establish the deployed image's identity.
+For pull requests, CI checks changes from the merge base to the PR head including
+both sides of a rename. For upstream `main`, it starts at the tested commit in
+the newest explicit successful `pandect-rollout` deployment record for
+`production`. That must be the latest rollout and on current first-parent
+history. CI checks intermediate changes even if later reverted. Missing records,
+uncertain rollouts, forced updates, unavailable history and Git/API errors
+require full coverage. Manual runs always select full coverage.
 
-Missing records, pending or failed rollouts, forced updates, unavailable commit
-history, and Git/API uncertainty require full CI. An older successful record
-never substitutes for a newer uncertain rollout. The first main run after this
-tracking is introduced therefore uses full coverage; its verified deployment
-enables later documentation-only skips. No application database migration or new
-service is required.
-Manual runs always select full coverage. The classifier never changes Git refs.
-
-CD's secret-free preflight requires successful static and final status jobs and
-the status job's explicit successful validation decision. For a full application
-run, it also requires successful native AMD64/ARM64 tests, Chromium/WebKit journeys,
-and dependency audit before image publication and deployment. A confirmed
-documentation-only decision skips all CD publication, deployment, and release
-jobs; skipped matrix jobs need not have expanded into platform/browser entries.
-Missing, failed, or ambiguous results fail preflight rather than being interpreted
-as documentation-only work. Queued releases also pass the commit-ancestry checks
-described in the operations guide.
+[CD preflight](operations.md#continuous-deployment) requires the explicit
+validation decision and checks the triggering attempt before production
+credentials are available. Confirmed documentation-only changes skip image
+publication, rollout, and release.
 
 ## Public release checks
 
@@ -396,22 +267,12 @@ and [GitHub secret scanning](https://docs.github.com/en/code-security/concepts/s
 
 ## Dependabot
 
-The [Dependabot configuration](../.github/dependabot.yml) schedules daily
-checks with the native `uv`, `docker`, and `github-actions`
-ecosystems. Each ecosystem groups version updates into one PR, retaining a limit
-of five open PRs per ecosystem. Native uv updates maintain both `pyproject.toml`
-and `uv.lock`, including the development group. Docker discovers the Dockerfile
-and Compose images. Python image updates are excluded because the exact Python
-pin, compatibility range, lockfile, and image must be upgraded together. The
-major-update ignore rule matches `postgres`. Compose pins the official PostgreSQL image and its manifest.
-Plan a data migration before accepting a PostgreSQL major upgrade.
-Security updates follow GitHub's separate settings; these groups do not opt into
-grouping security updates.
+The [Dependabot configuration](../.github/dependabot.yml) checks uv, Docker,
+npm, and GitHub Actions daily. uv, Docker and Actions group version updates,
+with up to five open PRs per ecosystem. npm checks the Cloudflare Worker
+separately. Review security-update settings in GitHub.
 
-Review runtime updates against the coordinated pins in
-[architecture](architecture.md); a Docker update alone does not update
-`.python-version` or `mise.toml`. New uv and Django major versions may require
-adjusting the declared compatibility ranges.
-
-References: [uv and GitHub Actions](https://docs.astral.sh/uv/guides/integration/github/),
-[uv and Dependabot](https://docs.astral.sh/uv/guides/integration/dependabot/).
+uv updates both `pyproject.toml` and `uv.lock`, including developer dependencies.
+The Docker group excludes Python image updates and PostgreSQL major upgrades.
+Follow the [coordinated runtime pins](architecture.md#runtime-decisions) for
+Python changes and plan a data migration for PostgreSQL major upgrades.

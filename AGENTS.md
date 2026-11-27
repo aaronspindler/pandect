@@ -17,10 +17,9 @@ revisions without changing the file.
 
 ## Product direction
 
-Pandect is a public, open-source, self-hostable investigation and intelligence
-platform. Design around the investigator's task and next useful action,
-with clear language, thoughtful defaults, progressive disclosure, and accessibility.
-Preserve source attribution, saved legacy notes, and legacy finding review reasons.
+Pandect is an open-source, self-hostable investigation platform. Follow
+[DESIGN.md](DESIGN.md) for investigator workflows and accessibility. Preserve
+source attribution, saved legacy notes, and legacy finding review reasons.
 Limit new note authoring to dated notes attached to items marked Important.
 Use the [roadmap](docs/evidence-analysis-roadmap.md)
 for future scope rather than presenting planned features as available.
@@ -53,9 +52,8 @@ runtime pins, and migration details.
 - Maintain one modular Django codebase for self-hosted and operator-hosted use,
   with PostgreSQL locally, hosted, and in database integration tests. Local use
   must not require a hosted-service subscription.
-- Scaffold with stable Python/Django releases. Keep pins, dependency metadata,
-  lockfiles, CI, and container images aligned; verify upgrades against official
-  compatibility documentation and do not default to prereleases.
+- Use stable Python and Django releases. Align runtime pins, dependency metadata,
+  lockfiles, CI, and images. Verify upgrades against official compatibility docs.
 - Keep settings, URLs, and WSGI/ASGI entry points under `config/`; align management
   and deployment entry points. Use `accounts.User` and django-allauth in both
   modes, referencing users through `settings.AUTH_USER_MODEL` or `get_user_model()`.
@@ -68,8 +66,8 @@ runtime pins, and migration details.
   must not import domain registries; concrete analysis belongs in its owning
   domain. Do not recreate repository-wide template/static roots. Disable global
   queue administration: operational task records have no case authorization.
-- Use Django templates and progressive enhancement; reserve rich components for
-  complex interactions. Enforce authorization and domain rules in the backend.
+- Use Django templates with progressive enhancement and reserve rich components
+  for complex interactions. Enforce authorization and domain rules server-side.
 - Maintain reproducible Compose setup and documented configuration, migrations,
   storage, health checks, upgrades, backup, and recovery. Run schema migrations
   through the documented setup and release commands before serving requests or

@@ -105,6 +105,9 @@ def evidence_findings_context(case, kind, item, params, *, form=None):
         "analysis_activity": activity,
         "analysis_pending": pending,
         "has_evidence_analysis": latest_batch is not None or bool(page.paginator.count),
+        "identifier_check": OPERATIONS["entities"]
+        if kind in {"text", "text-message"}
+        else None,
         "additional_operations": additional_operations(kind, item).items(),
     }
 
@@ -351,6 +354,7 @@ def case_highlights(case):
                 "normalize_addresses",
             )
         )
+        .exclude(operation="style_change", parameters__writing_scope__version=1)
         .select_related("result")
         .order_by("-created_at", "pk")[:40]
     )

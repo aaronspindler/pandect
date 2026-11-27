@@ -105,6 +105,7 @@
     return true;
   }
   function sectionFor(link) {
+    if (link.hasAttribute("data-workspace-filter-reset")) return link.closest("[data-workspace-form-region]");
     if (!link.closest(".pagination")) return null;
     if (link.closest("[data-timeline], [data-conversation-scroll]")) return null;
     // Within Processing, individual open history sections page independently.
@@ -168,6 +169,70 @@
     const region = url.pathname === location.pathname ? sectionFor(link) : null;
     visit(url, {region}).then(ok => { if (!ok) location.assign(url); });
   });
+  async function browseAnalysisSources(form, submitter, url) {
+    const picker = form.querySelector("#analysis-source-browser");
+    if (picker.hasAttribute("aria-busy")) return;
+    const isCurrent = beginLocal();
+    const values = new FormData(form, submitter);
+    let edited = false;
+    let applied = false;
+    const markEdited = () => { edited = true; };
+    picker.addEventListener("input", markEdited);
+    picker.setAttribute("aria-busy", "true");
+    try {
+      await htmx.ajax("POST", url.pathname + url.search, {
+        source: driver, target: picker, values,
+        headers: {"X-Pandect-Analysis-Browse": "1"},
+        handler: (_, {xhr}) => {
+          if (!isCurrent() || edited || !picker.isConnected || xhr.status !== 200 ||
+              new URL(xhr.responseURL).pathname !== url.pathname) return;
+          if (!window.PandectPrivateSession.matches(xhr.getResponseHeader("X-Pandect-Session"))) return;
+          const page = new DOMParser().parseFromString(xhr.responseText, "text/html");
+          const update = page.querySelector("[data-analysis-source-update]");
+          if (!update || !window.PandectPrivateSession.checkRole(update.dataset.caseRole)) return;
+          const fresh = update.querySelector("#analysis-source-browser");
+          const actions = form.querySelector("#analysis-source-submit");
+          const freshActions = update.querySelector("#analysis-source-submit");
+          if (!fresh || !actions || !freshActions) return;
+          const focus = actions.contains(document.activeElement) ? document.activeElement.id : "";
+          const focusPicker = picker.contains(document.activeElement);
+          const search = ["search", "clear"].includes(submitter.value);
+          swap(actions, freshActions);
+          swap(picker, fresh);
+          if (focus) document.getElementById(focus)?.focus({preventScroll: true});
+          else if (focusPicker) {
+            document.getElementById(search ? "analysis-query" : "analysis-source-heading")?.focus();
+          }
+          driver.textContent = fresh.querySelector("#analysis-source-guidance")?.textContent.trim() ||
+            fresh.querySelector(".empty-state p")?.textContent.trim() || "Source choices updated.";
+          applied = true;
+        },
+      });
+    } catch { /* The same source-browse action works as an ordinary submission. */ }
+    finally {
+      picker.removeEventListener("input", markEdited);
+      picker.removeAttribute("aria-busy");
+    }
+    if (!applied && !edited && isCurrent() && form.isConnected) {
+      form.dataset.browseFallback = "true";
+      form.requestSubmit(submitter);
+      delete form.dataset.browseFallback;
+    }
+  }
+  document.addEventListener("submit", event => {
+    const form = event.target;
+    const submitter = event.submitter;
+    if (!event.defaultPrevented && form.id === "analysis-selection" && !form.dataset.browseFallback &&
+        submitter?.matches('button[name="browse_sources"], button[name="remove_source"]') &&
+        !needsDocument(document) && !accessLost && form.querySelector("#analysis-source-browser")) {
+      const url = new URL(form.action || location.href);
+      if (url.origin === location.origin && url.pathname.startsWith(root)) {
+        event.preventDefault();
+        void browseAnalysisSources(form, submitter, url);
+        return;
+      }
+    }
+  }, {capture: true});
   document.addEventListener("submit", event => {
     const form = event.target;
     if (event.defaultPrevented || !form.matches("#case-search, form[data-collection-form], form[data-workspace-form]") || form.method !== "get" || needsDocument(document) || accessLost) return;
@@ -177,7 +242,8 @@
     if (!mayLeave("visit")) return;
     url.search = new URLSearchParams(new FormData(form)).toString();
     remember();
-    visit(url).then(ok => { if (!ok) location.assign(url); });
+    const region = form.closest("[data-workspace-form-region]");
+    visit(url, {region}).then(ok => { if (!ok) location.assign(url); });
   });
   window.addEventListener("popstate", () => {
     if (needsDocument(document) || !history.state?.workspace || renderedUrl === location.href) return;
@@ -201,6 +267,23 @@
   document.addEventListener("pandect:access-lost", () => {
     accessLost = true;
     cancelVisit();
+  });
+  document.addEventListener("htmx:beforeSwap", event => {
+    const {target, xhr} = event.detail;
+    if (target?.id !== "writing-message-count") return;
+    const session = window.PandectPrivateSession;
+    if ([401, 403, 404].includes(xhr.status)) {
+      session.clearPrivatePage();
+      event.preventDefault();
+    } else if (xhr.status === 200 && !session.matches(xhr.getResponseHeader("X-Pandect-Session"))) {
+      event.preventDefault();
+    }
+  });
+  document.addEventListener("htmx:afterRequest", event => {
+    const {target, xhr, failed} = event.detail;
+    if (target?.id === "writing-message-count" && failed && target.isConnected && xhr.status !== 0) {
+      target.textContent = "Message count unavailable. You can still start analysis.";
+    }
   });
   window.addEventListener("pagehide", cancelVisit);
   if (!needsDocument(document)) remember();

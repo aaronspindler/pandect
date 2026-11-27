@@ -612,41 +612,51 @@ def _style_examples(profile, feature, group):
         measurement = _sample_measurement(text, feature)
         if measurement is None:
             continue
-        candidates = []
-        for start, end in _usable_ranges(source, exclusions):
+        span = None
+        ranges = _usable_ranges(source, exclusions)
+        for start, end in ranges:
             if feature == "uppercase_letter_ratio":
-                candidates.extend(
-                    (index, index + 1)
-                    for index in range(start, end)
-                    if text[index].isupper()
+                span = next(
+                    (
+                        (index, index + 1)
+                        for index in range(start, end)
+                        if text[index].isupper()
+                    ),
+                    None,
                 )
             elif feature == "punctuation_per_100_words":
-                candidates.extend(
-                    (index, index + 1)
-                    for index in range(start, end)
-                    if unicodedata.category(text[index]).startswith("P")
+                span = next(
+                    (
+                        (index, index + 1)
+                        for index in range(start, end)
+                        if unicodedata.category(text[index]).startswith("P")
+                    ),
+                    None,
                 )
             elif feature == "mean_sentence_words":
-                candidates.extend(
-                    (start + match.start(), start + match.end())
-                    for match in re.finditer(r"[^.!?]+[.!?]?", text[start:end])
-                    if WORD.search(match.group())
+                span = next(
+                    (
+                        (start + match.start(), start + match.end())
+                        for match in re.finditer(r"[^.!?]+[.!?]?", text[start:end])
+                        if WORD.search(match.group())
+                    ),
+                    None,
                 )
             elif feature == "mean_message_words":
                 match = WORD.search(text, start, end)
                 if match:
-                    candidates.append((match.start(), min(end, match.start() + 240)))
-            if candidates:
+                    span = (match.start(), min(end, match.start() + 240))
+            if span is not None:
                 break
-        if not candidates:
-            for start, end in _usable_ranges(source, exclusions):
+        if span is None:
+            for start, end in ranges:
                 match = WORD.search(text, start, end)
                 if match:
-                    candidates.append(match.span())
+                    span = match.span()
                     break
-        if not candidates:
+        if span is None:
             continue
-        start, end = candidates[0]
+        start, end = span
         examples.append(
             {
                 **source.anchor(start=start, end=end),

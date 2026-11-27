@@ -1,33 +1,28 @@
 # Request activity
 
-Request activity is an optional origin log for site operators. It records HTTP
-requests accepted by Gunicorn for the configured public host, including static
-files and signed-in routes. Cloudflare-only responses and requests rejected before
-Gunicorn's access hook fall outside that coverage. Live event requests appear when
-their streams close. The status is what Gunicorn reports, which can be `500` on an
-early disconnect.
+Request activity is an optional private origin log for site operators.
+Gunicorn records requests for the configured public host after handling them,
+including static files and signed-in routes. Live event requests appear when
+their streams close. Responses served solely at Cloudflare fall outside its
+coverage.
 
-Each record contains a time, method, server-reported status, route label, client
-IP when verified, and a versioned fingerprint. The fingerprint uses a dedicated
-key and bounded User-Agent and Accept-Language values. It can match across IP
-changes. Similar browsers can share a fingerprint, and a browser update or key
-change can produce a different one. Request and response content, raw targets,
-header strings, cookies, account IDs, and case IDs are excluded from these records.
+Records include time, method, server-reported status, route label, verified
+client IP and a versioned fingerprint when available. A dedicated key hashes
+normalized User-Agent and Accept-Language values. Similar browsers can share a
+fingerprint, and browser updates or key rotation can change it. Storage excludes
+request and response content, raw targets, header strings, cookies and account
+or case IDs.
 
 ## Review requests
 
-In **Pandect administration**, open **Request activity**. Search by exact IP or
-versioned fingerprint, optionally with a date range, to find matching requests
-throughout the retained history. The log is read-only and has no scheduled expiry.
-Grant active staff access by adding them to the Django group **Request activity
-operators**. Group membership is checked on every request. Keep the group limited
-to site operators responsible for this data.
+With capture enabled, active staff in **Request activity operators** can open
+the read-only **Request activity** view in administration. Search retained
+history by IP or complete versioned fingerprint, optionally with UTC dates.
+Retention has no scheduled expiry.
 
-The returning-visit summary counts fingerprints seen on eligible public HTML
-requests on at least two UTC dates in a 30-day reporting window. It reports
-different fingerprint versions separately and shows missing signals. It estimates
-repeat browser configurations and can include automated traffic. No browser
-cookie is required.
+The 30-day summary estimates returning browser configurations using eligible
+public HTML requests on at least two UTC dates. It counts fingerprint versions
+separately, shows missing signals, and can include automated requests.
 
 ## Set up the hosted service
 
@@ -77,33 +72,24 @@ They can use their own value and run independently of the case database.
    logs, and access through the intended admin accounts. Repeat after changes to
    the proxy chain or access log configuration.
 
-The monitor command `python manage.py request_activity check` checks the private
-buffer and ingester without using request fields. Run it every 30 seconds and
-connect its nonzero exit status to the operator's monitoring system. It reports
-missing or stale heartbeats after 45 seconds, buffered records waiting over 60
-seconds, and known capture gaps in the last five minutes. Keep capture warnings
-and monitoring output limited to operational counts and timestamps.
+Run `python manage.py request_activity check` every 30 seconds and alert on
+nonzero exit. It reports absent or stale heartbeats, records buffered over 60
+seconds and capture gaps within five minutes, without exposing request fields.
 
 ## Recover and roll back
 
-Gunicorn queues an event in memory without waiting for disk or PostgreSQL. A
-background writer commits it to the private spool. The ingester acknowledges
-spooled events only after its PostgreSQL transaction commits. Replaying a batch
-after a restart does not duplicate rows. If either buffer fills, the website
-keeps serving and records may be dropped. A worker crash can lose events that
-have not committed to the spool. Review health and known capture gaps in the admin
-before interpreting absence of requests.
-
-The web worker limits its in-memory queue to 512 records. The SQLite spool
-caps its main file at 64 MiB. Leave additional space for SQLite's transaction
-journal and the health marker on the private volume.
+A background writer moves events from Gunicorn's 512-record memory queue to
+a SQLite spool. The ingester acknowledges each batch after PostgreSQL commits,
+so it can replay safely. A crash before spooling or a full buffer can lose
+records. Check capture health and known gaps in administration when interpreting
+missing requests. The spool's main file is capped at 64 MiB. Budget additional
+space for its journal and health markers.
 
 Size and monitor the separate database, its indexes and backups, and the spool
 volume. Back up request activity independently of case data. Restore a backup
 and verify historical IP and fingerprint queries periodically. Back up the
 fingerprint key separately to preserve matches across restarts or recovery.
 
-To stop collecting, remove the web opt-in and let the ingester drain committed
-spool records. Keep the private database and spool volume under operator control
-through rollback. The existing web health check continues to describe Pandect
-readiness. Check request activity separately.
+To roll back, remove the web opt-in and let ingestion drain committed records.
+Disabling collection also hides the admin view. Keep the database and spool
+private throughout rollback.

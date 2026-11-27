@@ -1,0 +1,7 @@
+<div id="writing-count-content">
+{% if selected_counts %}
+  <p>{{ selected_counts.total }} message{{ selected_counts.total|pluralize }} selected{% if compare %} · {{ selected_counts.earlier }} earlier · {{ selected_counts.later }} later{% endif %}</p>
+{% else %}
+  <p>Choose valid dates to see the message count.</p>
+{% endif %}
+</div>

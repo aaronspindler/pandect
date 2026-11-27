@@ -6,6 +6,12 @@
 {% block content %}
 <header class="page-header conversation-header">
   <div><h1>Conversations</h1><p class="muted">Read messages grouped by their reported participants.</p></div>
+  {% if can_edit %}
+  <div class="actions">
+    <a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}?kind=text-message">Add text message</a>
+    <a class="button button-secondary" href="{% url 'phone:imessage_upload' case.pk %}">Import message CSV</a>
+  </div>
+  {% endif %}
 </header>
 {% if page_obj.object_list %}
 <p class="result-count secondary">{{ page_obj.paginator.count }} conversation{{ page_obj.paginator.count|pluralize }}</p>
@@ -29,12 +35,7 @@
 <section class="empty-state">
   <h2>No conversations yet</h2>
   <p>Messages appear here when they are added to this case or published from a retained export.</p>
-  {% if can_edit %}
-  <div class="actions actions-centered">
-    <a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}?kind=text-message">Add text message</a>
-    <a class="button button-secondary" href="{% url 'phone:imessage_upload' case.pk %}">Import message CSV</a>
-  </div>
-  {% else %}<p class="secondary">The owner or an editor can add messages.</p>{% endif %}
+  {% if not can_edit %}<p class="secondary">The owner or an editor can add messages.</p>{% endif %}
 </section>
 {% endif %}
 {% endblock %}

@@ -16,6 +16,7 @@ from core.analysis.source_resolution import resolve_active_inputs
 from core.evidence.time_claims import unavailable_time_claim
 from core.models import AnalysisArtifact, AnalysisResult
 from core.storage import private_file
+from text.analysis.attributed_sources import verify_membership, writing_scope
 
 
 @product_login_required
@@ -24,8 +25,12 @@ def download(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = case_run(case, run_id)
     try:
-        sources = resolve_active_inputs(run, case, require_current_review=False)
         result = AnalysisResult.objects.get(case=case, run=run)
+        if scope := writing_scope(run.operation, run.parameters):
+            verify_membership(case, scope, run.inputs)
+            sources = ()
+        else:
+            sources = resolve_active_inputs(run, case, require_current_review=False)
     except AnalysisError, AnalysisResult.DoesNotExist:
         raise Http404("Result not found.") from None
     source_map = {source.id: source for source in sources}

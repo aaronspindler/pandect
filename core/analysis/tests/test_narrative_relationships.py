@@ -1,7 +1,9 @@
 from unittest.mock import Mock
 
+from allauth.account.models import EmailAddress
 from django.http import Http404
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import Case
@@ -84,6 +86,44 @@ class NarrativeRelationshipsTests(EvidenceTestMixin, TestCase):
             self.editor, self.case.pk, "text", self.record.pk, archived=True
         )
         self.assertEqual(self.leads(), [])
+
+    def test_review_returns_to_the_saved_row_on_its_current_page(self):
+        result = self.result(self.candidate)
+        publish_relationships(result, [self.source])
+        edge = NarrativeRelationship.objects.get()
+        NarrativeRelationship.objects.bulk_create(
+            NarrativeRelationship(
+                case=self.case,
+                result=result,
+                item_index=index,
+                fingerprint=f"synthetic-{index}",
+                evidence_id=edge.evidence_id,
+                subject=edge.subject,
+                predicate=edge.predicate,
+                object=edge.object,
+                qualification=edge.qualification,
+                locator=edge.locator,
+                start=edge.start,
+                quote=edge.quote,
+            )
+            for index in range(1, 26)
+        )
+        EmailAddress.objects.create(
+            user=self.editor, email="editor@example.test", verified=True, primary=True
+        )
+        self.client.force_login(self.editor)
+        relationships = reverse("core:analysis:relationships", args=[self.case.pk])
+        page = self.client.get(relationships, {"page": 2})
+        self.assertContains(page, f'id="relationship-{edge.pk}"')
+        self.assertContains(page, 'name="page" value="2"')
+
+        response = self.client.post(
+            reverse("core:analysis:relationship_review", args=[self.case.pk, edge.pk]),
+            {"page": "2", "decision": "accepted"},
+            follow=True,
+        )
+        self.assertRedirects(response, f"{relationships}?page=2#relationship-{edge.pk}")
+        self.assertContains(response, "Denied · Accepted")
 
     def test_reanalysis_refreshes_an_exact_passage_and_keeps_its_review(self):
         result = self.result(self.candidate)

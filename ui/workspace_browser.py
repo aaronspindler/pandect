@@ -8,6 +8,7 @@ from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisRun, CaseAnalysisBatch
 from people.models import Person
 from text.models import TextEvidence
+from vehicle.models import Vehicle
 
 
 class WorkspaceBrowserTests(BrowserTestCase):
@@ -361,7 +362,7 @@ class WorkspaceBrowserTests(BrowserTestCase):
                 expect(rows).to_have_count(1)
                 expect(rows).to_contain_text("Record 04")
 
-    def test_empty_people_refresh_keeps_shell_and_adds_search(self):
+    def test_empty_people_fill_keeps_shell_focus_and_adds_search(self):
         publish = self.enterContext(indexed(self.case, []))
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
@@ -373,14 +374,22 @@ class WorkspaceBrowserTests(BrowserTestCase):
                 page.locator(".app-navigation").evaluate(
                     "el => window.originalRail = el"
                 )
+                add_person = page.get_by_role("link", name="Add person", exact=True)
+                add_person.focus()
                 person = self.db(
                     Person.objects.create, case=self.case, first_name="Avery"
                 )
                 self.db(publish, [("record", "person", person.pk)])
                 page.evaluate("document.dispatchEvent(new Event('pandect:refresh'))")
-                page.get_by_role("link", name="Refresh results").click()
                 search = page.get_by_role("searchbox", name="Search people")
                 expect(search).to_be_visible()
+                expect(add_person).to_be_focused()
+                expect(
+                    page.get_by_role("link", name="Avery", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Show updated results")
+                ).to_be_hidden()
                 self.assertTrue(
                     page.locator(".app-navigation").evaluate(
                         "el => el === window.originalRail"
@@ -391,6 +400,41 @@ class WorkspaceBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="No matching people")
                 ).to_be_visible()
                 self.db(Person.objects.filter(case=self.case).delete)
+
+    def test_empty_vehicles_wait_for_an_open_edit_and_then_apply_new_results(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(self.url("vehicle:list", case_id=self.case.pk))
+                expect(
+                    page.get_by_role("link", name="Import vehicle locations")
+                ).to_be_visible()
+                add_vehicle = page.get_by_role("link", name="Add vehicle", exact=True)
+                add_vehicle.press("Enter")
+                dialog = page.get_by_role("dialog", name="Add vehicle")
+                make = dialog.get_by_label("Make", exact=True)
+                make.fill("Unsaved make")
+                vehicle = self.db(
+                    Vehicle.objects.create, case=self.case, make="Synthetic"
+                )
+                page.evaluate("document.dispatchEvent(new Event('pandect:refresh'))")
+                expect(page.locator("[data-refresh-results]")).to_be_visible()
+                expect(
+                    page.locator('[data-collection-kind="vehicles"]')
+                ).to_contain_text("No vehicles yet")
+                expect(make).to_be_focused()
+                expect(make).to_have_value("Unsaved make")
+                page.once("dialog", lambda prompt: prompt.accept())
+                make.press("Escape")
+                expect(add_vehicle).to_be_focused()
+                page.get_by_role("link", name="Show updated results").click()
+                expect(
+                    page.get_by_role("link", name="Synthetic", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("searchbox", name="Search vehicles")
+                ).to_be_visible()
+                self.db(vehicle.delete)
 
     def test_workspace_pagination_without_javascript(self):
         for engine in self.engines:

@@ -83,7 +83,7 @@ class JourneyClaimBrowserTests(BrowserTestCase):
                 )
                 page.goto(reader_url)
                 page.get_by_text("Analyze evidence", exact=True).press("Enter")
-                page.get_by_role("link", name="Choose analysis", exact=True).press(
+                page.get_by_role("link", name="All analysis methods", exact=True).press(
                     "Enter"
                 )
                 choose = page.get_by_role(
@@ -223,6 +223,33 @@ class JourneyClaimBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
+                with self.settings(PANDECT_ANALYSIS_MAX_SOURCES=2):
+                    picker_url = (
+                        self.url("core:analysis:create", case_id=self.case.pk)
+                        + "?operation=journey_claims"
+                    )
+                    page.goto(picker_url)
+                    page.get_by_text("Saved trips and visits", exact=True).press(
+                        "Enter"
+                    )
+                    expect(
+                        page.get_by_text(
+                            "This trip has too many observations.", exact=False
+                        )
+                    ).to_be_visible()
+                    expect(
+                        page.get_by_role("checkbox", name="Saved trip", exact=False)
+                    ).to_have_count(0)
+                    individual = page.get_by_role(
+                        "link", name="Choose individual observations"
+                    )
+                    individual.scroll_into_view_if_needed()
+                    self.capture(page, engine, "trip-comparison-scope-limit")
+                    individual.press("Enter")
+                    expect(page).to_have_url(picker_url + "#movement-sources")
+                    expect(
+                        page.get_by_role("checkbox", name="Dock gate", exact=False)
+                    ).to_be_visible()
                 page.goto(url)
                 expect(
                     page.get_by_role("heading", name="Saved possible trip")

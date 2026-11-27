@@ -34,6 +34,7 @@
       <a href="{% url 'people:list' case.pk %}">People</a>
       <a href="{% url 'vehicle:list' case.pk %}">Vehicles</a>
       <a href="{% url 'core:analysis:connections' case.pk %}">Repeated identifiers</a>
+      <a href="{% url 'core:analysis:relationships' case.pk %}">Narrative relationships</a>
       <a href="{% url 'core:analysis:sighting_groups' case.pk %}">Sighting groups</a>
       {% if show_instagram_monitors %}<a href="{% url 'instagram:list' case.pk %}">Instagram monitors</a>{% endif %}
     </div>
@@ -47,13 +48,7 @@
 </nav>
 
 <section class="case-tools-section" id="latest-records" tabindex="-1" aria-labelledby="latest-records-heading">
-  <div class="section-header">
-    <h2 id="latest-records-heading">Latest records</h2>
-    <div class="actions">
-      <a class="record-link" href="{% url 'core:evidence:list' case.pk %}">All evidence</a>
-      <a class="record-link" href="{% url 'core:analysis:browse' case.pk %}">All findings</a>
-    </div>
-  </div>
+  <h2 id="latest-records-heading">Latest records</h2>
   {% partialdef collection inline %}
   <div data-collection-kind="case-tools">
     {% if latest_records %}

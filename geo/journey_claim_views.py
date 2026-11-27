@@ -87,11 +87,11 @@ def _picker(case, actor, role, data, chosen, *, recover=False):
     unavailable = any(
         token not in choices or readiness[token]["blocking"] for token in raw
     )
-    derived_choices = dict(derived)
+    derived_choices = {token: (label, blocking) for token, label, blocking in derived}
     for token in chosen:
-        if not token.startswith(DERIVED_INPUT_PREFIXES) or (
-            token in derived_choices and not recover
-        ):
+        if not token.startswith(DERIVED_INPUT_PREFIXES):
+            continue
+        if token in derived_choices and (not recover or derived_choices[token][1]):
             continue
         try:
             option = expand_input(case, token, role)
@@ -99,15 +99,17 @@ def _picker(case, actor, role, data, chosen, *, recover=False):
             derived_choices.pop(token, None)
             unavailable = True
         else:
-            derived_choices.setdefault(token, option["label"])
+            derived_choices.setdefault(token, (option["label"], ""))
     return {
         "role": role,
         "notice": results.notice,
         "rows": rows,
         "derived_rows": [
-            (token, label, "", token in chosen)
-            for token, label in derived_choices.items()
+            (token, label, blocking, token in chosen and not blocking)
+            for token, (label, blocking) in derived_choices.items()
         ],
+        "derived_open": derived.number > 1
+        or any(token in derived_choices for token in chosen),
         "page": page,
         "derived": derived,
         "cursor": cursor,
@@ -308,11 +310,11 @@ def create(request, case, *, chooser_query=None, result_query=None):
             if action != "choose_again":
                 return _interpret(request, case, state, context, action, salt)
             data = state.get("picker_state", {})
-        if (
-            sum(map(len, state["picked"].values()))
-            > settings.PANDECT_ANALYSIS_MAX_SOURCES
-        ):
-            raise ValidationError("Choose at most 500 sources, including trip members.")
+        limit = settings.PANDECT_ANALYSIS_MAX_SOURCES
+        if sum(map(len, state["picked"].values())) > limit:
+            raise ValidationError(
+                f"Choose at most {limit} sources, including trip members."
+            )
         pickers = context["pickers"] = [
             _picker(
                 case,

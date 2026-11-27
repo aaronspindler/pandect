@@ -96,14 +96,15 @@
     </header>
     <nav class="evidence-task-actions actions" aria-label="Evidence actions">
       {% partialdef findings_link inline %}<span id="evidence-findings-link" data-live-region data-live-poll="false"><a class="record-link" href="#evidence-findings-heading">Findings ({{ findings_page.paginator.count }})</a></span>{% endpartialdef %}
-      {% if not item.is_archived %}{% include 'core/important/reader_actions.html' with important_status_only=True %}{% endif %}
+      {% if not item.is_archived %}{% include 'core/important/reader_actions.html' with important_status_only=important_marked %}{% endif %}
       {% if can_edit and not item.is_archived %}
       <a data-quick-form="Edit evidence details" data-collection-context class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
       <details class="evidence-analyze" data-disclosure>
         <summary class="button button-secondary">Analyze evidence</summary>
         <div class="evidence-more-panel evidence-analysis-panel">
+          {% if identifier_check %}<a class="record-link" data-workspace-link data-collection-context="return_collection" href="{% url 'core:analysis:create' case.pk %}?operation=entities&amp;source={{ kind|urlencode }}:{{ item.pk }}{% if list_suffix %}&amp;return_collection={{ list_suffix|slice:'1:'|urlencode }}{% endif %}">{{ identifier_check.label }}</a>{% endif %}
           {% for key,spec in additional_operations %}<a class="record-link" data-collection-context="return_collection" href="{% url 'core:analysis:external_evidence' case.pk kind item.pk %}?operation={{ key }}{% if list_suffix %}&amp;return_collection={{ list_suffix|slice:'1:'|urlencode }}{% endif %}">{{ spec.label }}</a>{% endfor %}
-          <a class="record-link" data-collection-context="return_collection" href="{% url 'core:analysis:create' case.pk %}?source={{ kind|urlencode }}:{{ item.pk }}{% if list_suffix %}&amp;return_collection={{ list_suffix|slice:'1:'|urlencode }}{% endif %}">Choose analysis</a>
+          <a class="record-link" data-collection-context="return_collection" href="{% url 'core:analysis:create' case.pk %}?source={{ kind|urlencode }}:{{ item.pk }}{% if list_suffix %}&amp;return_collection={{ list_suffix|slice:'1:'|urlencode }}{% endif %}">All analysis methods</a>
         </div>
       </details>
       {% endif %}

@@ -68,8 +68,9 @@ class ReprocessingBrowserTests(BrowserTestCase):
             ):
                 self.sign_in(page)
                 page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
-                page.locator("#processing-actions > summary").press("Enter")
-                action = page.get_by_role("link", name="Reprocess evidence", exact=True)
+                action = page.locator("#processing-actions").get_by_role(
+                    "link", name="Reprocess evidence", exact=True
+                )
                 action.focus()
                 expect(action).to_be_focused()
                 action.press("Enter")
@@ -165,6 +166,12 @@ class ReprocessingBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("link", name="Reprocess evidence", exact=True)
                 ).to_have_count(0)
+                expect(
+                    page.get_by_role("link", name="Choose analysis", exact=True)
+                ).to_have_count(0)
+                expect(
+                    page.get_by_role("link", name="Browse findings", exact=True)
+                ).to_be_visible()
                 denied = page.goto(
                     self.url("core:analysis:reprocess", case_id=self.case.pk)
                 )

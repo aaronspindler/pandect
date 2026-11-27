@@ -8,7 +8,7 @@ from core.analysis.errors import AnalysisError
 MAX_RESULT_BYTES = 4 * 1024 * 1024
 
 
-def validate_output(data, sources, *, operation=None):
+def validate_output(data, sources, *, operation=None, source_lengths=None):
     if (
         not isinstance(data, dict)
         or not isinstance(data.get("summary"), str)
@@ -29,7 +29,9 @@ def validate_output(data, sources, *, operation=None):
         raise AnalysisError("invalid_result") from None
     if size > MAX_RESULT_BYTES:
         raise AnalysisError("result_limit")
-    source_map = {str(x.id): x for x in sources}
+    source_map = (
+        {str(x.id): x for x in sources} if source_lengths is None else source_lengths
+    )
     items = data.get("items", [])
     if not isinstance(items, list) or len(items) > 10000:
         raise AnalysisError("invalid_result")
@@ -60,7 +62,10 @@ def validate_output(data, sources, *, operation=None):
                 if (
                     type(start) is not int
                     or type(end) is not int
-                    or not 0 <= start <= end <= len(source.text)
+                    or not 0
+                    <= start
+                    <= end
+                    <= (len(source.text) if source_lengths is None else source)
                 ):
                     raise AnalysisError("invalid_anchor")
             if "page" in anchor and (

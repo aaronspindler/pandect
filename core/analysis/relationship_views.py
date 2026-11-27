@@ -2,6 +2,7 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST, require_safe
 
 from cases.permissions import case_context, get_case, require_verified_email
@@ -51,4 +52,14 @@ def review(request, case_id, edge_id):
             reviewed_by=request.user,
             decision=decision,
         )
-    return redirect("core:analysis:relationships", case.pk)
+    page = request.POST.get("page", "")
+    return redirect(
+        reverse(
+            "core:analysis:relationships",
+            args=(case.pk,),
+            query={"page": page}
+            if len(page) <= 9 and page.isascii() and page.isdecimal()
+            else None,
+            fragment=f"relationship-{edge.pk}",
+        )
+    )

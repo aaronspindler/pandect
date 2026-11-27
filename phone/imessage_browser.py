@@ -142,7 +142,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     "Enter"
                 )
                 expect(
-                    page.get_by_role("heading", name="Review message CSV", exact=True)
+                    page.get_by_role("heading", name="Importing messages", exact=True)
                 ).to_be_visible()
                 final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
                 self.assertNotEqual(preview_id, final_id)
@@ -329,7 +329,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 self.capture(page, engine, "review-forced-colors")
                 page.emulate_media(color_scheme="light", forced_colors="none")
                 page.get_by_role("button", name="Import messages", exact=True).click()
-                page.wait_for_url(re.compile(r"/imessage/[0-9a-f-]+/(?:#.*)?$"))
+                expect(
+                    page.get_by_role("heading", name="Importing messages", exact=True)
+                ).to_be_visible()
                 final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
                 self.assertEqual(self.db(Person.objects.count), before)
                 self.db(process_run, final_id)
@@ -564,6 +566,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     exact=True,
                 ).check()
                 page.get_by_role("button", name="Import messages", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Importing messages", exact=True)
+                ).to_be_visible()
                 final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
                 self.db(process_run, final_id)
                 page.reload()
@@ -680,7 +685,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     )
                     self.capture(page, engine, f"disabled-ai-review-{width}-{height}")
                 page.get_by_role("button", name="Import messages", exact=True).click()
-                page.wait_for_url(re.compile(r"/imessage/[0-9a-f-]+/(?:#.*)?$"))
+                expect(
+                    page.get_by_role("heading", name="Importing messages", exact=True)
+                ).to_be_visible()
                 final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
                 final = self.db(AnalysisRun.objects.get, pk=final_id)
                 self.assertNotIn("analysis", final.parameters)

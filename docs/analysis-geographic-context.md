@@ -2,10 +2,9 @@
 
 **Look up geographic context** finds road, venue, building and neighbourhood
 candidates around Location, Person location or Vehicle location observations.
-New eligible observations queue the configured lookup. Investigators can also
-select sources and change lookup parameters under **Choose analysis**.
-It does not assign unlinked observations to people or identify drivers. The
-separate local **Group nearby observations** method needs no reference service.
+New eligible observations queue the configured lookup. To select inputs and
+parameters, open **Case Tools → Analysis methods → Look up geographic context**.
+**Group nearby observations** uses local coordinates without a reference service.
 
 ## From miTrail records to context
 
@@ -14,13 +13,10 @@ Forward-geocode an address, choose **Use this estimate** on a candidate, then se
 interpretation for context lookup. Retained coordinates work directly; timestamps
 alone supply neither location nor reference geometry. No GeoJSON upload is needed.
 
-Choose **Look up geographic context**, observations or selected estimates, grouping
-distance and search radius. External lookup requires case-owner approval in Case Settings.
-`PANDECT_MAP_CONTEXT_LOCAL=true` explicitly designates operator control; a private
-hostname alone does not. Requests contain coordinate areas, fixed feature filters
-and reference date, excluding case/person/vehicle identifiers, original addresses
-and observation times. Access is rechecked before/after requests and before
-publication; submitted requests cannot be recalled.
+Choose observations or selected estimates, a grouping distance and search
+radius. External lookup requires case-owner approval in Case settings. Requests
+send coordinate areas, fixed feature filters and the reference date. Pandect
+checks access before and after requests and before publication.
 
 ## What a result means
 
@@ -94,15 +90,8 @@ matches** and **1 MiB finding display bytes**. Exclusions, truncations and omitt
 findings are counted. The client follows no redirects and retries nothing
 automatically; narrow selections or start a new run to recover.
 
-Relation assembly, polygon-hole validation and geometric matching use the isolated
-parser's CPU/memory/output/time bounds. It receives only response bytes,
-coordinates and bounded settings, without credentials, case records or storage
-paths. Snapshots/results use atomic publication and rollback cleanup.
-
-Mocked synthetic tests cover current/historical queries, labels, roads, overlapping
-polygons/holes, invalid/missing geometry, quotas, response/display limits, access
-changes and exact retention. They establish no live availability, completeness
-or positional accuracy.
+The isolated parser receives response bytes, coordinates and bounded settings
+for geometry assembly and matching. Snapshots and results publish atomically.
 
 Primary references: [Overpass historical queries](https://dev.overpass-api.de/overpass-doc/en/analysis/museum.html)
 and [OSM geometry conversion](https://github.com/rapkin/osm2geojson).

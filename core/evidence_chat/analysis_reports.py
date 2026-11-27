@@ -1,11 +1,17 @@
 """Search saved method outcomes and measurements, including zero-finding results."""
 
+from heapq import nsmallest
+
+from django.core.exceptions import ValidationError
 from django.db.models import F, Q
 from django.db.models.expressions import RawSQL
+from django.http import Http404
 from django.urls import reverse
 
+from core.analysis.errors import AnalysisError
 from core.analysis.operations import OPERATIONS
 from core.analysis.published import successful_results
+from text.analysis.attributed_sources import verify_membership, writing_scope
 
 from . import corpus
 from .reports import read_timing_material
@@ -87,10 +93,29 @@ def read_analysis_material(case, result_id, start, size, *, through=None):
         return read_timing_material(case, result_id, start, size, through=through)
     if result.measurements is None:
         return None
-    sources = corpus.result_sources(case, run, include_archived=False)
-    if not sources:
+    scope = (
+        writing_scope(run.operation, run.parameters)
+        if run.operation in {"style_profiles", "style_change"}
+        else None
+    )
+    if scope:
+        inputs = run.inputs
+        try:
+            verify_membership(case, scope, inputs)
+            members = nsmallest(
+                64, ((source["kind"], source["evidence_id"]) for source in inputs)
+            )
+        except AnalysisError, Http404, ValidationError, TypeError, KeyError, ValueError:
+            return None
+        selected_count = len(inputs)
+    else:
+        sources = corpus.result_sources(case, run, include_archived=False)
+        members = sorted({(source.kind, str(source.item.pk)) for source in sources})[
+            :64
+        ]
+        selected_count = len(sources)
+    if not selected_count:
         return None
-    members = sorted({(s.kind, str(s.item.pk)) for s in sources})
     method = OPERATIONS[run.operation].label
     _, _, measures = result.measurements.partition("\n")
     heading = corpus.lines(
@@ -98,7 +123,7 @@ def read_analysis_material(case, result_id, start, size, *, through=None):
             ("Method", method),
             ("Method version", run.method_version),
             ("Outcome", run.get_status_display()),
-            ("Selected inputs", len(sources)),
+            ("Selected inputs", selected_count),
             (
                 "Coverage",
                 "Selected inputs only. Open Processing for the full saved result.",
@@ -110,7 +135,7 @@ def read_analysis_material(case, result_id, start, size, *, through=None):
         run.operation,
         None,
         result,
-        [corpus.dependency(kind, key) for kind, key in members[:64]],
+        [corpus.dependency(kind, key) for kind, key in members],
         f"Saved analysis · {method}",
         reverse(
             "core:analysis:detail",
@@ -127,5 +152,5 @@ def read_analysis_material(case, result_id, start, size, *, through=None):
         size=size,
     )
     material.locator["result_id"] = str(result.pk)
-    material.locator["selected_count"] = len(sources)
+    material.locator["selected_count"] = selected_count
     return material

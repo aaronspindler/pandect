@@ -117,7 +117,9 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
             ],
         )
         token = f"finding:{prior.pk}:0"
-        self.assertEqual([key for key, _ in derived_page(self.case, "claim")], [token])
+        self.assertEqual(
+            [key for key, _, _ in derived_page(self.case, "claim")], [token]
+        )
         self.assertFalse(derived_page(self.other_case, "claim").object_list)
         for invalid_case, invalid_token, role in (
             (self.other_case, token, "claim"),
@@ -162,7 +164,9 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
                     ],
                 )
                 token = f"finding:{prior.pk}:0"
-                self.assertIn(token, dict(derived_page(self.case, "movement")))
+                self.assertIn(
+                    token, [key for key, _, _ in derived_page(self.case, "movement")]
+                )
                 expanded = expand_input(self.case, token, "movement")
                 self.assertEqual(expanded["group"]["members"], member_ids)
                 self.assertEqual(len(expanded["selections"]), 3)
@@ -197,7 +201,7 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
         publish(generation)
         trip = saved_trips(self.case).get()
         token = f"trip:{trip.pk}"
-        self.assertIn(token, dict(derived_page(self.case, "movement")))
+        self.assertIn(token, [key for key, _, _ in derived_page(self.case, "movement")])
         with self.assertRaises(AnalysisError):
             expand_input(self.other_case, token, "movement")
         with (
@@ -210,6 +214,30 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
         self.login("owner")
         create = reverse("core:analysis:create", args=(self.case.pk,))
         claim_token = f"text:{text.pk}"
+        with self.settings(PANDECT_ANALYSIS_MAX_SOURCES=3):
+            picker = self.client.get(create, {"operation": "journey_claims"})
+            self.assertContains(picker, "3 observations")
+            self.assertContains(picker, "This trip has too many observations.")
+            self.assertContains(picker, "3 sources, including the statement.")
+            self.assertContains(
+                picker, 'href="#movement-sources">Choose individual observations'
+            )
+            self.assertNotContains(picker, f'name="movement" value="{token}"')
+            observation = f"vehicle-location:{previous_rows[0].pk}"
+            self.assertContains(picker, f'name="movement" value="{observation}"')
+
+            data = {
+                "operation": "journey_claims",
+                "action": "prepare",
+                "claim": claim_token,
+            }
+            blocked = self.client.post(create, data | {"movement": token})
+            self.assertContains(blocked, "Choose individual observations instead.")
+            self.assertFalse(
+                AnalysisRun.objects.filter(operation="journey_claims").exists()
+            )
+            selected = self.client.post(create, data | {"movement": observation})
+            self.assertContains(selected, "Interpret a passage")
         prepared = self.client.post(
             create,
             {
@@ -396,10 +424,10 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
             ],
         )
         token = f"finding:{finding.pk}:0"
-        self.assertIn(token, dict(derived_page(self.case, "claim")))
+        self.assertIn(token, [key for key, _, _ in derived_page(self.case, "claim")])
         TextMessageEvidence.objects.filter(pk=source.pk).update(
             body=source.body.replace("1 Moving Street", "2 Moving Street")
         )
-        self.assertNotIn(token, dict(derived_page(self.case, "claim")))
+        self.assertNotIn(token, [key for key, _, _ in derived_page(self.case, "claim")])
         with self.assertRaisesMessage(AnalysisError, "source_changed"):
             expand_input(self.case, token, "claim")

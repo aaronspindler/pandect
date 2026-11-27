@@ -614,7 +614,6 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 text_link.press("Enter")
                 expect(page.get_by_label("Original text", exact=True)).to_be_visible()
                 for kind, label in (
-                    ("text", "Original text"),
                     ("document", "Original file"),
                     ("image", "Original file"),
                     ("audio", "Original file"),
@@ -624,13 +623,18 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     ("text-message", "Sender"),
                     ("phone-call", "Sender"),
                     ("facetime", "Sender"),
+                    ("text", "Original text"),
                 ):
-                    expect(
-                        page.get_by_label("Evidence type", exact=True)
-                    ).to_be_hidden()
+                    options = page.get_by_role(
+                        "navigation", name="Other evidence types"
+                    )
+                    expect(options).to_be_hidden()
                     page.get_by_text("Change type", exact=True).press("Enter")
-                    page.get_by_label("Evidence type", exact=True).select_option(kind)
-                    page.get_by_role("button", name="Choose type", exact=True).click()
+                    expect(options.get_by_role("link")).to_have_count(9)
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), 321
+                    )
+                    options.locator(f'a[href$="?kind={kind}"]').press("Enter")
                     expect(page.get_by_label(label, exact=True)).to_be_visible()
                     self.assertIn(f"kind={kind}", page.url)
                     self.assertLessEqual(
@@ -1574,11 +1578,15 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         return process_import(str(current.pk), str(current.job_token))
 
                     self.assertEqual(self.db(publish), "complete")
-                    page.get_by_role("link", name="Refresh status").click()
                     if keep:
+                        page.evaluate(
+                            "document.dispatchEvent(new Event('pandect:refresh'))"
+                        )
                         expect(page.locator("[data-live-message]")).to_have_text(
                             "Vehicle locations imported"
                         )
+                    else:
+                        page.get_by_role("link", name="Refresh status").click()
                     expected = 2 if keep else 1
                     expect(page.locator(".import-results a")).to_have_count(expected)
                     expect(
@@ -3535,7 +3543,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 analysis = page.locator(".evidence-analyze")
                 analysis.locator("summary").press("Enter")
                 expect(
-                    analysis.get_by_role("link", name="Choose analysis")
+                    analysis.get_by_role("link", name="All analysis methods")
+                ).to_be_visible()
+                expect(
+                    analysis.get_by_role("link", name="Extract identifiers and dates")
                 ).to_be_visible()
                 page.keyboard.press("Escape")
                 expect(analysis).not_to_have_attribute("open", "")
