@@ -10,7 +10,7 @@ from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
 
-from cases.models import Case
+from cases.models import Case, CaseActivity
 from cases.permissions import get_case, require_verified_email
 from core.analysis.artifacts import (
     MAX_PREVIEW_TOTAL_BYTES,
@@ -32,6 +32,11 @@ from core.analysis.source_resolution import resolve_processing_inputs
 from core.analysis.transcripts import follow_up_transcription, transcript_group
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun, ExtractedPassage
 from geo.analysis.external.geocoding import GeocodingError
+from text.analysis.attributed_sources import (
+    result_batches,
+    verify_membership,
+    writing_scope,
+)
 
 
 def _authorize_run(run, *, lock=False):
@@ -62,7 +67,10 @@ def authorize_run(run, *, lock=False, check_sources=True):
     case = _authorize_run(run, lock=lock)
     _authorize_execution(run, case)
     if check_sources:
-        resolve_processing_inputs(run, case)
+        if scope := writing_scope(run.operation, run.parameters):
+            verify_membership(case, scope, run.inputs)
+        else:
+            resolve_processing_inputs(run, case)
     return case
 
 
@@ -105,7 +113,8 @@ def process_run(run_id):
     stage = "authorization"
     try:
         case = _authorize_run(run)
-        sources = resolve_processing_inputs(run, case)
+        writing = writing_scope(run.operation, run.parameters)
+        sources = [] if writing else resolve_processing_inputs(run, case)
         try:
             operation = get_operation(run.operation)
         except ValidationError as error:
@@ -138,7 +147,25 @@ def process_run(run_id):
         )
         if not running.update(stage=AnalysisRun.Stage.ANALYSIS):
             raise AnalysisError("processing_cancelled")
-        if run.operation == "imessage_import" and parameters.get("phase") == "import":
+        source_lengths = None
+        if writing:
+            from text.analysis.attributed_writing import analyze_attributed_writing
+
+            def report_progress(progress):
+                _authorize_run(run)
+                if progress > run.progress:
+                    running.update(progress=progress)
+                    run.progress = progress
+
+            data = analyze_attributed_writing(case, run, writing, report_progress)
+            source_lengths = {
+                source.id: len(source.text)
+                for batch in result_batches(
+                    case, writing, run.inputs, data, with_content=True
+                )
+                for source in batch
+            }
+        elif run.operation == "imessage_import" and parameters.get("phase") == "import":
             from phone.analysis.deterministic.imessage import stage_import
 
             data, import_rows, import_source_marker = stage_import(sources, parameters)
@@ -162,15 +189,32 @@ def process_run(run_id):
         artifacts = data.pop("artifacts", [])
         if not isinstance(artifacts, list) or len(artifacts) > 500:
             raise AnalysisError("invalid_preview")
-        data = validate_output(data, sources, operation=run.operation)
+        data = validate_output(
+            data, sources, operation=run.operation, source_lengths=source_lengths
+        )
         stage = "publication"
         if not running.update(stage=AnalysisRun.Stage.PUBLICATION):
             raise AnalysisError("processing_cancelled")
+        if writing:
+            case = _authorize_run(run)
+            activity = CaseActivity.objects.filter(case_id=run.case_id)
+            evidence_revision = activity.values_list("evidence", flat=True).get()
+            verify_membership(case, writing, run.inputs)
         with transaction.atomic():
-            case = authorize_run(run, lock=True)
+            case = authorize_run(run, lock=True, check_sources=not writing)
             current = AnalysisRun.objects.select_for_update().get(pk=run.pk)
             if current.status != "running":
                 return current.status
+            if writing:
+                # Every evidence write advances this row in the same transaction.
+                # Lock it only for publication, after the streaming byte checks.
+                current_revision = (
+                    activity.select_for_update()
+                    .values_list("evidence", flat=True)
+                    .get()
+                )
+                if current_revision != evidence_revision:
+                    raise AnalysisError("writing_evidence_changed")
             if (
                 run.operation == "imessage_import"
                 and run.parameters.get("phase") == "import"

@@ -20,7 +20,8 @@
 <section class="analysis-section">
   <div role="status"><h2>{{ run.progress_label }}</h2></div>
   {% include 'core/analysis/run_progress.html' %}
-  <p>Checks run in the background. You can leave and return to this result.</p>
+  {% if writing_source_page %}<p>{{ writing_source_page.paginator.count }} selected messages. You can leave and follow this analysis in <a href="{% url 'core:analysis:processing' case.pk %}">Processing</a>.</p>
+  {% else %}<p>Checks run in the background. You can leave and return to this result.</p>{% endif %}
   <div class="actions">
     {% if can_edit %}<form method="post" action="{% url 'core:analysis:cancel' case.pk run.pk %}{{ history_suffix }}">{% csrf_token %}<button class="button button-secondary" type="submit">Cancel processing</button></form>{% endif %}
   </div>
@@ -47,6 +48,7 @@
 {% if result %}
 <section class="analysis-result-overview" aria-labelledby="analysis-result-summary">
   <h2 id="analysis-result-summary">{% if run.operation == 'question_synthesis' %}AI suggestions{% else %}{{ data.summary }}{% endif %}</h2>
+  {% if writing_coverage %}<p>{{ writing_coverage.selected }} messages examined · {{ writing_coverage.usable }} with usable writing{% if writing_coverage.omitted %} · {{ writing_coverage.omitted }} without usable writing after excluding quotations{% endif %}</p>{% endif %}
   {% if data.warnings %}<a class="record-link" href="#result-limitations">See limitations</a>{% endif %}
 </section>
 {% endif %}
@@ -91,7 +93,7 @@
   {% partial references %}
 {% endif %}
 
-<details class="analysis-section analysis-run-details"{% if run.status == 'failed' or request.GET.summary == '1' %} open{% endif %}>
+<details class="analysis-section analysis-run-details"{% if run.status == 'failed' or request.GET.summary == '1' or request.GET.source_page %} open{% endif %}>
   <summary id="run-details">{% if focused_finding %}Analysis run details{% else %}Details and history{% endif %}</summary>
   <p class="muted">{{ run.get_status_display }} · {{ run.created_at|date:'d M Y, H:i T' }} · {{ operation_label }}</p>
   {% if run.previous_run %}<p><a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">Earlier run · {{ run.previous_run.created_at|date:'d M Y, H:i:s T' }}</a></p>{% endif %}
@@ -102,7 +104,15 @@
   <ul class="analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
   {% endif %}
   {% if focused_finding %}{% partial references %}{% endif %}
-{% if sources %}
+{% if writing_sources %}
+<details class="analysis-run-sources disclosure" id="writing-selected-sources"{% if request.GET.source_page %} open{% endif %}>
+  <summary>Selected messages · {{ writing_source_page.paginator.count }}</summary>
+  <ul class="source-list">
+    {% for source in writing_sources %}<li><a href="{{ source.url }}">{{ source.item.title }}</a></li>{% endfor %}
+  </ul>
+  {% include 'ui/components/pagination.html' with page=writing_source_page label='Selected message pages' query=request.GET parameter='source_page' anchor='writing-selected-sources' item_label='messages' only %}
+</details>
+{% elif sources %}
 <details class="analysis-run-sources disclosure">
   <summary>Selected sources · {{ sources.0.item.title }}{% if sources|length > 1 %} and {{ sources|length|add:"-1" }} more{% endif %}</summary>
   <ul class="source-list">

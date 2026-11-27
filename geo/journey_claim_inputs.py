@@ -32,6 +32,14 @@ CLAIM_STATUS = {
 }
 
 
+def _trip_scope_message():
+    return (
+        "This trip has too many observations. A comparison can include up to "
+        f"{settings.PANDECT_ANALYSIS_MAX_SOURCES} "
+        "sources, including the statement."
+    )
+
+
 def _eligible(role):
     if role == "claim":
         return Q(result__run__operation="content_events", label__in=CLAIM_STATUS)
@@ -93,6 +101,7 @@ def derived_page(case, role, *, query="", page=1, results=None):
                 labels[("finding", finding["id"])] = (
                     f"finding:{finding['result_id']}:{finding['item_index']}",
                     f"{label.capitalize()} · {detail}",
+                    "",
                 )
     trip_ids = [pk for pk, kind, _ in entries if kind == "trip"]
     if trip_ids:
@@ -101,6 +110,9 @@ def derived_page(case, role, *, query="", page=1, results=None):
                 f"trip:{trip.pk}",
                 f"Saved trip · {trip.vehicle} · {trip.start_at.isoformat()} · "
                 f"{trip.source_count} observations",
+                _trip_scope_message()
+                if trip.source_count >= settings.PANDECT_ANALYSIS_MAX_SOURCES
+                else "",
             )
     result.object_list = [
         labels[kind, pk] for pk, kind, _ in entries if (kind, pk) in labels
@@ -224,10 +236,12 @@ def _trip_input(case, trip_id, *, historical=False):
     trip = trips.filter(pk=trip_id).first()
     if trip is None:
         raise AnalysisError("source_unavailable")
-    if trip.source_count > settings.PANDECT_ANALYSIS_MAX_SOURCES:
+    maximum_observations = settings.PANDECT_ANALYSIS_MAX_SOURCES
+    if not historical:
+        maximum_observations -= 1  # A new comparison also needs a statement source.
+    if trip.source_count > maximum_observations:
         raise ValidationError(
-            "This trip exceeds the comparison source limit. "
-            "Choose individual observations instead."
+            f"{_trip_scope_message()} Choose individual observations instead."
         )
     rows = list(
         versioned_trip_memberships(case, trip)

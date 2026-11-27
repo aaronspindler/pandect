@@ -2,8 +2,7 @@
 
 Choose meaningful states for each affected screen family and follow the
 [design review](../DESIGN.md#completion-and-design-review). Use the executable
-[browser checks](validation.md#browser-checks) with synthetic cases. Template
-and route counts include fragments and non-screen endpoints.
+[browser checks](validation.md#browser-checks) with synthetic cases.
 
 ## Coverage catalogue
 
@@ -26,9 +25,5 @@ documented synthetic or mocked configuration for routine checks.
 ## Dated reviews
 
 The [November interface reviews](archive/interface-review-2026-11.md) record
-the original captures, environment, test results, refinements, and limits. The
-[23 November product design pass](archive/interface-review-2026-11.md#product-design-pass--23-november-2026)
-and its follow-up cover representative interaction paths through evidence,
-analysis, imports, maps, and access recovery. Use those results as evidence for
-the revisions reviewed. The current application and affected browser journeys
-establish coverage for subsequent changes.
+prior captures, test results and limits, including the
+[26 November workspace review](archive/interface-review-2026-11.md#workspace-review-26-november-2026).

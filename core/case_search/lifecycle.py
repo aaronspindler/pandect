@@ -1,9 +1,11 @@
 """Transactional delivery of private search instances and versioned passage windows."""
 
+import json
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from math import ceil
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from django.core.exceptions import PermissionDenied
@@ -23,6 +25,8 @@ from .cloudflare import HostedSearchError
 PREPARE_LIMIT = 16
 UPLOAD_LIMIT = 4
 STATUS_LIMIT = 50
+# Cloudflare accepts at most ten values in an item metadata $in filter.
+STATUS_FILTER_LIMIT = 10
 STATUS_FALLBACK_LIMIT = 2
 POLL_INTERVAL = timedelta(seconds=30)
 DELIVERY_ERRORS = (HostedSearchError, PermissionDenied, Http404)
@@ -35,13 +39,13 @@ def activity_changed(index):
     )
 
 
-def enqueue(index, delay=0):
+def enqueue(index, *, run_after=None):
     index.token = uuid4()
     index.status = "queued"
     index.save()
     delivery = sync_index
-    if delay:
-        delivery = delivery.using(run_after=timezone.now() + timedelta(seconds=delay))
+    if run_after is not None and run_after > timezone.now():
+        delivery = delivery.using(run_after=run_after)
     delivery.enqueue(str(index.pk), str(index.token))
 
 
@@ -351,27 +355,51 @@ def send_passages(index, pending):
         raise error
 
 
-def check_passages(index, due, neighbors):
-    by_id = {}
-    if len(due) + len(neighbors) > 1:
-        active(index)
-        listing = cloudflare.request(
-            index,
-            "GET",
-            f"/items?source=builtin&per_page={STATUS_LIMIT}&sort_by=modified_at",
+def list_passage_statuses(index, targets=()):
+    params = {"source": "builtin", "per_page": STATUS_LIMIT}
+    if targets:
+        params["metadata_filter"] = json.dumps(
+            {"filename": {"$in": [item.filename for item in targets]}},
+            separators=(",", ":"),
         )
-        if not isinstance(listing, list) or any(
-            not isinstance(row, dict) or not isinstance(row.get("id"), str)
-            for row in listing
-        ):
-            raise HostedSearchError("search_response_invalid")
-        by_id = {row["id"]: row for row in listing}
-    for item in (*due, *neighbors):
+    else:
+        params["sort_by"] = "modified_at"
+    active(index)
+    listing = cloudflare.request(index, "GET", "/items?" + urlencode(params))
+    if not isinstance(listing, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get("id"), str)
+        for row in listing
+    ):
+        raise HostedSearchError("search_response_invalid")
+    return {row["id"]: row for row in listing}
+
+
+def reconcile_statuses(items, by_id):
+    missing = []
+    for item in items:
         if item.remote_id in by_id:
             receipt(item, by_id[item.remote_id])
-    # A limited page cannot establish absence. Confirm older or missing items
-    # that are due individually. Leave other absent receipts until their next poll.
-    missing = [item for item in due if item.remote_id not in by_id]
+        else:
+            missing.append(item)
+    return missing
+
+
+def check_passages(index, due, neighbors):
+    missing = due
+    candidates = due + neighbors
+    if len(candidates) > 1:
+        targeted = len(candidates) <= STATUS_FILTER_LIMIT
+        statuses = list_passage_statuses(index, candidates if targeted else ())
+        missing = reconcile_statuses(due, statuses)
+        reconcile_statuses(neighbors, statuses)
+        if not targeted and len(missing) > STATUS_FALLBACK_LIMIT:
+            # The newest page can omit older receipts that are still due.
+            targets = missing[:STATUS_FILTER_LIMIT]
+            statuses = list_passage_statuses(index, targets)
+            missing = (
+                reconcile_statuses(targets, statuses) + missing[STATUS_FILTER_LIMIT:]
+            )
+    # A list response cannot establish absence. Confirm due misses by ID.
     for item in missing[:STATUS_FALLBACK_LIMIT]:
         active(index)
         value = cloudflare.request(
@@ -472,7 +500,9 @@ def step(index):
     had_error = bool(index.error_code)
     index.failures = 0
     index.error_code = ""
-    enqueue(index, delay=delay)
+    enqueue(
+        index, run_after=timezone.now() + timedelta(seconds=delay) if delay else None
+    )
     return delay == 0 or had_error
 
 
@@ -494,17 +524,16 @@ def sync_index(index_id, token):
             progress_changed = True
             index.error_code = getattr(exc, "code", "search_disabled")
             retry_at = getattr(exc, "retry_at", None)
-            delay = (
-                max(1, ceil((retry_at - timezone.now()).total_seconds()))
-                if retry_at
-                else 0
-            )
             if retry_at and not exc.provider_throttled:
-                enqueue(index, delay=delay)
+                # A peer upload can use up the wait before the batch finishes.
+                enqueue(index, run_after=retry_at)
             else:
                 index.failures += 1
                 if index.failures <= 3:
-                    enqueue(index, delay=max(delay, (15, 60, 240)[index.failures - 1]))
+                    backoff = timezone.now() + timedelta(
+                        seconds=(15, 60, 240)[index.failures - 1]
+                    )
+                    enqueue(index, run_after=max(backoff, retry_at or backoff))
                 else:
                     index.status = "failed"
                     index.save()

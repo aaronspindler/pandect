@@ -440,6 +440,21 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(HostedSearchItem.objects.filter(source=src).count(), 1)
 
     @patch("core.case_search.cloudflare.request")
+    def test_case_search_describes_ranked_scope_and_links_to_evidence(self, request):
+        self.setup_item()
+        request.return_value = self.response
+        self.login("viewer")
+        response = self.client.get(
+            reverse("core:search:results", args=[self.case.pk]), {"q": "café"}
+        )
+        self.assertContains(response, "1 ranked passage returned.")
+        self.assertContains(response, "Case Search shows up to 30 per search.")
+        evidence = reverse("core:evidence:list", args=[self.case.pk])
+        self.assertContains(
+            response, f'href="{evidence}" data-workspace-link>Browse case evidence'
+        )
+
+    @patch("core.case_search.cloudflare.request")
     def test_global_search_uses_only_current_memberships_and_owner_approvals(
         self, request
     ):
@@ -452,6 +467,11 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
             self.original.title, response.context["groups"][0]["rows"][0]["title"]
         )
         self.assertContains(response, "<mark>notes</mark>")
+        self.assertContains(response, "Up to 4 ranked passages per case.")
+        case_search = reverse(
+            "core:search:results", args=[self.case.pk], query={"q": "notes"}
+        )
+        self.assertContains(response, f'href="{case_search}">Open Case Search')
         self.assertNotContains(response, self.other_case.name)
         self.assertEqual(request.call_count, 1)
         self.assertEqual(request.call_args.args[0].case_key, self.case.pk)

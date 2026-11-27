@@ -2,8 +2,8 @@
 
 [PRINCIPLES.md](../PRINCIPLES.md) owns principles, [AGENTS.md](../AGENTS.md)
 contributor requirements, and [DESIGN.md](../DESIGN.md) interface standards.
-The guides below describe current behavior and procedures; the
-[archive](archive/README.md) contains historical reports.
+The guides cover current behavior and procedures. Dated reports live in the
+[archive](archive/README.md).
 
 ## Setup and operation
 
@@ -22,7 +22,9 @@ The guides below describe current behavior and procedures; the
 - [Instagram monitor pilot](instagram-monitors.md)
 - [Evidence, communications, retention, and private downloads](evidence.md)
 - [Vehicle locations and Asset Location CSV imports](vehicle-location-imports.md)
-- [Analysis, reports, and external AI configuration](analysis.md)
+- [Analysis, reports, and external AI configuration](analysis.md), with focused
+  guides for [extraction](analysis-extraction.md),
+  [communications](analysis-communications.md), and [locations](analysis-locations.md)
 - [Original image, document, and recording previews](original-previews.md)
 - [Chronology](chronology.md)
 - [Evidence chat and cited answers](analysis.md#evidence-chat)
@@ -39,35 +41,21 @@ The guides below describe current behavior and procedures; the
 - [Public marketing pages](marketing.md)
 - [Project descriptions and reusable marketing copy](marketing-copy.md)
 - [Analysis roadmap](evidence-analysis-roadmap.md)
-- [Archived planning, reviews, and qualification reports](archive/README.md)
 
 ## Codex project configuration
 
-[`.codex/config.toml`](../.codex/config.toml) supplies defaults to new trusted
-sessions; session overrides and managed requirements may take precedence. See
-[configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
-and [configuration layering](https://learn.chatgpt.com/docs/config-file/config-basic).
-
-Use GPT-6 Astra with Fast for planning and the checked-in implementation model
-with Fast for coding. Read the current model and reasoning defaults in
-[`.codex/config.toml`](../.codex/config.toml). Switch models explicitly because
-`plan_mode_reasoning_effort` sets only effort. In the CLI, use `/model`, then
-`/plan`. Reselect the implementation model after leaving Plan mode.
-
-Automatic review handles eligible approval requests. Sandbox and shell network
-restrictions still apply, including when live web search is enabled.
+Trusted sessions read [`.codex/config.toml`](../.codex/config.toml) for project
+defaults. Use GPT-6 Astra with Fast for planning and the configured implementation
+model with Fast for coding. Select the model explicitly when switching modes
+because `plan_mode_reasoning_effort` controls effort only. See
+[configuration layering](https://learn.chatgpt.com/docs/config-file/config-basic)
+and the [settings reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
 ### Simplicity review
 
-Use Agentics' [`simplicity_reviewer`](https://github.com/aaronspindler/agentics)
-for the [required handoff review](../AGENTS.md#simplicity-and-maintainability).
-It inherits parent model/reasoning and permissions and stays read-only. Supply
-requirements, the final scoped diff (including new files), and Pandect safeguards;
-exclude unrelated work. Wait for findings, fix material issues, and rerun affected
-checks/review after substantive fixes.
-
-Install with `agentics install --agent simplicity_reviewer`; start a new session
-to load it from `${CODEX_HOME:-~/.codex}/agents/`. If custom agents cannot load,
-delegate the shared instructions and disclose the fallback. Review is a handoff
-requirement, not a Git/CI hook. See
-[custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents#custom-agents).
+Install the Agentics reviewer with `agentics install --agent simplicity_reviewer`
+and start a new session to load it from `${CODEX_HOME:-~/.codex}/agents/`. Invoke
+it read-only with the final scoped diff and task requirements. If the custom
+agent cannot load, delegate its shared instructions and report the fallback.
+Follow the [handoff requirements](../AGENTS.md#simplicity-and-maintainability).
+See [custom-agent setup](https://learn.chatgpt.com/docs/agent-configuration/subagents#custom-agents).

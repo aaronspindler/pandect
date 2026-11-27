@@ -17,6 +17,11 @@ from core.analysis.sightings import (
 )
 from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
 from core.evidence.time_claims import unavailable_time_claim
+from text.analysis.attributed_sources import (
+    result_batches,
+    verify_membership,
+    writing_scope,
+)
 
 
 def has_available_citations(operation, finding, source_map):
@@ -66,6 +71,15 @@ def finding_target(case, result, item_index, *, finding=None, cache=None):
             finding = result.data["items"][item_index]
         if run.operation == "sighting_group":
             _, sighting, sources = saved_group(case, run, cache=cache)
+        elif scope := writing_scope(run.operation, run.parameters):
+            verify_membership(case, scope, run.inputs)
+            sources = [
+                source
+                for batch in result_batches(
+                    case, scope, run.inputs, {"items": [finding]}, with_content=False
+                )
+                for source in batch
+            ]
         else:
             sources = resolve_inputs(
                 run, case, require_current_review=False, cache=cache

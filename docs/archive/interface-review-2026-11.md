@@ -386,3 +386,24 @@ and no-JavaScript paths, mobile form recovery, and map placement with simulated
 tiles. The independent simplicity review found no remaining actionable issues.
 Captures and logs are under
 `data/validation/workspace-round-trips-2026-11-23/`.
+
+## Workspace review, 26 November 2026
+
+The review reconciled the case and domain routes with forms, reader states,
+dialogs, and shared controls. It used a synthetic workspace to compare current
+and revised evidence analysis paths, with repository browser tests for role,
+keyboard, responsive, and recovery behavior. Local inventory and captures go
+under `data/validation/workspace-review/`.
+
+This pass covered the separate analysis chooser step, source and report filter
+reloads, refresh controls, ranked search coverage, packet selection, and
+relationship review. It also reproduced the writing-style rejection at 501
+messages and checked large selections against their retained source membership
+and whole-period measurements. Conversation and Chronology already load
+adjacent ranges as the reader approaches them.
+
+Track any remaining bound where the investigator encounters it. The packet
+selection uses a signed link for the reviewed disclosure. The comparison
+workflow retains exact saved-trip members and still has a method-specific
+source bound. Those constraints need separate changes to their owning workflows
+before they can be raised without losing the review or the exact source scope.

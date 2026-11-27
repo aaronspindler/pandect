@@ -18,8 +18,8 @@
       {% include 'ui/components/form_errors.html' with error_heading='Review your selection' %}
       <p class="help-text" id="writing-period-help">
         Dates are inclusive in {{ display_timezone }} and use reported message times.
-        {% if compare %}Choose two separate periods. Undated messages are excluded.
-        {% else %}Leave both dates blank to include undated messages.{% endif %}
+        {% if compare %}Choose two separate periods. Messages without a reported time are excluded.
+        {% else %}Leave both dates blank to include messages without a reported time.{% endif %}
       </p>
       <fieldset class="form-layout analysis-task-fields" aria-describedby="writing-period-help">
         <legend>{% if compare %}Earlier period{% else %}Message dates (optional){% endif %}</legend>
@@ -37,7 +37,17 @@
           </div>
         </fieldset>
       {% endif %}
-      <div class="form-actions"><button class="button button-primary" type="submit">Start analysis</button></div>
+      <div id="writing-message-count" role="status"
+           hx-get="{{ request.path }}{% querystring writing_counts='1' %}"
+           hx-trigger="change from:closest form" hx-include="closest form"
+           hx-headers='{"Accept":"application/json, text/html;q=0.9"}' hx-select="#writing-count-content"
+           hx-params="first_start,first_end,second_start,second_end" hx-sync="closest form:replace">
+        {% include 'text/writing_counts.html' %}
+      </div>
+      <div class="form-actions">
+        <button class="button button-primary" type="submit">Start analysis</button>
+        <noscript><button class="button button-secondary" type="submit" name="action" value="count">Check message count</button></noscript>
+      </div>
     </form>
   {% else %}
     <p class="muted">No active messages list this person as the sender.</p>
@@ -54,7 +64,7 @@
         {% with scope=run.parameters.writing_scope %}
           <li class="record-row">
             <div>
-              <a class="record-link" href="{% url 'core:analysis:detail' case.pk run.pk %}">{% if run.operation == 'style_change' %}Compare writing over time{% else %}Describe writing style{% endif %}</a>
+              <a class="record-link" href="{% url 'core:analysis:detail' case.pk run.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{% if run.operation == 'style_change' %}Compare writing over time{% else %}Describe writing style{% endif %}</a>
               <p class="muted">{% if run.operation == 'style_change' %}
                 {{ scope.first_start }} to {{ scope.first_end }} and {{ scope.second_start }} to {{ scope.second_end }} ({{ scope.timezone }})
               {% elif scope.first_start or scope.first_end %}

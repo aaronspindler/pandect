@@ -129,7 +129,9 @@ window.PandectPage((signal) => {
     const form = event.target.closest("[data-unsaved-form]:not([data-evidence-upload])");
     if (form && !form.closest("dialog")) dirtyForms.add(form);
   }, {signal});
-  document.addEventListener("submit", (event) => dirtyForms.delete(event.target), {signal});
+  document.addEventListener("submit", (event) => {
+    if (!event.defaultPrevented) dirtyForms.delete(event.target);
+  }, {signal});
   document.addEventListener("pandect:check-navigation", (event) => {
     if (!dirtyForms.size) return;
     if (window.confirm("Discard your unsaved changes?")) dirtyForms.clear();

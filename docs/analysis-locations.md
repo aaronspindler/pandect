@@ -1,24 +1,14 @@
 # Location analysis methods
 
-Retained runs compare up to 500 same-case observations, preserving selection,
-parameters and original addresses, coordinates, times, rows and checksums.
-Counts/grouping/movement require one interpretation per original; selecting both
-original and geocoded/extracted versions is rejected. Quality review allows
-labelled alternatives and counts unique observations. Person/vehicle methods
-also accept plain Locations without assigning subjects.
+Retained runs compare up to 500 same-case observations and preserve original
+values, row provenance, checksums and parameters. Counts, grouping and movement
+use one interpretation per original. Quality review can show alternatives and
+counts each original once. Plain Locations remain unassigned.
 
-Deterministic methods use reported coordinates or selected address estimates.
-Address-only CSV rows need interpretation for spatial analysis; [automatic
-trips](#automatic-vehicle-trips) also work from addresses. Derived coordinates
-never replace reported ones; comparisons can retain both and flag disagreement.
-No method verifies presence, identifies drivers or infers engine state from zero speed.
-
-Shared WGS84 validation and distance calculations live in `geo.coordinates`.
-The deterministic analysis modules share selection, bounds, and finding
-presentation through `geo.analysis.deterministic.observations`. The
-`movement` module owns visits, journeys, period comparisons, and travel
-discrepancies. The `locations` module owns address wording, quality, spatial
-grouping, proximity, co-location, and same-event comparisons.
+Spatial methods use reported coordinates or selected estimates. Address-only
+rows need an estimate for coordinate comparisons. [Automatic trips](#automatic-vehicle-trips)
+can also use addresses. Derived coordinates stay separate from reported
+coordinates, and comparisons can flag disagreements.
 
 ## Available comparisons
 
@@ -44,56 +34,34 @@ references and coverage limits.
 ## Compare plans with locations
 
 Open **Case Tools → Analysis methods → Compare plans with locations**. Select
-a message, captured text, supplied call transcript, or exact retained document
-extraction, OCR or transcription. Select the location observations to compare,
-or choose a retained visit, journey or current active vehicle trip to include its
-individual samples. A retained claim suggestion can supply the quoted passages. Its AI
-attribution stays visible. Analysis works locally with one passage and one
-observation. It starts no model or geographic lookup.
+at least one quoted passage from a message, captured text, supplied transcript
+or exact retained extraction, OCR or transcription. A saved claim suggestion
+can supply the quote with its AI attribution. Select at least one observation,
+or include the samples from a retained visit, journey or active vehicle trip.
+The trip picker shows its observation count and links back to individual
+observations if the trip exceeds the available selection. This method runs locally.
 
-Choose the exact quotation and its occurrence. Identify who or what the passage
-describes, the stated place, and any interpretable time and UTC offset. A relative
-time needs a cited reference. Keep uncertainty explicit or add another
-interpretation of the passage. Review the selection before queuing it. The
-reported sender and recipient are separate from the subjects of the claim.
+Select the exact occurrence, subject, place and any interpretable time with UTC
+offset. Cite the reference for a relative time. Use one interpretation for
+people or vehicles named together. Add separate interpretations for ambiguous
+subjects, places or times. The reported sender and recipient stay separate from
+the claim subjects.
 
-**Restart source selection** restores the two pickers' searches, pages, and
-available selections. It reports unavailable selections and resets a missing
-page to the first page of that picker. Starting from Evidence keeps its reader
-and filters available through Cancel and the result. If that record was
-removed, the return opens the filtered Evidence collection.
+The result cites supporting and contrary samples for each subject and discloses
+gaps and unresolved readings. A conflicting sample can raise a discrepancy
+for a claimed instant. A matching record supports the comparison while leaving
+attendance, driver identity and continuity unresolved.
 
-For a plan naming several people or vehicles together, select them in one reading.
-Each sample can support or call into question the place and time for its own
-recorded subject. Other named participants may have no observations. If a
-passage could refer to different people or groups, add a separate interpretation
-for each possible reading. The comparison keeps competing readings unresolved.
+**Restart source selection** restores available selections, searches and pages.
+**Cancel** and result return links reopen the starting record and filters while
+the record is available. Open a passage for highlighted wording and page, line
+or recording anchors. **Browse related exchanges** opens existing cross-channel
+findings for a cited message or call.
 
-For example, a message proposes meeting at **49 Harbour Road** at 10:00. A
-10:00 observation of the identified subject at that specific address supports
-the place and time comparison. Attendance remains unverified. A later message
-calling off the meeting can be quoted and linked to the proposal. A vehicle
-sighting at the address leaves both attendance and the driver's identity open.
-
-Supporting and contrary findings cite the selected wording and sample. A
-contemporaneous observation at an incompatible position can raise a discrepancy
-for a single claimed instant. Gaps, unrelated subjects, ambiguous places, and
-competing readings stay visible in the saved result. Only recorded samples
-contribute to a journey comparison. The first and last samples cannot establish
-where the subject was between them.
-
-Open a passage to see the highlighted text and its underlying pages, lines or
-recording intervals. Return links from a passage or saved group reopen the
-citing finding and keep its Evidence context. From a message or call passage,
-**Browse related exchanges**
-opens the existing cross-channel findings for that communication, including
-timing-only candidates. A saved trip comparison retains its generation, ordered
-members, and original links after a rebuild. Source changes or loss of case
-access withhold dependent material. Each comparison allows up to 500 distinct
-source snapshots, 1,000 interpretation–observation pairs, 32 KiB of settings
-and 4 MiB of result data. The input check also limits the retained source text
-and extraction data loaded for a comparison to 16 MiB by default. Narrow an
-oversized selection before queuing it.
+The run keeps the trip generation and ordered members. Changed inputs or revoked
+access withhold dependent material. Each comparison allows up to 500 source
+snapshots, 1,000 interpretation–observation pairs, 32 KiB settings, 4 MiB results
+and 16 MiB loaded material by default. Narrow oversized selections.
 
 ## Parameters and bounds
 
@@ -112,9 +80,7 @@ Forms expose only relevant assumptions. Quality review compares reported and est
 coordinates against the discrepancy threshold; travel checks use it for equal-time
 positions. Same-event comparison has no time/distance tolerance.
 
-Omitted or cleared `radius_m` uses the processor's 1,000 m default. Internal
-`reference_source_id` can designate a selected coordinate-bearing centre, but
-forms offer only manual coordinates or polygons.
+Clearing the radius uses the processor's 1,000 m default.
 
 Distances use a spherical Earth approximation, including poles/dateline. Polygon
 classification uses latitude/longitude ray crossing and locally projected boundary
@@ -193,10 +159,6 @@ country filter and explanation even on failure/no match. Each distinct original
 gets one request, without street/city-only broadening. Returned addresses can
 still disagree, including postcodes. Choose an estimate before using it.
 
-This is geocoding version 2. Upgrade web/workers together and rerun prior no-matches.
-Queued version 1 fails recoverably with `processing_version_unavailable`; originals
-and prior results remain unchanged. No database migration is needed.
-
 [Forward lookup](https://nominatim.org/release-docs/latest/api/Search/) retains
 coordinates, display address, granularity, bounding box, source reference,
 attribution, lookup time, query and version, keeping alternatives distinct.
@@ -224,17 +186,13 @@ use idempotent **Prepare trips** POSTs. Owners and editors can trigger preparati
 by opening Trips with JavaScript enabled or by submitting the form. Viewers can
 inspect results. Processing shows progress, generations, failures, and recovery.
 
-Background chunks read up to 500 active observations from chronological histories
-without a total-source cutoff. Queued rebuilds can absorb newer source changes
-before they start. The current generation and any generation cited by a saved or
-queued journey comparison or retained Evidence chat source keep their complete
-input snapshots. Superseded,
-uncited derived rows are retired in bounded steps while generation history remains.
-Cleanup includes replaced attempts and method versions at the same source revision.
-Each chunk rechecks access and revision. Only complete
-matching work publishes. Source changes supersede work; retries/duplicate delivery
-cannot publish partial trips. Confirm stopped workers before recovery, with at
-most three attempts per recovery phase. Startup/migrations never process evidence.
+Workers read up to 500 active observations per chunk across the full vehicle
+history. Each chunk verifies access and the source revision. Only a complete,
+current generation publishes. Changes can supersede an active rebuild. The
+current generation and any generation cited by a saved or queued analysis or
+Evidence chat retain their input snapshots. Cleanup retires uncited derived rows
+in bounded steps and keeps generation history. Confirm the previous worker
+stopped before recovery. Each recovery phase allows up to three attempts.
 
 Vehicle pages show up to five recent trips. Trips shows 25 trips per page and
 jumps to the first whole trip overlapping a selected day. Times use the account
@@ -259,11 +217,9 @@ lookup separately prepares candidates. Maps connect reported positions or exactl
 one selected local estimate, retaining attribution and unresolved breaks. Selecting
 an estimate changes the mapped path. See [map lookup](maps.md#local-address-lookup).
 
-Trips retain first/last observed places/times and elapsed minutes. Actual departure,
-arrival, road route, travelled distance, driver and continuous presence remain
-unknown. Deliberately selected retained journey analysis remains separately
-available within its source limits.
-
+First and last recorded places and times bound the observed span. Actual
+departure, arrival, route, travelled distance, driver and continuous presence
+remain unknown.
 
 ### Saved trips in Evidence chat
 

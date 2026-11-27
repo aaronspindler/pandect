@@ -12,62 +12,20 @@ docker compose down
 ```
 
 `stop` and `down` retain `postgres_data` (PostgreSQL) and `app_data` (private
-evidence). Never use `down --volumes` on retained data. Legacy runtime files are
-not mounted or migrated.
+evidence). Never use `down --volumes` on retained data.
 
 The local Compose web command runs pending schema migrations after database
 readiness and before starting the ASGI web server. `/health/` checks
-PostgreSQL. On startup failure, inspect logs and environment variables, fix the
-cause, and rerun `make run`. Changing `.env` does not rotate passwords in
-initialized PostgreSQL volumes: rotate in PostgreSQL first.
+PostgreSQL. On startup failure, inspect the logs and configuration, then rerun
+`make run`. Rotate existing database passwords in PostgreSQL before updating
+`.env`. After startup, run the [queue execution diagnostic](background-tasks.md#startup-and-diagnostics).
 
-HTTP readiness does not prove queue execution. Use the [worker diagnostic and
-recovery procedures](background-tasks.md#startup-and-diagnostics) after startup.
-Independent external AI analysis can use a bounded pool of
-[parallel local workers](background-tasks.md#parallel-local-workers) without
-replacing an active worker.
-
-The local PostgreSQL container gives `/dev/shm` 512 MiB for dynamic shared
-memory used by parallel queries. If PostgreSQL reports `could not resize shared
-memory segment` with `No space left on device`, check the shared-memory mount
-with `docker compose exec -T db df -h /dev/shm`. Its capacity is separate from
-free space on the database volume. `make run` drains the workers and applies
-Compose configuration changes, recreating the database container as needed with
-the existing named volume.
-
-The local Compose web service sets `PGOPTIONS=-c jit=off` for its PostgreSQL
-connections to avoid query compilation latency on case pages. Background workers
-use the database JIT default. If the configured app image matches the running
-one, apply this configuration with
-`docker compose up -d --no-deps --no-build --pull never --wait web`. Verify that
-`SHOW jit` returns `off` on a fresh web service connection.
+Compose sets `PGOPTIONS=-c jit=off` for web queries and gives PostgreSQL 512 MiB
+of dynamic shared memory. If PostgreSQL reports `could not resize shared memory
+segment`, inspect `docker compose exec -T db df -h /dev/shm`. Capacity there is
+separate from free space on the database volume.
 
 ## Database backup and restoration
-
-### Upgrade an existing PostgreSQL 18 installation for case search
-
-1. Record the current app revision, database image and volume mounts. Record the
-   case, original, checksum, saved answer, result and review inventory. Stop the
-   web process and drain all queue consumers, including profile-specific workers.
-2. [Capture a matching backup](#capture-a-matching-backup) of the database and
-   every private file root. Restore it into an isolated project with the former
-   database image and matching app. Compare the inventory, verify private file
-   checksums, open saved answers and follow their citations in the restored copy.
-3. Build the new app. With the old database still online and every writer stopped,
-   run `docker compose run --rm --no-deps web python manage.py migrate --noinput`.
-   The cutover removes rebuildable search tables and fences historical approvals.
-   It preserves evidence, findings, reviews and chat history. The migration
-   performs no transfers. Verify the inventory again and check every case has
-   External AI off.
-4. Use the same PostgreSQL 18 data directory, volume and architecture with the
-   standard image pinned in Compose. If another application uses the vector
-   extension in the same database, move that application or retain a compatible
-   database image. Start matching web and worker versions. Open saved sources,
-   verify counts and check worker readiness before enabling external AI.
-5. The verified owner can now enable external AI in Case Settings. Review the
-   named destinations, then check provisioning and indexing progress. For
-   rollback, restore both the pre-upgrade database and its matching evidence
-   files under the previous application image.
 
 ### Backup contents
 
@@ -169,33 +127,34 @@ worker diagnostic after startup. External storage needs coordinated snapshots,
 restoration, and preserved storage keys. See
 [evidence lifecycle and cleanup recovery](evidence.md#private-storage-and-deletion).
 
-## Image and document text extraction
-
-Native document text extraction runs during deterministic intake. Model-backed
-OCR requires the case owner's Cloudflare approval. Inspect source page and image
-anchors in the retained result. See [extraction](analysis-extraction.md).
-
 ## Upgrades and hosted deployment
 
-Before upgrading local Compose, [capture a matching backup](#capture-a-matching-backup)
-and leave every writer stopped until migration and verification finish.
-Findings catalogue migrations backfill retained JSON/input snapshots in bounded,
-resumable per-result transactions. They do not read originals, rerun analysis,
-contact providers, rewrite result/review JSON, or rebuild at startup. Duration
-grows with retained findings. These additive migrations require the current
-[baseline](architecture.md); they cannot upgrade rewritten pre-release baselines.
-The timing-only finding migration reclassifies searchable projection flags.
-Activate matching web and worker code after migration so both interpret those
-flags consistently.
+Before upgrading, [capture a matching backup](#capture-a-matching-backup) and
+leave all writers stopped until migration and verification finish. If the old
+Compose project has separate `proxy` and `events` services, stop them with
+the old Compose file so web can bind the loopback port. On hosted upgrades,
+route `/events/` to the web Application. Inspect
+`migrate --plan` and the migration files for schema locks, retained-data
+backfills, and rollback constraints. Catalogue backfills use saved results
+and can take longer with more findings. For an interrupted concurrent index
+build, check whether an invalid index remains before retrying. Earlier
+application images may be incompatible after a migration. If reversing the
+full migration plan would remove retained data or cannot be done safely,
+qualify restoration from the matching backup in a separate environment.
 
-Before rolling back, identify the exact running and target application revisions,
-their migration graphs, and their compatibility with the current schema. If the
-target needs a schema reversal, inspect Django's full `migrate --plan` for that
-target with writers stopped. Include dependent apps and check for lost data or
-irreversible operations. The former `core.0005_saved_selection` target crosses
-later migrations and can remove retained records. For an incompatible or unsafe
-reversal, qualify recovery from a matching backup in a separate environment
-before cutover. Retain the current database and files for recovery.
+When moving a PostgreSQL 18 installation from the former vector-based search,
+keep the same data directory, volume, and architecture. Before migration, record
+the running app and database images and the retained evidence, findings, reviews,
+and chat inventory. Restore the paired database and media backup in isolation
+with those images. Compare inventory and original checksums, and reopen saved
+citations before proceeding. The hosted-search migration removes rebuildable
+search data, disables External AI, and preserves evidence, findings, reviews,
+and saved chat. Verify the retained inventory and citations before the owner
+reviews and enables the new destinations. For rollback, restore the same paired
+backup with the previous app and database images. If other
+applications share the vector extension, keep a compatible database image or
+move those applications before switching to the standard image. For an older
+pre-release schema, follow the [fresh baseline](architecture.md#primary-keys-and-the-initial-schema).
 
 After reviewing dependency and runtime compatibility, select the installation's
 usual Compose profiles and run:
@@ -219,9 +178,7 @@ for hosting. Other hosts need HTTPS, allowed hosts, secure secrets, SMTP, matchi
 `PANDECT_PUBLIC_ORIGIN`, private persistent storage, database backups, and migration
 before web/worker startup. Debug defaults off, requiring HTTPS session/CSRF cookies.
 Run `python manage.py check --deploy` with actual configuration and resolve findings.
-Trust proxy headers only behind a controlled proxy. Older installations require a
-[fresh baseline](architecture.md#primary-keys-and-the-initial-schema), with their
-old database/media retained; do not fake migration history.
+Trust proxy headers only behind a controlled proxy.
 
 ## First Dokploy deployment
 
@@ -243,9 +200,8 @@ managed **PostgreSQL**, without Compose.
    `ghcr.io/<owner>/<repository>@sha256:<digest>` image for both.
    Leave web's Command and Arguments overrides empty so it uses the image's
    default Gunicorn command. Set worker's Command to `sh` and Arguments to the
-   single entry `/app/scripts/docker-entrypoint-worker.sh`. The web image starts
-   Gunicorn with its native ASGI worker and owns the case event listener.
-   Configure the web Application's native HTTP health check against
+   single entry `/app/scripts/docker-entrypoint-worker.sh`. Configure the web
+   Application's native HTTP health check against
    `http://127.0.0.1:8000/health/`; keep worker rollout stop-first and web start-first.
 3. Copy [`.env.dokploy.example`](../.env.dokploy.example) into the web and worker
    environments, replacing blank secrets and the database hostname. Debug defaults
@@ -259,12 +215,10 @@ managed **PostgreSQL**, without Compose.
    own the mount. No public route may serve that directory.
 5. Configure `openpandect.com`, path `/`, container port `8000` on the web
    Application through Dokploy's native Domains settings. Follow the existing
-   Cloudflare ingress setup: internal HTTP, HTTPS at the public edge. Configure
-   the public HTTP-to-HTTPS redirect at that edge. Do not edit Traefik directly.
-   The same web route serves `/events/`. Configure ingress to stream
-   `text/event-stream` without caching or buffering. If an earlier installation
-   routes that prefix to a separate service, point it at web during cutover.
-   Worker and database stay private.
+   Cloudflare ingress setup: internal HTTP, HTTPS and HTTP-to-HTTPS redirection at the
+   public edge. Use Dokploy's settings for Traefik. Serve `/events/` through the
+   same web route and stream `text/event-stream` without caching or buffering.
+   Keep the worker and database private.
 6. Deploy the singleton worker first. Its startup applies migrations, emits
    `PANDECT_WORKER_PREPARED <APP_COMMIT_SHA>`, and starts `db_worker`. Migration
    failure stops startup before the marker or worker. Confirm the new worker's
@@ -283,43 +237,23 @@ releases never recreate the independently provisioned database. The singleton,
 stop-first worker owns migrations; never migrate concurrently elsewhere. Migrations
 must support the running web release; plan destructive changes separately.
 
-Closed registration rejects GET/POST, including new invitees; existing accounts
-can sign in. Leave inference credentials and URLs unset for this first deployment.
-When enabling [external AI](analysis.md#external-ai-configuration), apply the
-same provider settings and credentials to both Applications. SMTP is optional
-for the marketing launch but required before password resets, verification, or
-invitation delivery.
+Closed registration blocks new invitees from registering. Configure SMTP
+before account verification, password resets or invitations. When enabling
+[external AI](analysis.md#external-ai-configuration), give web and worker
+matching provider settings.
 
-Trust `X-Forwarded-Proto` only behind the controlled proxy; retain secure
-session/CSRF cookies. `DJANGO_TRUST_PROXY_HEADERS` defaults to `false`; the Dokploy
-example explicitly enables it for this ingress. `DJANGO_SECURE_SSL_REDIRECT`
-defaults to `false` because the edge owns the redirect; enable it only when the
-application can reliably identify HTTPS requests. HTTPS public origins default to
-one-day HSTS; HTTP origins default to zero. `DJANGO_SECURE_HSTS_SECONDS` explicitly
-overrides either default, including `0` to disable it. The Dokploy example also
-sets `86400`. HSTS is emitted only when Django recognizes the request as secure.
-Verify `Strict-Transport-Security: max-age=86400` on the public HTTPS response,
-edge HTTP-to-HTTPS
-redirects, sign-in CSRF, and proxy behavior on the actual domain. Assess Django's
-deployment findings against edge configuration and the one-day HSTS policy.
+Set `DJANGO_TRUST_PROXY_HEADERS=true` only where the controlled ingress supplies
+`X-Forwarded-Proto`. The example enables it and sets one-day HSTS. Django emits
+HSTS on requests it sees as secure. `DJANGO_SECURE_SSL_REDIRECT` defaults off
+because the edge redirects. Verify redirects, HSTS and sign-in CSRF on the
+actual domain.
 
-For allauth rate limits, `PANDECT_TRUSTED_PROXY_COUNT=0` uses the directly connected
-address and ignores `X-Forwarded-For`. Set the count only when the controlled proxy
-chain supplies the genuine client address, its hop count is fixed, and clients
-cannot bypass the proxy. Verify distinct clients have separate limits and forged
-forwarding headers do not bypass them. Authentication limits use Django's
-PostgreSQL cache across web processes, created by the accounts migration; no
-separate cache service or `createcachetable` command is needed. Cache entries
-expire and Django bounds the table at 100,000 entries with automatic culling.
-The admin sign-in URL redirects anonymous requests to the same allauth sign-in
-flow, including its verification and shared rate limits. Staff, model permissions,
-and current case access are still required. Edge limits remain useful for request
-volume before it reaches Django.
-
-Apply the accounts migration before activating this revision's web process; the
-previous revision can continue using its own process-local cache during rollout.
-The migration adds only the Django cache table and does not change retained
-investigation data. A web rollback can leave this disposable cache table in place.
+`PANDECT_TRUSTED_PROXY_COUNT=0` uses the connected address for allauth rate
+limits. Set a hop count only for a fixed, trusted chain that supplies genuine
+client addresses and blocks direct origin access. Test distinct clients and
+forged forwarding headers. Authentication rate limits share Django's PostgreSQL
+cache, created by normal account migrations. Staff, model permissions and
+current case access govern administration.
 
 After activation, run in the deployed web Application terminal:
 
@@ -344,30 +278,18 @@ older images may not support newer schemas.
 
 ### Continuous deployment
 
-After checks pass for an upstream `main` push, **CD** chooses the next release
-version and builds the tested commit on native Linux AMD64 and ARM64 runners.
-Builds use attempt-specific `build-<CI run ID>-amd64` and `-arm64` tags and a
-combined `build-<CI run ID>` image. CD verifies that the manifest contains both
-Linux architectures before deploying its immutable digest. CI runs checks and
-smoke builds without package publication or deployment.
+The [CD workflow](../.github/workflows/cd.yml) accepts successful CI runs
+from upstream `main` pushes. Its secret-free preflight verifies the triggering
+CI attempt and its tested commit. A confirmed documentation-only run skips
+publication and deployment. See [CI classification](validation.md#documentation-only-runs).
 
-Successful GitHub releases assign consecutive `v1.N` versions, starting at
-`v1.0`. The read-only `scripts/create-github-release.py --prepare` step selects
-the next number from published, non-draft, non-prerelease releases in that series. Legacy commit-based and
-three-part tags do not assign these numbers. The helper requires an unbroken
-successful `v1.0`, `v1.1`, … history; it stops on a missing version instead of
-skipping it. History reads stop if 20 pages of 100 releases cannot establish the
-complete history. Only a published successful GitHub release consumes a number.
-Failed or skipped work before publication leaves the candidate available. A
-retry of the latest published source skips building, deploying, and assigning it
-a second number. The non-packaged uv project's `pyproject.toml` version does not
-assign deployment versions.
-
-The candidate version is embedded in `APP_VERSION` and the OCI version label;
-`APP_COMMIT_SHA` and the OCI revision label retain source provenance. Healthy
-`/health/` responses expose both `version` and `commit`. The final publication
-stage promotes the verified image to `ghcr.io/<owner>/<repository>:v1.N` after
-deployment succeeds.
+For application runs, native Linux AMD64 and ARM64 builds publish
+`build-<CI run ID>-amd64` and `build-<CI run ID>-arm64`. CD combines them under
+`build-<CI run ID>`, verifies both platforms and records the immutable digest.
+Both Applications run that digest. Versions and source commits are embedded
+in the image and OCI labels, and appear as `version` and `commit` on
+`/health/`. Local builds default to version `dev`, and use `unknown` when
+no source commit is supplied.
 
 Under GitHub **Settings → Environments → production**, set **Deployment branches
 and tags** to **Selected branches and tags** and allow only the protected
@@ -389,105 +311,36 @@ token; Dokploy's long-lived pull credential stays in secrets and Docker provider
 configuration. The helper preserves operator-owned environments, mounts, domains,
 database, and secret-store settings; it never redeploys PostgreSQL.
 
-The Python workflow helpers accept only `https://api.github.com` for the GitHub
-API and validate repository names before authenticated requests. Runner event,
-output, and summary paths must resolve beneath `RUNNER_TEMP`, including after
-symlink resolution. These helpers use GitHub-hosted runner paths; local mocked
-tests supply their own temporary root.
+CD queues releases without cancelling active ones. Commit ancestry guards
+prevent an older source from replacing a newer attempted rollout. Confirm the
+[fresh database baseline](architecture.md#primary-keys-and-the-initial-schema)
+before setting the `production` environment variable
+`PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1`. The deployment helper
+requires this value before mutating Dokploy.
 
-CD accepts successful `CI` runs only from same-repository `main` pushes. The image
-build job checks out the source identity verified and emitted by preflight. Its whole
-workflow queues behind an active release without cancelling it for newer commits;
-GitHub permits up to 100 pending runs. Manual cancellation, queue limits, failures,
-and timeouts can still interrupt a release. Queued commits may be ancestors of
-current `main`; commit ancestry prevents older source from rolling back a newer
-attempted deployment. A newer descendant attempt may reuse a version that never
-reached successful GitHub release publication. For the
-[domain-app baseline](architecture.md#primary-keys-and-the-initial-schema),
-retain the old database/evidence volume, prepare a fresh PostgreSQL database and
-empty queue, and point both Applications to it. Then set **production** environment
-variable `PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1`; the helper refuses
-mutations without it. Once ready, rerun **CD** for the intended successful CI run.
+The helper records each rollout as an explicit GitHub deployment, tied to the
+tested commit, image digest, CI run and candidate version. The newest record
+informs future CI classification. It stays uncertain until both services pass
+verification and the helper records success.
 
-Before accessing the production environment, CD runs a secret-free preflight
-against the triggering CI run and attempt. Successful application checks permit
-the image build and rollout; successful static checks and a final status decision
-confirming documentation-only skips end without image publication, deployment,
-or release. Missing, failed, ambiguous, or unreadable check results fail before
-production secrets are accessed. See
-[classification and fallback rules](validation.md#documentation-only-runs).
+The singleton worker updates stop-first, migrates and emits its release marker.
+Its Swarm task must stay on the expected image for 60 seconds before web
+updates start-first. CD checks web task stability and the expected commit on
+both public health endpoints. Run the worker probe separately to verify queue
+execution.
 
-Before mutating Dokploy, the helper creates an explicit GitHub deployment record
-for task `pandect-rollout` in `production`, bound to the tested commit and image
-digest, CI run identity, and candidate version, and records `in_progress`. It
-repeats the ancestry guard before activation; failed or interrupted rollouts
-remain uncertain. The helper records `success` after worker and web pass verification.
-CI uses the newest such record as its baseline; it never infers the attempted
-image from the deployment workflow's own revision or falls back to an older
-successful rollout. Missing tracking or a status-write failure selects full CI
-until a later rollout is verified. GitHub release publication remains separate.
+Successful GitHub releases use consecutive `v1.N` versions beginning at `v1.0`.
+After deployment, CD promotes the verified digest to the candidate version tag
+and publishes a GitHub release pointing to the exact tested commit. Release
+publication consumes the version number. Interrupted publication can leave
+the promoted image in place. Inspect the current deployment, tag and release,
+then use **Re-run failed jobs** for a failed publication after a successful
+rollout. A matching Git tag can be reused. Conflicts, drafts and sequence gaps
+require operator review. The helper leaves existing releases and tags intact.
 
-The attempt tag must resolve to the same digest recorded by the combined-image
-job. CD supplies it as `PANDECT_IMAGE`; both Applications receive
-`repository@sha256:...`. CD uses only the trusted workflow helper, never downloaded
-CI artifacts.
-
-CD updates each Application's Docker provider while preserving its environment
-and mounts. The singleton worker uses stop-first updates and the worker entry
-point. After migration, its new Swarm task must emit the expected preparation
-marker and stay on the release image for 60 seconds. Web then starts with the
-image's default ASGI command. It uses start-first updates and must pass the same
-60-second image stability check. CD verifies the expected commit on
-both public health endpoints, including listener readiness on `/events/health/`.
-Queue execution still requires the bounded `check_task_worker` diagnostic above;
-CD's worker checks establish startup and task identity.
-
-When replacing separate `-web`/`-worker` packages, preserve Application IDs,
-environments, database, and shared volume. Check pull access to the shared GHCR
-package first. Successful CI/CD switches both images and startup commands without
-a database reset or extra migration. Retain old digests/commands for reviewed recovery.
-
-Only after both services pass verification does the deployment helper emit its
-`deployed=true` output. A dependent job repeats read-only release preparation and
-checks the candidate still matches its expected version. If that source is
-already published, it leaves the versioned image and release unchanged.
-Otherwise, it promotes the verified image digest to `v1.N`, then publishes the
-GitHub release tagged `v1.N` and named `Pandect v1.N`, pointing to the exact tested
-commit, with generated release notes and links to the CI and deployment runs.
-The publication helper checks the sequence again before creating the release.
-Rejected older attempts and failed or partial deployments never enable this job.
-The release helper comes from the trusted workflow revision; only this job
-receives `contents: write` through the built-in GitHub token, without Dokploy
-secrets.
-
-Reruns preserve an existing published release after checking that its tag
-resolves to the tested commit. A matching tag left by interrupted publication can
-be reused to create the missing release. Conflicting tags, existing drafts, gaps
-in successful release history, and API failures stop publication for operator
-review; the helper never moves Git tags or edits/deletes existing releases.
-Deployment releases leave GitHub's **Latest** designation unchanged so a late
-retry cannot supersede a newer release.
-
-Image promotion and GitHub release creation are separate operations. An
-interruption can leave a promoted image without a completed GitHub release; the
-number remains available until release publication succeeds. If the release
-request succeeded but its response was lost, preparation reconciles the
-published release before retrying. A deployment that already succeeded remains
-running. Use GitHub Actions **Re-run failed jobs** to retry final publication
-using its successful deployment's output; rerunning the entire workflow repeats
-eligibility checks and reconciles existing successful release state first.
-Inspect an uncertain publication before retrying. Repository tag rules must
-permit the workflow to create `v*` tags. GitHub can also reject release
-creation with HTTP 403/404 if the target commit's workflow files differ from the
-current default branch and the token lacks workflow-modification authority;
-inspect the target and repository rules rather than adding fallback credentials.
-See [GitHub's release API](https://docs.github.com/en/rest/releases/releases#create-a-release).
-
-Requests/waits are bounded; redirects are rejected. Timeouts identify the service
-and pending check. Inspect native deployment/task status before retrying: rollout
-may continue after timeout, and the helper refuses detected active deployments.
-Failures stop remaining steps and may leave partial releases for operator review.
-Back up before schema upgrades and preserve compatibility with the running release.
+If a deployment times out, inspect the native task and deployment status
+before retrying. It may still be running. Re-running all jobs repeats the
+eligibility checks.
 
 ## Upload limits and request handling
 
@@ -510,15 +363,11 @@ the raw multipart body and Django's parsed upload can coexist while the original
 is saved. Private downloads stream in bounded chunks. Configure request size and
 concurrency limits at ingress as well, since proxies can buffer requests.
 
-Vehicle CSV imports accept up to 100 MiB and 100,000 data rows. Message CSV imports
-also retain a separate 100 MiB file limit, 131,072-character field limit and 1 MiB
-UTF-8 message-text limit. Ordinary originals remain subject to each analysis
-method's narrower profile; deterministic parsers still read at most 16 MiB.
-Worker parsing, paginated review, and atomic
-publication are described in [vehicle-location imports](vehicle-location-imports.md).
-Back up source documents, staged rows, interpretations, progress, and provenance
-with the rest of the database and private files. File cleanup and orphan recovery
-follow the [evidence lifecycle](evidence.md#private-storage-and-deletion).
+Use the [vehicle CSV](vehicle-location-imports.md) and
+[message and call CSV](evidence.md) guides for specialized intake limits and
+review. Individual analysis methods apply their own parser bounds.
+Back up staged rows, interpretations and provenance with the database and
+private files.
 
 Configure the serving proxy/CDN to limit the entire request body as well. With the
 1 GiB file limit, use a 1,026 MiB request cap to leave room for ordinary metadata
@@ -538,15 +387,9 @@ recipient email and expire after seven days. After
 delivery failure, fix SMTP before owner-initiated resend. Sign-in resumes invitations
 through the session, without tokens in login URLs.
 
-Production SMTP uses the configured sender, STARTTLS, and a bounded timeout.
-Set `DJANGO_EMAIL_HOST`, `DJANGO_EMAIL_HOST_USER` and
-`DJANGO_EMAIL_HOST_PASSWORD` for the actual SMTP service; the port defaults to 587
-and can be overridden with `DJANGO_EMAIL_PORT`. The sender defaults to
-`pandect@` followed by the public-origin hostname, using `pandect@localhost` for
-IP and `.localhost` origins. Set `DJANGO_DEFAULT_FROM_EMAIL` when the mail service
-requires another address.
-Development console mail prints private verification/invitation links; keep logs
-private and hosted debug disabled.
+Configure [SMTP settings](development.md#configuration) before sending mail.
+Local debug console mail prints private verification and invitation links.
+Keep those logs private.
 
 Case, account, and invitation responses disable caching and use
 `Referrer-Policy: same-origin`. This preserves native same-origin form CSRF
@@ -562,11 +405,9 @@ referrers at the ingress, CDN, and log collector for these route families:
 - `/accounts/confirm-email/<key>/`
 - `/accounts/password/reset/key/<uid>-<key>/`
 
-Strip query strings from case search and suggestion URLs at the ingress as
-well. Investigators can enter names, identifiers and evidence text in `q`.
-Keep evidence bodies, passwords, cookies, and bearer tokens out of telemetry.
-Review access and retention for logs produced before equivalent redaction was in
-place.
+Strip query strings from case search and suggestion URLs. Their `q` values
+can contain names, identifiers and evidence text. Keep evidence bodies,
+passwords, cookies and bearer tokens out of telemetry.
 
 The optional [request activity log](request-activity.md) has its own private
 spool, database, and operator permissions. Follow its setup and recovery guide

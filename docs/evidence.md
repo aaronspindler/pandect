@@ -1,46 +1,34 @@
 # Evidence models and original storage
 
-`text`, `image`, `audio`, `document`, `geo`, and `phone` own concrete evidence
-models, forms, readers, admin, processing, and tests. `core` owns the unified
-workspace, analysis lifecycle, integrity/storage helpers, and cross-type deletion.
-Every record requires exactly one `cases.Case`.
-
-There is no global pool/shared concrete evidence table. `core.models.Evidence`,
-`core.models.FileEvidence`, `geo.models.LocationContent`, and communication/call
-bases in `phone.models` are abstract. Shared templates live in
-`core/templates/core/evidence/`; readers use domain namespaces. `video` is a
-registered placeholder without an evidence category.
+Every evidence record belongs to one case. Domain apps own their evidence
+models and readers. `core` owns the shared Evidence workspace, integrity and
+storage, and cross-type deletion. See [app ownership](architecture.md).
 
 ## Reading and editing evidence
 
 Readers keep originals beside their source-linked findings. **Findings (count)**
 near the title jumps to every current finding citing the record or its attachments,
-25 per page. **Analysis history** links to earlier results, reports, and checks
-that used this evidence. **Info** exposes provenance, integrity and retained
-descriptions. **Edit details** and
-**Analyze evidence** are directly visible to owners/editors.
-**More** holds secondary actions such as **Mark important** and archive/restore.
-See [Important items](cases.md#important-items) for shared marks and notes.
-**Processing** shows current case work and opens case-wide history on demand. See the
-[screen specifications](interface-design.md#evidence-browsing-and-reading)
-and [automatic checks/recovery](analysis.md#retained-processing).
+25 per page. **Info** holds provenance, integrity, saved descriptions and
+a link to **Analysis history**. Owners and editors can **Edit details**,
+**Analyze evidence** or **Mark important** on active evidence. **More** holds
+removal from Important and archive or restore. See [marks and
+notes](cases.md#important-items) and [Processing](analysis.md#retained-processing).
 
 Text messages use a compact message excerpt, reported sender, and reported time
 as their evidence-list label and reader heading. Times use the current display
 timezone; missing times say **Time not recorded**. Excerpts take the first 80
 source characters, collapse whitespace, and mark longer messages with an ellipsis.
-The complete original, saved title, and imported source-row attribution remain
-retained; these labels also apply to messages imported earlier.
+The full original, saved title and import attribution remain available.
 
 ### Evidence packets
 
 Owners and editors can open **Evidence → Prepare evidence packet** to choose up
-to 12 active case records across searches and pages. **Prepare exhibits** creates
-one exhibit per source. Use the original reader to check passages and record a
-source reference such as a page, message, or recording time. Give each exhibit a
-number and enter the disclosure copy, removing sensitive details as needed.
-Mark supporting, contrary, or unresolved material and supply a date when known.
-The chronology uses the dates you enter and puts undated exhibits last.
+to 12 active records across searches and pages. The picker shows the selected
+count and lets you remove sources. **Prepare exhibits** makes one exhibit per
+source. Use the original to check wording and record a page, message or time
+reference. Number each exhibit, enter the disclosure copy, and remove sensitive
+details as needed. Mark it as supporting, contrary or unresolved. The packet
+chronology uses the dates you enter and puts undated exhibits last.
 
 Preview the complete packet, then download the self-contained HTML. The file
 opens offline. To print or save as PDF, turn off browser headers and footers
@@ -83,41 +71,26 @@ If a person location or vehicle location has no matching case records to choose
 from, the form explains the prerequisite and links to **Add person** or
 **Add vehicle**. People and vehicles from another case never fill those choices.
 
-Review titles, categories, and provenance before upload. Filenames seed titles;
-browser-declared image/audio types suggest categories, otherwise Document.
-**Shared source details** supplies source name, URL, description, and collection
-time until an individual field is edited/cleared; **Use shared details** relinks
-it. Saved/unconfirmed submissions retain submitted values.
-Collection-time labels in shared and per-file details use the active display
-timezone, matching how the server interprets those times.
+Review titles, categories and provenance before uploading. Filenames seed
+titles. Browser-declared image/audio types suggest categories, with Document
+as the fallback. **Shared source details** applies until you edit an individual
+field, including clearing it. **Use shared details** restores the shared value.
+Collection times use the displayed timezone.
 
-The typed upload form always submits one file with the selected evidence type
-and its own source details. The batch queue stays under **Add evidence**.
-Without browser support/JavaScript, intake links to the single-document form.
-**Change type** selects other records. Forms show configured limits. Saved entries
-count toward the batch cap; **Start another batch** resets intake. See [configuration](development.md#configuration).
+Batches send one file at a time. Saved records remain available if another file
+fails. Correct known validation errors or retry the frozen submission when
+confirmation was interrupted. **Stop after this file** pauses pending entries.
+A reload may require file reselection. Use the single-document form without
+JavaScript and **Change type** for other evidence types. See [batch states and
+fallbacks](interface-design.md#evidence-creation-and-batch-uploads).
 
-Batches send one file at a time with uploading, saving, added, failed, or uncertain
-confirmation states. Successful records remain saved. Known validation failures
-allow correction; interrupted confirmations must retry the same frozen submission
-to avoid duplication. **Stop after this file** pauses pending entries. Queues live
-in page memory, may require reselection after reload, and cannot resume uploads.
-The [interface specification](interface-design.md#evidence-creation-and-batch-uploads)
-owns detailed states, shared fields, keyboard access, and fallbacks.
-Validation errors name the affected field and open its source details so the
-correction is visible. A failed file can be retried independently; successful
-files stay saved.
-
-**Filter evidence** matches titles, descriptions, source details/URLs, filenames, location
-addresses, and linked people/contacts, with type, explicit person, and Active/
-Archived/All filters. The filter controls appear directly above the list when
-there is room and under **Filters** in narrow layouts. Person filters include
-person locations and communication sender/recipient links with role labels,
-never inferred name/contact matches.
-Invalid/foreign person filters are rejected. Reader navigation retains filters;
-collections paginate at 25. The record title opens the original reader. Matches
-in extracted findings or supplied transcripts include a separate link to the
-matching passage. Text originals display escaped and read-only.
+**Filter evidence** uses hosted ranked keyword search within the collection.
+A matching transcript or finding can link to its passage. Clear the keyword
+query to browse when hosted search is unavailable. Structured **Filters** for
+type, related person, and active or archived state still work. Related person
+matches explicit same-case links to person locations and communication parties.
+Reader navigation retains filters and the collection paginates at 25. See
+[Cloudflare search](cloudflare-search.md) for coverage.
 
 The collection shows a title or message excerpt alongside the type and its most
 useful recorded detail, such as a sender, filename, or linked vehicle. The date
@@ -128,9 +101,6 @@ date-only message imports. The list still orders records by when they were added
 Use the [private readers](original-previews.md) to preview supported images,
 documents, and WAV or AAC-in-M4A recordings. See that guide for format limits,
 what a preview failure means, and how previews and downloads check integrity.
-
-Duplicate warnings show a preview and **Review all matches**, a private paginated
-checksum-filtered list of active originals, without resubmitting uploads.
 
 **Edit details** corrects metadata; stale drafts appear beside newer values
 and require **Save reviewed changes**. Archiving removes an item from ordinary case
@@ -150,11 +120,11 @@ including whitespace/line endings, subject to browser normalization. This detect
 exact copies, not similarity, re-encoding, revision, or meaning; it proves neither
 source identity nor truth.
 
-Matches pause before saving records/permanent files and show up to 10 originals
-with category, archive state, and private links. Review opens a new tab to preserve
-the queue. Remove the entry or **Add duplicate anyway** for separate provenance.
-Other files continue; later copies check earlier saved entries. Provenance remains
-editable. Nothing is automatically merged/deleted.
+Matches pause before saving an original and show up to ten active records.
+**Review all matches** opens the private, paginated checksum filter in a new tab
+to preserve the queue. Remove the entry or **Add duplicate anyway** to retain
+separate provenance. Other files continue, and later copies check earlier
+saved entries.
 
 Single forms support no-JavaScript review, preserving details but requiring file
 reselection. Confirmation binds checksum, category, case, and uploader; changed
@@ -163,9 +133,8 @@ Retries resolve already-saved submissions before duplicate checks when the
 original matches the saved checksum, including after interrupted confirmation.
 Changed originals require a new submission.
 
-Checks cover single/mixed-file intake only. Locations, communications, call
-attachments, CSV imports, admin, and trusted model callers keep existing behavior.
-Comparison uses retained-original checksums.
+These checks apply to single and mixed-file product intake for Document,
+Image, Audio and Text.
 
 ## Models and metadata
 
@@ -580,13 +549,11 @@ docker compose exec web python manage.py retry_file_cleanup --dry-run
 docker compose exec web python manage.py retry_file_cleanup --limit 1000
 ```
 
-Database/storage writes are not atomic. Failed new evidence/call-audio saves roll
-back the database before removing the new file. Failed metadata saves retain
-originals; cleanup failure preserves the save error and logs its key. Callers own
-later outer-transaction rollback (CSV import handles its own). Uncertain commit
-outcomes retain files because rows may have committed. Upload-side failures can
-still leave orphans. Retain restricted recovery logs and reconcile storage against
-database references before removing suspected orphans.
+Failed new evidence or call-audio saves roll back the database before removing
+the new file. Callers handle later outer-transaction rollback. Failed metadata
+saves and uncertain commits retain files. Upload-side failures can leave
+orphans. Keep recovery logs restricted and reconcile files against database
+references before removing suspected orphans.
 
 ## Migration and backup
 

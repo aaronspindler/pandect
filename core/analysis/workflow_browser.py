@@ -428,9 +428,10 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 ).to_have_count(0)
                 self.capture_layouts(page, engine, "catalogue-owner")
                 page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
-                page.locator("#processing-actions > summary").press("Enter")
                 expect(
-                    page.get_by_role("link", name="Choose analysis", exact=True)
+                    page.locator("#processing-actions").get_by_role(
+                        "link", name="Choose analysis", exact=True
+                    )
                 ).to_be_visible()
                 self.capture_layouts(page, engine, "processing-owner")
         self.assertEqual(self.db(AnalysisRun.objects.filter(case=self.case).count), 3)

@@ -5,16 +5,14 @@
 {% block content %}
 <div class="page-header">
   <div><h1>Vehicles</h1></div>
-  {% if can_edit and page_obj.object_list or can_edit and query %}<div class="actions"><a data-quick-form data-saved-link="Open vehicle" data-collection-context class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
+  {% if can_edit %}<div class="actions"><a data-quick-form data-saved-link="Open vehicle" data-collection-context class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
 </div>
-{% if page_obj.object_list or query %}
-<form data-collection-form class="search-form" method="get" role="search" aria-label="Search vehicles">
+<form data-collection-form data-collection-hide-empty class="search-form" method="get" role="search" aria-label="Search vehicles"{% if not page_obj.object_list and not query %} hidden{% endif %}>
   <label for="vehicles-search">Search vehicles</label>
   <div class="actions"><input id="vehicles-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Make, model, year, plate, VIN, or color"><button class="button button-secondary" type="submit">Search</button><a data-collection-clear class="button button-secondary" href="{% url 'vehicle:list' case_id=case.pk %}"{% if not query %} hidden{% endif %}>Clear filters</a></div>
 </form>
-{% endif %}
 {% partialdef collection inline %}
-<div data-collection-kind="vehicles" data-collection-count="{{ page_obj.paginator.count }}">
+<div data-collection-kind="vehicles" data-collection-count="{{ page_obj.paginator.count }}"{% if not page_obj.object_list and not query and not search_notice %} data-collection-empty{% endif %}>
 {% if search_notice %}
   {% include "ui/components/search_notice.html" %}
 {% elif page_obj.object_list %}
@@ -35,9 +33,6 @@
 {% else %}
 <section class="empty-state"><h2>{% if query %}No matching vehicles{% else %}No vehicles yet{% endif %}</h2>
   <p>{% if query %}Try another vehicle name or identifier.{% elif can_edit %}Add a make, model, plate, or VIN to get started.{% else %}The owner or an editor can add vehicles.{% endif %}</p>
-  {% if not query %}
-    {% if can_edit %}<a data-quick-form data-saved-link="Open vehicle" class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a>{% endif %}
-  {% endif %}
 </section>
 {% endif %}
 </div>

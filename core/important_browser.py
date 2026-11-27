@@ -85,8 +85,9 @@ class ImportantBrowserTests(BrowserTestCase):
             search = page.get_by_role("searchbox", name="Filter evidence")
             search.fill("Harbour")
             expect(page).to_have_url(re.compile(r"[?&]q=Harbour(?:[&#]|$)"))
-            self.open_evidence_panel(page, "more")
-            page.get_by_role("button", name="Mark important", exact=True).press("Enter")
+            page.get_by_role("navigation", name="Evidence actions").get_by_role(
+                "button", name="Mark important", exact=True
+            ).press("Enter")
             notes = page.get_by_role("link", name="Notes", exact=True)
             expect(notes).to_be_visible()
             self.assertEqual(
@@ -138,8 +139,23 @@ class ImportantBrowserTests(BrowserTestCase):
                     evidence_id=source.pk,
                 )
             )
-            self.open_evidence_panel(page, "more")
-            page.get_by_role("button", name="Mark important", exact=True).press("Enter")
+            mark = page.get_by_role("navigation", name="Evidence actions").get_by_role(
+                "button", name="Mark important", exact=True
+            )
+            for width, height in (
+                (1440, 900),
+                (1440, 1024),
+                (768, 1024),
+                (390, 844),
+                (320, 844),
+            ):
+                page.set_viewport_size({"width": width, "height": height})
+                self._assert_reflow(page)
+                expect(mark).to_be_visible()
+                if width in (1440, 390) and height != 1024:
+                    self.capture(page, engine, f"mark-evidence-{width}x{height}")
+            page.set_viewport_size({"width": 1440, "height": 900})
+            mark.press("Enter")
             expect(
                 page.get_by_role("heading", name=source.title, exact=True)
             ).to_be_visible()

@@ -9,8 +9,9 @@ from django.utils.http import parse_http_date_safe
 
 from core.models import CloudflareSearchRateLimit
 
-# Leave capacity for other Cloudflare API traffic under its 1,200-per-5-minute limit.
-REQUESTS_PER_SECOND = 3
+# At 3.5 requests/second plus the burst, Pandect can reserve about 1,074
+# requests in five minutes, leaving capacity under Cloudflare's 1,200 limit.
+REQUESTS_PER_SECOND = 3.5
 # A full cross-case search page makes three requests for each of eight cases.
 BURST = 24
 REQUEST_INTERVAL = timedelta(seconds=1 / REQUESTS_PER_SECOND)

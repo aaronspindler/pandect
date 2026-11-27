@@ -2,17 +2,13 @@
 
 Install Docker with Compose v2 and
 [uv](https://docs.astral.sh/uv/getting-started/installation/) at the version in
-[`mise.toml`](../mise.toml). uv manages Python, `.venv`, and dependencies; no
-requirements.txt or separate pip step is needed. Optional
-[mise](https://mise.jdx.dev/) users can run `mise install` for the pinned tools.
+[`mise.toml`](../mise.toml). uv manages Python, `.venv`, and dependencies.
+If you use mise, run `mise install` for the pinned tools.
 
 ## Pre-release database baseline
 
-The domain-app reorganization requires a fresh database and empty queue. Use a
-new isolated Compose project/volumes or database; rewritten initial migrations
-cannot upgrade old pre-release databases, including with `--fake`. See
-[architecture](architecture.md#primary-keys-and-the-initial-schema). Startup never
-deletes existing databases or media.
+Use a fresh database and empty queue when coming from the old pre-release
+schema. See the [migration baseline](architecture.md#primary-keys-and-the-initial-schema).
 
 ## First run
 
@@ -36,19 +32,11 @@ PY
 make run
 ```
 
-Use `make run` for subsequent starts and rebuilds. It builds the image while the
-current workers keep processing. Once the build succeeds, each enabled worker
-finishes its current task and exits. Pending tasks stay in PostgreSQL. Compose
-then brings up the new app image and waits for database and web health checks
-and worker startup. Check `/events/health/` for event listener readiness.
-
-When upgrading a local stack that has separate `proxy` and `events` services,
-stop those two services using the previous Compose file before the first unified
-web startup. Web now binds the existing loopback port directly.
-
-Run one `make run` at a time. Worker shutdown has no forced-stop deadline. If you
-interrupt the wait, Docker continues stopping those workers. Let them exit
-before rerunning `make run`.
+Use `make run` for subsequent starts and rebuilds, with your usual Compose
+profiles. It builds first, then waits for workers' active jobs to finish before
+restarting. PostgreSQL retains pending jobs. Run one rebuild at a time. If you
+interrupt the wait, let Docker finish stopping the workers before retrying.
+Check `/events/health/` for event listener readiness.
 
 Verify queue execution with
 `docker compose exec web python manage.py check_task_worker --timeout 30`.
@@ -60,25 +48,17 @@ pending migrations before starting Gunicorn. With
 `DJANGO_DEBUG=true`, private verification and invitation links appear in
 `docker compose logs web`. Keep those logs private. Production uses SMTP.
 
-With `DJANGO_DEBUG=true`, Django Debug Toolbar shows timing, SQL, static files,
-and templates for the current page on localhost. SQL diagnostics are read-only.
-The local Compose service also recognizes the Docker host connection. Reload
-the page to inspect a fresh request after navigating within a case. Use debug
-mode only on a trusted local development instance.
-
-WhiteNoise serves assets in development and production. Debug mode revalidates
-source files immediately; non-debug builds use `collectstatic` content hashes.
-After template/static changes, rebuild containers with `make run`. Host debug
-development picks up source assets without collection.
+Use debug mode only on a trusted local instance. Its Django Debug Toolbar
+displays read-only request diagnostics. Reload to inspect a fresh request after
+navigating within a case. Rebuild Compose with `make run` after changing templates
+or assets. Host debug development serves source assets directly.
 
 After verification, create a case from **All cases** and use **Add evidence**.
 Ordinary investigators do not need staff permissions. See
 [case workflows](cases.md), [evidence](evidence.md), and
 [vehicle-location imports](vehicle-location-imports.md) for task-specific guidance.
 
-Staff permissions are separate from product access; even superusers can inspect
-only cases they own or share. Compose waits for `/health/`: 200 when PostgreSQL
-is reachable, 503 otherwise. To create an optional `/admin/` operator:
+To create an optional `/admin/` operator:
 
 ```sh
 docker compose exec web python manage.py createsuperuser
@@ -118,13 +98,10 @@ for diagnostics, recovery, and pruning.
 
 ## Configuration
 
-The local example contains only the two required secrets and `DJANGO_DEBUG=true`.
-Database names, ports and internal processing limits have defaults; add optional
-environment values only for your deployment or an explicitly configured service.
-
-Configure [Cloudflare search](cloudflare-search.md) and the
-[investigation Worker](cloudflare-agent.md) to use evidence search and model
-processing. New cases begin with External AI off.
+[`.env.example`](../.env.example) enables local debug and lists the required
+secrets and optional Cloudflare settings. New cases begin with External AI off.
+See [external AI configuration](analysis.md#external-ai-configuration) to enable
+search, chat, or model processing.
 
 | Variable | Behavior |
 | --- | --- |
@@ -149,31 +126,17 @@ Empty host, CSRF-origin and sender overrides use their derived defaults.
 Deployment-specific proxy trust, HTTPS redirect and HSTS settings are described
 in [operations](operations.md#first-dokploy-deployment).
 
-Authentication rate limits share Django's PostgreSQL cache between web processes.
-Normal migrations create its upstream cache table; do not run `createcachetable`
-or configure a separate service. Anonymous admin sign-in requests use allauth's
-sign-in and verification flow.
+See [request handling](operations.md#upload-limits-and-request-handling) for
+upload limits and [invitations and logs](operations.md#invitations-mail-and-private-logs)
+for mail and private logging.
 
-Files allow 1 GiB each, captured text allows 10 MiB UTF-8, and browser batches
-allow 100 sequential uploads. Invitations expire after seven days. These are
-application defaults in `config/settings.py`, rather than environment variables.
-Specialized imports and parsers retain their separate bounds; accepting an
-original does not mean every parser can process it. See
-[request limits](operations.md#upload-limits-and-request-handling).
-
-For a port conflict, change `POSTGRES_PORT` to an unused port in `.env`, and/or
-change `PANDECT_WEB_PORT`. Compose derives its default public origin from the
-published web port, so a port-only change needs no separate origin override.
-If `PANDECT_PUBLIC_ORIGIN` is explicitly configured, keep it aligned with the
-actual address; host-based Django on another port also needs this override.
-The containers always use 5432 and 8000 internally. Compose is a local development
-configuration and passes only
-the variables it declares; hosted configuration is supplied directly to Django.
-
-Remove obsolete internal tuning values from existing environments; they no longer
-override application defaults. Restart web and worker together with matching
-configuration. Queued analysis whose saved execution settings differ fails
-recoverably; start a new run without changing retained results or source material.
+For port conflicts, set `POSTGRES_PORT` or `PANDECT_WEB_PORT` in `.env`. Containers
+still use ports 5432 and 8000 internally. Align any explicit
+`PANDECT_PUBLIC_ORIGIN` with the actual web address. Compose passes the variables
+listed in [`compose.yaml`](../compose.yaml). Host and hosted processes read their
+own environment. Keep configuration compatible across web and worker. If saved
+execution settings no longer match, affected analysis stops recoverably and can
+be submitted again.
 
 Keep `.env`, databases, uploads, and backups out of Git. Put all test evidence and
 validation output, including synthetic imports/exports, under ignored `data/`

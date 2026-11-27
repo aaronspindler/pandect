@@ -685,6 +685,10 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             self.assertContains(result, 'id="processing-analysis-runs"')
             self.assertNotContains(result, "Analysis run counts")
             self.assertEqual(result.context["analysis_run_total"], 0)
+        self.login("editor")
+        response = self.client.get(self.processing_url())
+        self.assertContains(response, "Reprocess evidence")
+        self.assertContains(response, "Choose analysis")
 
     def test_vehicle_imports_awaiting_action_do_not_count_as_active_work(self):
         ready = self.vehicle_import(status="review", title="Locations ready for review")

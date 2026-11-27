@@ -32,34 +32,16 @@ GUI, trained model, or network service. It runs only in the isolated file parser
 with one thread and OpenCL disabled. See
 [plate extraction](analysis-extraction.md#vehicle-plate-candidates).
 
-The unprivileged Docker image installs the locked Python dependencies. Its build context excludes local secrets/data and explicitly
-includes app-local templates/assets. Build-time `collectstatic` supplies public
-assets to WhiteNoise; private evidence stays outside the static root.
+The unprivileged Docker image installs locked dependencies and collects public
+assets for WhiteNoise. The build context excludes local secrets and data. Web
+and workers use the same image. Gunicorn runs `config.asgi:application` with
+its native ASGI worker, serving Django and the case event stream on the same
+origin. See [operations](operations.md#first-dokploy-deployment) for migration
+order, health checks, and build identification.
 
-Web and the background worker share one image. Production web runs Gunicorn with
-`config.asgi:application` and the native ASGI worker. The web process handles
-Django requests and serves the case event stream on the same origin. Its ASGI
-lifespan owns one PostgreSQL listener per process. In Dokploy, the singleton
-background worker runs `sh /app/scripts/docker-entrypoint-worker.sh`, migrates
-and emits its release preparation marker before web activation. `APP_VERSION` carries the published `vN.N` identifier in the
-image, OCI version label, and healthy `/health/` response's `version` field;
-local builds default to `dev`. `APP_COMMIT_SHA` retains the exact source revision
-in the image, OCI revision label, and health response's `commit` field. See
-[release numbering and deployment](operations.md#continuous-deployment).
-Compose overrides startup commands for development. PostgreSQL 18's named volume
-mounts at `/var/lib/postgresql`. Compose and CI pin the same multi-architecture
-official PostgreSQL image. [Cloudflare AI Search](cloudflare-search.md) indexes
-eligible active passages in one private instance per enabled case. Django verifies
-each hit against its source and keeps the canonical findings and answer history.
-
-Django's Tasks API uses the beta `django-tasks-db` dependency and PostgreSQL
-without a separate broker. Ordinary workers use the `default` queue. The optional
-[offline Instagram pilot](instagram-monitors.md) has its own worker and
-`instagram` queue in the same database. Compose starts workers after web readiness
-confirms migrations. Integration and restart behavior are covered by local and
-CI checks. The queue supplies transport and operational records.
-[Case analysis](analysis.md) adds authorization, immutable results, progress, and
-recovery. See [background tasks](background-tasks.md) for diagnostics.
+PostgreSQL backs both application data and the [task queue](background-tasks.md).
+The optional [Instagram pilot](instagram-monitors.md) uses a dedicated queue
+and worker in the same database.
 
 ## Modules and identity
 
@@ -82,54 +64,19 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   views and can reload and verify an actor for background work. See
   [case workflows and permissions](cases.md).
 - `/health/` checks database connectivity without returning secrets or case data.
-- `core/` is one Django app owning abstract evidence/file bases, common evidence
-  management and the unified workspace, plus durable analysis runs, results,
-  address estimate selections, artifacts, source resolution, inference adapters, and job orchestration.
-  `core.evidence` and `core.analysis` are focused Python packages, not Django apps.
-  The removed Selections tool has no routes or UI. Its `SavedSelection` model/table
-  remain to preserve stored references and case deletion; no data migration or
-  database cleanup accompanies the removal.
-  `core.evidence_chat` owns case chat retrieval, citation validation, and
-  checkpointed reviews. Additive migration `core.0017_evidence_chat` stores
-  conversations, source versions, coverage, and cited matches. Apply it before
-  starting the matching worker and web versions. Chat replies can be marked
-  Important, and external gateway usage links to the exact turn.
-  Migrations `core.0018` through `core.0022` add durable file cleanup, short-lived
-  deletion reviews, and concurrent dependency indexes. Migrations `core.0028`
-  through `core.0030` index saved chat activity, ordered processing history,
-  and exact analysis-batch scope lookups. `core.0031_chat_turn_activity` adds
-  bounded live milestones to saved turns. `core.0032_chat_turn_model_usage`
-  records cumulative model reservations on each ordinary turn.
-  `core.0033_chat_routing_approval` stores the case owner's separate approval
-  for OpenAI source selection. `core.0034_approved_chat_extraction` links the
-  proposed PDF extraction, its approval, the analysis run and the follow-up
-  answer. It also records submission IDs for reused analyses. Apply these
-  migrations before starting the matching web and worker versions.
-  The `phone` and `geo` chronology
-  migrations add partial indexes for active communications and location evidence
-  by case and event time. Each new index builds concurrently in a separate
-  migration. If a build is interrupted, check the named index for invalid state
-  before retrying the migration.
-  Core also owns the synthetic probe, bounded `check_task_worker` diagnostic, and
-  disabled global queue admin: operational task records have no case authorization.
+- `core/` owns abstract evidence/file models, the evidence workspace, durable
+  analysis runs and results, artifacts, shared source resolution, inference
+  adapters, and job orchestration. `core.evidence`, `core.analysis`, and
+  `core.evidence_chat` organize this code within the same Django app. The
+  `SavedSelection` table preserves references from retired selection records.
+  Operational task records lack case authorization, so Core disables global
+  queue administration.
 - `text/`, `image/`, `audio/`, and `document/` own their concrete evidence models,
   forms, reader templates, administration, processing, and tests.
 - `geo/` owns location/person-location/vehicle-location evidence, points of
   interest, maps, geocoding, geographic analysis, and vehicle-location CSV imports.
-- `phone/` owns message and call evidence, retained call additions, imported
-  communication context, message and call history imports, and conversation
-  analysis. Migration
-  `phone.0005_conversation_grouping` adds grouping revisions, sessions and
-  ordered membership rows. Apply it before serving the updated reader or worker.
-  Migration `phone.0006_conversation_pair_revision` adds change tracking for
-  active pair originals. Existing finding-backed sessions keep their source links.
-  Migration `phone.0008_call_history_import` adds case source lines, retained
-  import rows, and attributed call-person links. Apply it before starting the
-  call import web and worker paths. Existing call original bytes are preserved.
-  Migration `phone.0012_group_message_destination` adds the group CSV destination
-  and limits pair revision triggers and the pair index to direct messages.
-  It rebuilds the pair index in the migration transaction, which holds a table
-  lock. Existing direct message original bytes are preserved.
+- `phone/` owns message and call evidence, call additions, communication
+  context, CSV imports, conversation grouping, and communication analysis.
 - `people/` and `vehicle/` own case-scoped person and vehicle records. These are
   investigator-maintained entities, not evidence subclasses. `socialmedia/` owns
   social accounts linked to people and [case-bound Instagram monitors](instagram-monitors.md). `video/` is a registered placeholder only.
@@ -139,9 +86,6 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   standard page links, including independently paginated sections. Every template
   and static asset lives in its owning app; template `DIRS` and
   `STATICFILES_DIRS` are empty.
-
-Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
-Allauth does not implement case invitations or authorization.
 
 ## Primary keys and the initial schema
 
@@ -205,15 +149,11 @@ context lives in `core.analysis.result_reader`. `ui.forms.SignedRevisionForm`
 handles revision validation and retry tokens for records edited from a
 saved version.
 
-Existing queued task paths stay stable across service refactors. Keep task
-entry points importable while persisted deliveries can refer to them.
-Submission references identify retries within the initiating account and case.
-Analysis batches and vehicle imports retain separate record IDs for links and
-queued deliveries. The scoped-submission migrations preserve those IDs and
-backfill the existing retry references. Stop older web and worker writers before
-applying the migrations and start the matching versions together.
-After independent cases reuse a submission reference, the old global uniqueness
-constraints can no longer be restored in place. Keep a pre-upgrade backup.
+Keep queued task entry points importable while persisted deliveries can refer to
+them. Submission references identify retries within the initiating account and
+case. Analysis batches and vehicle imports use separate record IDs for links and
+queued deliveries. See [upgrade and rollback](operations.md#upgrades-and-hosted-deployment)
+for schema compatibility.
 
 ### Search and processing
 
@@ -223,11 +163,11 @@ durable cleanup work. Each hit must match the current case, retained source
 version and archive state before its text can leave Django. The case owner must
 enable External AI for both Case Search and Case Chat.
 
-The investigation Worker uses one Durable Object per investigation to choose and
+The investigation Worker uses one Durable Object per Case Chat turn to choose and
 sequence tools. Django enforces the turn's cutoff, permissions, execution budget
-and approved destinations. It opens original passages and publishes the verified
-answer. Immutable results and historical selections stay readable after the
-search cache is retired. See [search](cloudflare-search.md) and
+and approved destinations. It verifies citations against original passages and
+publishes the supported answer with coverage limits. Saved answers and analysis
+remain available after index retirement. See [search](cloudflare-search.md) and
 [the Agent](cloudflare-agent.md).
 
 During ingestion a model can propose source-anchored narrative relationships.
@@ -277,9 +217,11 @@ access when a tab becomes visible. If an earlier check is still running, the
 tab requests a fresh snapshot after it finishes. It also reconciles on stream
 connection and after changes. Existing authorized HTML fragments use
 `X-Pandect-Live: 1` for progress and `X-Pandect-Live: collection` for
-collection results. Lists offer an in-place refresh while processing status
-updates automatically. The polling and manual refresh paths recover from a
-stream outage.
+collection results. Processing status updates automatically. Populated and
+filtered lists offer an explicit in-place update, while untouched empty People
+and Vehicles lists can show the first record automatically. Polling covers a
+stream outage, with a manual retry when automatic updates pause. The ordinary
+status link remains available without JavaScript.
 
 Product entry points require an active account with a verified allauth email.
 Case authorization is separate from Django staff/model permissions. Current roles
@@ -287,23 +229,11 @@ and parent-case ownership are checked on every relevant request and again inside
 case-locked mutations. Invitation acceptance is bound to the invited verified
 email and never silently changes an existing membership or transfers ownership.
 
-Browser paths and evidence-kind identifiers are preserved. Shared routes use
-`core:evidence:*` and `core:analysis:*`; specialized routes belong to `geo`,
-`phone`, `socialmedia`, and `vehicle`. Case/people/evidence edits detect stale
-revisions and preserve drafts for review.
+Shared routes use `core:evidence:*` and `core:analysis:*`. Specialized routes
+live in `geo`, `phone`, `socialmedia`, and `vehicle`. Case, person and evidence
+edits detect stale revisions and preserve drafts for review.
 
 Account, case, and invitation responses disable caching and cross-origin
 referrers while preserving same-origin CSRF validation. Access logs redact query
 strings and invitation, email-confirmation, and password-reset keys; proxies need
 matching treatment. See [operations](operations.md).
-
-## Capability boundaries
-
-Implemented analysis and inputs are listed in [analysis](analysis.md) and
-[vehicle-location imports](vehicle-location-imports.md). The verified case owner enables hosted search and AI in Case Settings.
-[Case Chat](cloudflare-agent.md) uses a Cloudflare Agent and the approved model
-route. Django retains deterministic extraction, source verification and saved work.
-
-The [roadmap](evidence-analysis-roadmap.md) owns future analysis priorities.
-Ownership transfer and self-service account deletion remain unimplemented.
-There is no public evidence/media route.

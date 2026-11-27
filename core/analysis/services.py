@@ -27,6 +27,7 @@ from core.analysis.source_resolution import (
 from core.analysis.source_selection import selection_uuid, snapshot_source_references
 from core.analysis.transcripts import follow_up_transcription
 from core.models import AnalysisRun
+from text.analysis.attributed_sources import snapshot_messages, writing_scope
 
 INHERIT_BATCH = object()
 FINISHED = set(AnalysisRun.Status.values) - {"queued", "running"}
@@ -105,17 +106,24 @@ def start_run(
             raise ValidationError(
                 "Select one claim source and one to five other sources."
             )
-    check_operation_source_limits(case, operation, parameters, selections)
-    snapshots = snapshot_source_references(
-        case,
-        selections,
-        allowed_kinds=specification.kinds,
-        direct_messages=operation in PAIR_MESSAGE_OPERATIONS,
-    )
+    attributed = writing_scope(operation, parameters)
+    if attributed:
+        if ("period_split" in attributed) != (operation == "style_change"):
+            raise ValidationError("Choose the required message periods.")
+        snapshots = snapshot_messages(case, attributed, selections)
+    else:
+        check_operation_source_limits(case, operation, parameters, selections)
+        snapshots = snapshot_source_references(
+            case,
+            selections,
+            allowed_kinds=specification.kinds,
+            direct_messages=operation in PAIR_MESSAGE_OPERATIONS,
+        )
     if (
         previous_run
         and (
-            require_retained_inputs
+            attributed
+            or require_retained_inputs
             or operation in {"claim_comparison", "journey_claims", "sighting_group"}
         )
         and (previous_run.operation != operation or previous_run.inputs != snapshots)
@@ -147,6 +155,8 @@ def start_run(
             raise ValidationError(
                 "This submission was already used for different analysis settings."
             )
+        if attributed:
+            return existing, False
         if (
             parameters.get("_search_generation") == "briefs"
             and operation == "text_topics"
@@ -187,17 +197,18 @@ def start_run(
         previous_run=previous_run,
         batch=batch,
     )
-    resolved = resolve_processing_inputs(run, case, material_checked=True)
-    from .extraction_reuse import reuse_run
+    if not attributed:
+        resolved = resolve_processing_inputs(run, case, material_checked=True)
+        from .extraction_reuse import reuse_run
 
-    if reused := reuse_run(run, resolved, published=reuse_published_extraction):
-        return reused, False
-    if operation == "claim_comparison":
-        validate_selection(resolved, run.parameters)
-    elif operation == "question_synthesis":
-        from text.analysis.synthesis import records_for_selection
+        if reused := reuse_run(run, resolved, published=reuse_published_extraction):
+            return reused, False
+        if operation == "claim_comparison":
+            validate_selection(resolved, run.parameters)
+        elif operation == "question_synthesis":
+            from text.analysis.synthesis import records_for_selection
 
-        records_for_selection(resolved, run.parameters)
+            records_for_selection(resolved, run.parameters)
     try:
         with transaction.atomic():
             run.save()

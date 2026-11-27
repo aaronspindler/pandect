@@ -149,6 +149,7 @@ class PersonWritingBrowserTests(BrowserTestCase):
                         "heading", name="Compared descriptive writing features."
                     )
                 ).to_be_visible()
+
                 expect(
                     page.get_by_text(
                         "Differences do not prove a change of author.", exact=False
@@ -168,3 +169,31 @@ class PersonWritingBrowserTests(BrowserTestCase):
                         "heading", name="Compared descriptive writing features."
                     )
                 ).to_be_visible()
+
+    def test_date_filter_updates_preview_without_reloading_the_form(self):
+        writing_url = self.url(
+            "people:writing_style", case_id=self.case.pk, person_id=self.person.pk
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(writing_url)
+                count = page.locator("#writing-message-count")
+                expect(count).to_have_text("2 messages selected")
+                page.locator("input[name='first_start']").fill("2026-03-01")
+                expect(count).to_have_text("1 message selected")
+                expect(page).to_have_url(writing_url)
+                expect(
+                    page.get_by_role("button", name="Start analysis")
+                ).to_be_enabled()
+                page.route(
+                    "**/*writing_counts=1*",
+                    lambda route: route.fulfill(
+                        status=401, json={"code": "authentication_required"}
+                    ),
+                )
+                page.locator("input[name='first_start']").fill("2026-01-01")
+                expect(
+                    page.get_by_role("heading", name="Your session or access changed")
+                ).to_be_visible()
+                expect(count).to_have_count(0)

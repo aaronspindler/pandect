@@ -5,12 +5,20 @@ window.PandectPage((signal) => {
   const summary = document.querySelector("[data-collection-summary]");
   const form = document.querySelector("[data-collection-form]");
   const input = form?.elements.q;
+  const hidesEmptySearch = form?.hasAttribute("data-collection-hide-empty");
   const status = document.createElement("span");
   status.className = "visually-hidden";
   status.setAttribute("role", "status");
   results.before(status);
   let timer, request, pending = null, generation = 0;
   let accessLost = false;
+
+  function canFillEmpty() {
+    const active = document.activeElement;
+    return !accessLost && results.hasAttribute("data-collection-empty") && !results.contains(active) &&
+      !active?.matches("[data-refresh-results]") && document.getSelection()?.isCollapsed &&
+      !document.querySelector('dialog[open], [data-workspace-status][aria-busy="true"]');
+  }
 
   function supersede() {
     clearTimeout(timer);
@@ -101,6 +109,11 @@ window.PandectPage((signal) => {
         else history.replaceState({...history.state, evidenceScroll: 0}, "", url);
       }
       results.replaceChildren(...fresh.childNodes);
+      if (hidesEmptySearch) {
+        const empty = fresh.hasAttribute("data-collection-empty");
+        results.toggleAttribute("data-collection-empty", empty);
+        form.hidden = empty && !form.contains(document.activeElement);
+      }
       if (summary) summary.replaceChildren(...freshSummary.childNodes);
       if (pagination) pagination.replaceChildren(...freshPagination.childNodes);
       if (fromTyping || destination) {
@@ -164,6 +177,9 @@ window.PandectPage((signal) => {
   document.addEventListener("pandect:refresh-collection", () => {
     if (!accessLost) { supersede(); update(); }
   }, {signal});
+  document.addEventListener("pandect:fill-empty-collection", () => {
+    if (!request && canFillEmpty()) update({current: canFillEmpty});
+  }, {signal});
   document.addEventListener("pandect:access-lost", () => {
     accessLost = true;
     cancel();
@@ -185,16 +201,6 @@ window.PandectPage((signal) => {
     }
     const link = event.target.closest("[data-refresh-results]");
     if (!link || accessLost) return;
-    // A newly populated collection needs its full search and creation toolbar.
-    if (!form && ["people", "vehicles", "cases"].includes(results.dataset.collectionKind)) {
-      if (!window.PandectWorkspace) return;
-      event.preventDefault();
-      supersede();
-      window.PandectWorkspace.refresh().then(ok => {
-        if (!ok && link.isConnected && !accessLost) location.assign(link.href);
-      });
-      return;
-    }
     event.preventDefault();
     supersede();
     const changedQuery = input && input.value.trim() !== (new URL(location.href).searchParams.get("q") || "");

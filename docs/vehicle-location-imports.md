@@ -17,7 +17,8 @@ superusers have no access bypass.
    source/citation and explicitly confirm **Created Time** means observation time.
 2. **Upload CSV** retains the exact file (optional UTF-8 BOM) as Document evidence
    with SHA-256 and an import record. The worker prepares review with progress
-   that updates automatically with JavaScript; **Refresh status** remains available.
+   that updates automatically with JavaScript. **Refresh status** is available
+   without JavaScript, and **Retry updates** appears if automatic updates pause.
    No observations exist yet. To return later, open the
    Document and choose **Continue vehicle location import**.
 3. Review paginated original cells and interpreted timestamps in your

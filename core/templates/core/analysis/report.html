@@ -7,6 +7,7 @@
     <h1>{% if name == 'calls' %}Call patterns{% elif name == 'vehicle-coverage' %}Vehicle observation coverage{% elif name == 'vehicle-speed' %}Vehicle speed and heading{% else %}Exact file duplicates{% endif %}</h1>
   </div>
 </header>
+<div id="report-selection" data-workspace-form-region>
 <details class="disclosure report-filters"{% if form.errors %} open{% endif %}>
   <summary id="report-filters">Report filters{% if filters_applied and not form.errors %}
     {% for name in selected_names %} · {{ name }}{% endfor %}
@@ -14,10 +15,10 @@
     {% if form.cleaned_data.end %} · Through {{ form.cleaned_data.end|date:'j M Y H:i T' }}{% endif %}
     {% if duplicate_row %} · Matching CSV rows{% endif %}
   {% endif %}</summary>
-<form method="get" class="form-layout disclosure-body" aria-label="Report selection">
+<form method="get" class="form-layout disclosure-body" aria-label="Report selection" data-workspace-form>
   {% if duplicate_row %}<input type="hidden" name="duplicate_row" value="{{ duplicate_row }}"><p>Showing matching retained CSV rows. <a href="?">Show all observations</a></p>{% endif %}
   {% include 'ui/components/form_fields.html' %}
-  <div class="form-actions"><button class="button button-primary" type="submit">Update report</button>{% if filters_applied or form.errors %}<a class="button button-secondary" href="{{ request.path }}">Reset selection</a>{% endif %}</div>
+  <div class="form-actions"><button class="button button-primary" type="submit">Update report</button>{% if filters_applied or form.errors %}<a class="button button-secondary" href="{{ request.path }}" data-workspace-link data-workspace-filter-reset>Reset selection</a>{% endif %}</div>
 </form>
 </details>
 {% if data %}
@@ -50,4 +51,5 @@
   {% if data.measurements %}{% include 'core/analysis/measurements.html' with measurements=data.measurements only %}{% endif %}
 </details>
 {% endif %}
+</div>
 {% endblock %}

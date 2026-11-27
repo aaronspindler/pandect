@@ -10,17 +10,16 @@ invokes its typed action. Only Pandect can publish a reply.
 
 ## Configure the private route
 
-From `cloudflare/investigator`, use `npm ci`, `npm test` and `npm run check`
-to install the pinned SDK, check the investigation protocol and bundle the
-Worker locally. Configure an operator-owned HTTPS custom route for this Worker.
-The Wrangler configuration disables workers.dev, preview URLs and observability.
-Provide a random secret of at least 32 characters as `PANDECT_AGENT_SECRET` to
-the Worker and Pandect's web and task services. Configure the Worker's
-`PANDECT_ORIGIN` with the canonical HTTPS Pandect origin, without a trailing
-slash. Set `PANDECT_AGENT_URL` on Pandect to the exact Worker endpoint ending
-in `/step`. Pandect identifies its requests with the `Pandect/0.1` user agent.
-The case owner approves the Worker URL in Case Settings. Case Chat also
-needs the case's AI Gateway model and private AI Search configuration.
+From `cloudflare/investigator`, run `npm ci`, `npm test` and
+`npm run check` for the protocol tests and local dry-run bundle.
+Configure an operator-owned HTTPS Worker route. Wrangler disables workers.dev,
+preview URLs and observability.
+
+Set the same random `PANDECT_AGENT_SECRET` of at least 32 characters on the
+Worker and Pandect web and worker services. Set `PANDECT_ORIGIN` on the Worker
+to Pandect's canonical HTTPS origin with no trailing slash. On Pandect, set
+`PANDECT_AGENT_URL` to the exact Worker URL ending in `/step`. Evidence chat
+also needs current owner approval, the AI Gateway model and private AI Search.
 
 Worker callbacks require inbound HTTPS access to the Pandect web service at
 `/cases/<case-uuid>/chat/agent/<turn-uuid>/`. Keep credentials, request and
@@ -50,16 +49,19 @@ entries. Structured counts use case-scoped record fields. A proposed PDF extract
 investigator approval and resumes the same question using the original
 cutoff plus that separately dated result.
 
-Worker and Gateway errors mark the delivery as needing attention. Retry from
-the reply to retain the cutoff and previously consumed budget. For a confirmed
-interrupted queue delivery, use the existing `recover_evidence_chat` management
-command with the reviewed delivery token. Stale callbacks cannot advance a new
-delivery. Changing case permissions or the approved destination stops further
-transfers.
+Worker and Gateway failures need attention. Retry from the reply to keep its
+cutoff and consumed budget. Inspect the delivery in the application environment.
 
-Cloudflare documents server-side RPC through named Agent instances and Durable
-Object bindings in its [Agent routing guide](https://developers.cloudflare.com/agents/agent-class/routing/).
+```sh
+python manage.py recover_evidence_chat TURN_UUID
+python manage.py recover_evidence_chat TURN_UUID --confirm-interrupted DELIVERY_TOKEN
+```
 
+Use the second command after confirming that worker stopped. Stale callbacks
+cannot advance a replacement delivery. Revoked case access or approval stops
+further transfers.
+
+See [Cloudflare Agent routing](https://developers.cloudflare.com/agents/agent-class/routing/).
 
 For per-turn cost estimates, set `PANDECT_AI_PRICES_USD_PER_MILLION` to a
 JSON object keyed by the approved `provider/model`. Each value is a pair of USD

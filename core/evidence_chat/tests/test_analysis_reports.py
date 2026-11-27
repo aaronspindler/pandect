@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from uuid import uuid4
+from unittest.mock import patch
+from uuid import UUID, uuid4
 
 from django.db import connection
 from django.test import TestCase
@@ -11,6 +12,7 @@ from core.analysis.catalogue import project_result
 from core.analysis.sources import Source, source_id
 from core.evidence.deletion import execute_deletion, plan_deletion
 from core.evidence_chat import corpus, services
+from core.evidence_chat.analysis_reports import read_analysis_material
 from core.evidence_chat.checkpoints import source_row
 from core.evidence_chat.reports import timing_materials
 from core.models import (
@@ -24,16 +26,20 @@ from core.testing import EvidenceTestMixin
 from people.models import Person
 from phone.analysis.deterministic.conversations import _pattern_metrics
 from phone.models import TextMessageEvidence
+from text.analysis.attributed_sources import snapshot_messages
 
 
 class SavedAnalysisTests(EvidenceTestMixin, TestCase):
-    def save_report(self, operation, inputs, metrics, *, status="complete"):
+    def save_report(
+        self, operation, inputs, metrics, *, status="complete", parameters=None
+    ):
         run = AnalysisRun.objects.create(
             case=self.case,
             requested_by=self.owner,
             operation=operation,
             method_version="2",
             inputs=inputs,
+            parameters=parameters or {},
             status=status,
         )
         result = AnalysisResult.objects.create(
@@ -41,6 +47,63 @@ class SavedAnalysisTests(EvidenceTestMixin, TestCase):
         )
         project_result(result)
         return result
+
+    def test_large_attributed_report_uses_all_members_with_bounded_dependency_links(
+        self,
+    ):
+        rows = [
+            TextMessageEvidence(
+                pk=UUID(int=number),
+                case=self.case,
+                uploaded_by=self.owner,
+                sender=self.person,
+                recipient=self.person,
+                title="Message",
+                body=f"Parcel {number}",
+            )
+            for number in range(1, 514)
+        ]
+        for row in rows:
+            row.sha256 = sha256(row.original_bytes()).hexdigest()
+        TextMessageEvidence.objects.bulk_create(rows, batch_size=250)
+        scope = {"version": 1, "person_id": str(self.person.pk)}
+        inputs = snapshot_messages(
+            self.case,
+            scope,
+            ({"kind": "text-message", "id": str(row.pk)} for row in reversed(rows)),
+        )
+        result = self.save_report(
+            "style_profiles",
+            inputs,
+            {"sources_selected": len(rows), "sources_usable": len(rows)},
+            parameters={"writing_scope": scope},
+        )
+
+        # Writing report discovery must not use the generic all-at-once resolver.
+        with patch.object(corpus, "result_sources", side_effect=AssertionError):
+            report = read_analysis_material(self.case, result.pk, 0, 1600)
+            self.assertEqual(
+                corpus.read_window(self.case, report.locator)["text"], report.text
+            )
+            self.assertIn("Selected inputs: 513", report.text)
+            self.assertEqual(report.locator["selected_count"], 513)
+            self.assertEqual(
+                report.locator["dependencies"],
+                [corpus.dependency("text-message", row.pk) for row in rows[:64]],
+            )
+
+            row = rows[-1]
+            TextMessageEvidence.objects.filter(pk=row.pk).update(body="Changed bytes")
+            self.assertIsNone(corpus.read_window(self.case, report.locator))
+            TextMessageEvidence.objects.filter(pk=row.pk).update(body=row.body)
+            self.assertIsNotNone(corpus.read_window(self.case, report.locator))
+
+            TextMessageEvidence.objects.filter(pk=rows[-1].pk).update(
+                is_archived=True,
+                archive_changed_by=self.owner,
+                archive_changed_at=timezone.now(),
+            )
+            self.assertIsNone(corpus.read_window(self.case, report.locator))
 
     def test_large_timing_report_reuses_verified_manifest_and_follows_uncited_members(
         self,

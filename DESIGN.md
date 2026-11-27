@@ -1,23 +1,17 @@
 # Pandect interface design standard
 
-Make investigative work clear, precise, and approachable. Pandect should feel like
-a capable tool for examining evidence: structured, deliberate, and grounded in
-sources. Users should understand where they are, what they are viewing, and their
-next action without needing specialist software knowledge.
-
-This file applies [the project principles](PRINCIPLES.md) through durable
-interface design requirements, not implementation status. Screen
-specifications belong in [interface design](docs/interface-design.md); check
-selection and executable procedures belong in [validation](docs/validation.md).
+Apply the [project principles](PRINCIPLES.md) through these interface standards.
+See [screen specifications](docs/interface-design.md) and
+[validation procedures](docs/validation.md).
 
 ## Principles
 
 - Give each screen a task, title, and primary action. Keep controls beside their
   material, choose sensible defaults, and ask only for necessary decisions.
   Simplify confusing interactions before adding explanations.
-- Open cases to **Case Tools** with direct links to **Findings**, **Conversations**,
-  **Trips**, and **Images**. Keep **Evidence** and **Processing** directly available; Processing owns
-  active work, history, and rerun controls.
+- Open cases to **Case Tools** for investigation workflows. Keep **Evidence**
+  and **Processing** directly available. Processing owns active work, history,
+  and rerun controls.
 - Favor compact navigation, aligned rows, and progressive disclosure. Use strong
   hierarchy and consistent controls. Let evidence, source references, and useful
   actions establish the product's investigative character; decoration must not
@@ -108,8 +102,7 @@ decorative network graphs, and generic claims about discovering truth.
   text sizes. Forced colors replace custom fills and patterns with system colors;
   selection and hierarchy must remain understandable without color.
 
-The implementation and content boundaries belong in
-[public marketing pages](docs/marketing.md), not in application screen rules.
+See the [marketing guide](docs/marketing.md) for public routes and copy requirements.
 
 ## Layout and density
 

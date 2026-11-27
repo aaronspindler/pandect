@@ -21,6 +21,10 @@ from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS
 
 MAX_EXHIBITS = 12
+EXHIBIT_LIMIT_MESSAGE = (
+    f"Choose up to {MAX_EXHIBITS} sources per packet. "
+    "Choose fewer new sources or remove a selected source."
+)
 SELECTION_SALT = "pandect.evidence-packet.selection.v1"
 REVIEW_SALT = "pandect.evidence-packet.review.v1"
 ROLES = (
@@ -143,6 +147,7 @@ def packet_picker(request, case_id):
     case = get_case(request.user, case_id, edit=True)
     token = request.GET.get("selection", "")
     error = ""
+    pending = set()
     try:
         refs = _refs(token, case, request.user)
     except signing.BadSignature:
@@ -154,19 +159,24 @@ def packet_picker(request, case_id):
             refs = [ref for ref in refs if ref != remove]
         else:
             incoming = request.POST.getlist("source")
-            try:
-                if len(incoming) > MAX_EXHIBITS:
-                    raise ValueError
-                new_refs = [f"{kind}:{pk}" for kind, pk in map(_source_ref, incoming)]
-                if len(_sources(case, new_refs)) != len(new_refs):
-                    raise ValueError
-                chosen = list(dict.fromkeys([*refs, *new_refs]))
-                if len(chosen) > MAX_EXHIBITS:
-                    error = f"Choose up to {MAX_EXHIBITS} exhibits."
+            pending = set(incoming)
+            if len(incoming) > MAX_EXHIBITS:
+                error = EXHIBIT_LIMIT_MESSAGE
+            else:
+                try:
+                    new_refs = [
+                        f"{kind}:{pk}" for kind, pk in map(_source_ref, incoming)
+                    ]
+                    if len(_sources(case, new_refs)) != len(new_refs):
+                        raise ValueError
+                except ValueError:
+                    error = "Choose active evidence from this case."
                 else:
-                    refs = chosen
-            except ValueError:
-                error = "Choose active evidence from this case."
+                    chosen = list(dict.fromkeys([*refs, *new_refs]))
+                    if len(chosen) > MAX_EXHIBITS:
+                        error = EXHIBIT_LIMIT_MESSAGE
+                    else:
+                        refs = chosen
         if not error:
             return redirect(
                 _picker_url(case, _signed_refs(case, request.user, refs), request.GET)
@@ -187,6 +197,8 @@ def packet_picker(request, case_id):
     for row in context["rows"]:
         row["ref"] = f"{row['kind']}:{row['id']}"
         row["selected"] = row["ref"] in refs
+        row["checked"] = row["ref"] in pending
+    can_add_sources = len(sources) < MAX_EXHIBITS
     for direction, href in context["pagination"].items():
         context["pagination"][direction] = _picker_url(
             case, token, QueryDict(href.removeprefix("?"))
@@ -201,6 +213,9 @@ def packet_picker(request, case_id):
             "selection": token,
             "selected_sources": sources,
             "limit": MAX_EXHIBITS,
+            "can_add_sources": can_add_sources,
+            "can_add_from_page": can_add_sources
+            and any(not row["selected"] for row in context["rows"]),
             "error": error,
         },
     )

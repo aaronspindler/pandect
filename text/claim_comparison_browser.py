@@ -61,7 +61,7 @@ class ClaimComparisonBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 page.goto(reader)
                 page.locator(".evidence-analyze > summary").press("Enter")
-                page.get_by_role("link", name="Choose analysis", exact=True).press(
+                page.get_by_role("link", name="All analysis methods", exact=True).press(
                     "Enter"
                 )
                 page.get_by_role("link", name="Compare a claim", exact=True).press(

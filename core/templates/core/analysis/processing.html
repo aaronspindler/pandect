@@ -3,9 +3,13 @@
 {% block content %}
 <header class="page-header">
   <h1>Processing</h1>
-  <div class="actions">
+  <div class="actions" id="processing-actions" tabindex="-1">
     {% include 'ui/components/live_updates.html' %}
     <a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a>
+    {% if can_edit %}
+    <a class="button button-secondary" href="{% url 'core:analysis:reprocess' case.pk %}">Reprocess evidence</a>
+    <a class="button button-primary" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a>
+    {% endif %}
   </div>
 </header>
 
@@ -183,7 +187,7 @@
     {% elif batch.scope.type == 'reprocess' or batch.scope.type == 'added' %}<p><a class="record-link" href="{% url 'core:analysis:reprocess' case.pk %}">Review a new reprocessing request</a></p>
     {% elif batch.scope.automatic %}<p><a class="record-link" href="{% url 'phone:imessage_analysis_status' case.pk batch.pk %}">Review message analysis and rerun options</a></p>
     {% elif batch.scope.type == 'vehicle' %}<p><a class="record-link" href="{% url 'geo:vehicle_import_review' case.pk batch.scope.id %}">Open vehicle import</a></p>
-    {% elif not batch.scope %}<p><a class="record-link" href="?batch={{ batch.pk }}&amp;actions=1#processing-actions">Review local check actions</a></p>{% endif %}
+    {% elif not batch.scope %}<p><a class="record-link" href="#processing-actions">Review local check actions</a></p>{% endif %}
   {% endif %}
   {% if batch.status == 'complete' and not batch.processed_sources %}<p>No active evidence was available for the selected checks.</p>{% endif %}
   {% if batch.unavailable_sources %}<details><summary>{% if batch.scope.type == 'reprocess' %}{{ batch.unavailable_sources }} preparation failure{{ batch.unavailable_sources|pluralize }}{% else %}{{ batch.unavailable_sources }} source{{ batch.unavailable_sources|pluralize }} could not be prepared{% endif %}</summary>{% if batch.scope.type == 'reprocess' %}<p>Showing up to 100 failed preparation attempts. Other checks and earlier results are kept.</p>{% endif %}<ul>{% for failure in batch_failures %}<li>{% if failure.people %}{% if can_edit %}<a href="{% url 'phone:group_conversation' case.pk failure.people.0 failure.people.1 %}">Review conversation grouping</a>{% else %}<a href="{% url 'phone:conversation_detail' case.pk failure.people.0 failure.people.1 %}?tab=instances">Open conversation</a>{% endif %}{% else %}<a href="{% url 'core:evidence:detail' case.pk failure.kind failure.evidence_id %}">Open {{ failure.kind }} source</a>{% endif %}{% if failure.operation_label %} · {{ failure.operation_label }}{% endif %} · {{ failure.message }}</li>{% endfor %}</ul></details>{% endif %}
@@ -194,8 +198,6 @@
   <div id="processing-check-history" data-live-region data-live-saved="{{ page_obj|yesno:'true,false' }}">
   {% if batch.scope.type != 'failed_retries' %}
   {% if not showing_message_reviews and page_obj.paginator.count or not showing_message_reviews and history_filters %}
-  <details class="evidence-filters"{% if history_filters %} open{% endif %}>
-    <summary>Filter history{% if history_filters %} · Applied{% endif %}</summary>
     <form method="get" action="#processing-history" class="analysis-history-filters" aria-label="Filter processing history">
       <div class="field"><label for="processing-kind">Evidence type</label><select id="processing-kind" name="kind"><option value="">All evidence types</option>{% for key,label in evidence_kinds %}<option value="{{ key }}"{% if history_filters.kind == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
       <div class="field"><label for="processing-status">Status</label><select id="processing-status" name="status"><option value="">{% if batch %}All statuses{% else %}Finished checks{% endif %}</option>{% for key,label in statuses %}<option value="{{ key }}"{% if history_filters.status == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
@@ -203,7 +205,6 @@
       {% if batch_reader_url %}<input type="hidden" name="return_evidence" value="{{ request.GET.return_evidence }}">{% endif %}
       <div class="actions"><button class="button button-secondary" type="submit">Filter history</button>{% if history_filters %}<a class="record-link" href="{% url 'core:analysis:processing' case.pk %}{% if batch %}?batch={{ batch.pk }}{% else %}?history=1{% endif %}{% if batch_reader_url %}&amp;return_evidence={{ request.GET.return_evidence|urlencode }}{% endif %}#processing-history">Clear filters</a>{% endif %}</div>
     </form>
-  </details>
   {% endif %}
   {% for run in page_obj %}{% include 'core/analysis/processing_run.html' %}{% empty %}<p class="muted">{% if showing_message_reviews %}No message imports are waiting for review.{% elif history_filters %}No checks match these filters.{% else %}No individual checks to show yet. Supported checks start when eligible evidence is added.{% endif %}</p>{% endfor %}
   {% include 'ui/components/pagination.html' with page=page_obj label='Processing pages' query=request.GET anchor='processing-history' only %}
@@ -266,15 +267,6 @@
   {% endif %}
 </div>
 {% endpartialdef %}
-{% if can_edit %}
-<details data-workspace-region class="disclosure processing-disclosure" id="processing-actions"{% if request.GET.actions == '1' %} open{% endif %}>
-  <summary>Analysis actions</summary>
-  <div class="actions">
-    <a class="button button-secondary" href="{% url 'core:analysis:reprocess' case.pk %}">Reprocess evidence</a>
-    <a class="button button-secondary" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a>
-  </div>
-</details>
-{% endif %}
 {% endblock %}
 
 {% partialdef live %}{% partial overview %}{% partial activity %}{% partial search_progress %}{% partial history %}{% partial analysis_runs %}{% endpartialdef %}

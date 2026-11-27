@@ -15,9 +15,9 @@ calls have nothing to decode/transcribe; supplied transcripts remain independent
 | Find vehicle plates | One retained JPEG/PNG image | Geometric detection and a model reading of a prepared crop for each possible plate. Crops, source rectangles, preparation details and detection scores remain reviewable. This is a bounded heuristic for roughly horizontal rectangular plates with a central Latin text line; other shapes, scripts and layouts can be missed. |
 | Transcription | [Supported WAV or AAC-in-M4A recording](original-previews.md#recordings), English input | Candidate text with source recording intervals and original-timeline chunk offsets. No speaker identity or diarization. |
 
-Uploads queue applicable deterministic file checks. With approved vision processing, image uploads also queue printed-English OCR and plate search. PDF documents queue native extraction and separate vision OCR for scanned pages. Search can index the extracted passages, and follow-up text analysis records the exact extraction it used.
-
-Only the primary picture in a multi-picture JPEG is inspected. Missing and uncertain text needs inspection against the original. Recording transcription sends bounded audio chunks to the [case-approved Cloudflare AI Gateway destination](cases.md#external-ai-and-hosted-search). Timed transcripts retain original recording intervals and chunk boundaries.
+Uploads queue applicable deterministic file checks and case-approved model
+checks. Follow-up analysis and hosted search use the exact saved extraction.
+Verify uncertain material against the original.
 
 ## Email extraction
 
@@ -93,7 +93,11 @@ of decoded audio. Decompression warnings fail closed. Unsupported encodings, enc
 PDFs, malformed/truncated files and limits produce visible outcomes/recoverable
 failures, never replaced originals or incomplete publication labelled complete.
 
-PDF OCR renders one page at a time in the isolated parser. The prepared pixels are submitted separately through [AI Gateway](analysis.md#external-ai-configuration). The gateway client rechecks current case access, source eligibility, owner approval and the pinned execution configuration before sending each request. The worker rechecks these conditions before publishing the result.
+PDF OCR renders one page at a time. OCR sends prepared images, and transcription
+sends bounded recording chunks, through the
+[approved AI Gateway route](analysis.md#external-ai-configuration). The client
+checks access, source eligibility, approval and pinned execution before each
+request. The worker repeats those checks before publication.
 
 Primary references:
 

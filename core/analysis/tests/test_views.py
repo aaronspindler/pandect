@@ -192,7 +192,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
                     reverse("core:evidence:detail", args=[self.case.pk, kind, call.pk])
                 )
                 self.assertContains(
-                    reader, f'{chooser}?source={focus}">Choose analysis'
+                    reader, f'{chooser}?source={focus}">All analysis methods'
                 )
                 methods = self.client.get(chooser, {"source": focus})
                 for operation in ("audio_metadata", "transcription"):

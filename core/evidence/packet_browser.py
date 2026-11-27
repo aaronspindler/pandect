@@ -31,6 +31,18 @@ class EvidencePacketBrowserTests(BrowserTestCase):
                 page.get_by_role("link", name="Prepare evidence packet").click()
                 page.get_by_role("checkbox", name="Private interview · Text").check()
                 page.get_by_role("button", name="Add selected sources").press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Selected sources (1 of 12)")
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("button", name="Add selected sources")
+                ).to_have_count(0)
+                expect(
+                    page.get_by_role("navigation", name="Evidence pages")
+                ).to_have_count(0)
+                self.capture(page, engine, "packet-selection-desktop")
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.capture(page, engine, "packet-selection-mobile")
                 page.get_by_role("link", name="Prepare exhibits").click()
                 page.get_by_label("Packet title").fill("Review copy")
                 page.get_by_label("Exhibit title").fill("Interview excerpt")

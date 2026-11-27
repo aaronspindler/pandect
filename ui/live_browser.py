@@ -1,5 +1,6 @@
 """Explicit browser journeys for progress fragments, using isolated PostgreSQL."""
 
+from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -140,6 +141,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                         else page.locator("#evidence-findings-progress")
                     )
                     expect(progress).to_have_attribute("data-live-poll", "true")
+                    expect(page.locator("[data-live-refresh]")).to_be_hidden()
                     self.db(process_run, run_id)
                     expect(progress).to_have_attribute(
                         "data-live-poll", "false", timeout=15000
@@ -297,10 +299,12 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 "content_events",
             )
         )
+        saved_runs = AnalysisRun.objects.filter(case=self.case).count()
         for engine in self.engines:
-            saved_runs = AnalysisRun.objects.filter(case=self.case).count()
-            run_id = self.queue()
-            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+            with self.subTest(engine=engine), ExitStack() as stack:
+                run_id = self.queue()
+                stack.callback(AnalysisRun.objects.filter(pk=run_id).delete)
+                _, page = stack.enter_context(self.browser_page(engine))
                 self.sign_in(page)
                 page.goto(
                     self.url("core:analysis:processing", case_id=self.case.pk)
@@ -320,9 +324,10 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 breakdown = counts.locator("#processing-run-counts")
                 breakdown.locator("summary").press("Enter")
                 expect(breakdown).to_have_attribute("open", "")
-                filters = page.locator("#processing-history details").first
-                filters.evaluate("element => element.open = true")
-                field = page.get_by_label("Status", exact=True)
+                history = page.locator("#processing-history")
+                filters = history.get_by_role("form", name="Filter processing history")
+                expect(filters).to_be_visible()
+                field = filters.get_by_label("Status", exact=True)
                 field.select_option("complete")
                 field.focus()
                 self.db(
@@ -336,7 +341,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(cards).to_have_text(["0", "1", str(saved_runs), "0"])
                 expect(field).to_be_focused()
                 expect(field).to_have_value("complete")
-                expect(filters).to_have_attribute("open", "")
+                expect(history).to_have_attribute("open", "")
                 self.db(AnalysisRun.objects.filter(pk=run_id).update, status="queued")
                 self.db(process_run, run_id)
                 expect(page.locator("#processing-activity")).to_have_attribute(
@@ -347,6 +352,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 expect(cards).to_have_text(["0", "0", str(saved_runs + 1), "0"])
                 expect(breakdown).to_have_attribute("open", "")
+                expect(history).to_have_attribute("open", "")
                 expect(field).to_be_focused()
                 expect(field).to_have_value("complete")
 
@@ -503,16 +509,20 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 page.unroute("**/analysis/*/")
                 self.db(AnalysisRun.objects.filter(pk=run_id).update, status="queued")
                 self.db(process_run, run_id)
-                page.get_by_role("link", name="Refresh status", exact=True).click()
+                retry = page.get_by_role("link", name="Retry updates", exact=True)
+                retry.press("Enter")
                 expect(page.locator("#analysis-result")).to_have_attribute(
                     "data-live-poll", "false"
                 )
+                expect(retry).to_be_focused()
+                retry.evaluate("element => element.blur()")
+                expect(retry).to_be_hidden()
                 self.db(
                     CaseMembership.objects.filter(
                         case=self.case, user=self.viewer
                     ).delete
                 )
-                page.get_by_role("link", name="Refresh status", exact=True).click()
+                page.evaluate("document.dispatchEvent(new Event('pandect:refresh'))")
                 expect(
                     page.get_by_role("heading", name="Your session or access changed")
                 ).to_be_focused()
@@ -578,7 +588,9 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 run_id = self.db(self.queue)
                 self.db(process_run, run_id)
                 page.clock.fast_forward(30001)
-                refresh = page.get_by_role("link", name="Refresh results", exact=True)
+                refresh = page.get_by_role(
+                    "link", name="Show updated results", exact=True
+                )
                 expect(refresh).to_be_visible()
                 recent = page.get_by_role("region", name="Latest records")
                 expect(recent).not_to_contain_text(title)
@@ -654,7 +666,9 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     archive_changed_at=datetime.now(UTC),
                 )
                 page.clock.fast_forward(30001)
-                refresh = page.get_by_role("link", name="Refresh results", exact=True)
+                refresh = page.get_by_role(
+                    "link", name="Show updated results", exact=True
+                )
                 expect(refresh).to_be_visible()
                 expect(text_count).to_have_text(str(archived_count))
                 page.evaluate("window.liveSentinel = 42")

@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from datetime import timedelta
 from threading import Barrier, Lock, get_ident
@@ -176,6 +177,18 @@ class HostedIndexDeliveryTests(TransactionTestCase):
                 filters = parse_qs(endpoint.query)
                 self.assertEqual(filters.get("source"), ["builtin"])
                 self.assertEqual(filters.get("per_page"), ["50"])
+                self.assertEqual(
+                    json.loads(filters["metadata_filter"][0]),
+                    {
+                        "filename": {
+                            "$in": [
+                                first.filename,
+                                second.filename,
+                                *(item.filename for item in missing),
+                            ]
+                        }
+                    },
+                )
                 return [self.response(second), self.response(first)]
             return self.response(by_path[endpoint.path])
 
@@ -189,6 +202,41 @@ class HostedIndexDeliveryTests(TransactionTestCase):
         self.assertEqual(self.index.status, "ready")
         self.assertEqual(self.items.filter(status="completed").count(), 5)
         self.assertEqual(request.call_count, 4)
+
+    @patch("core.case_search.cloudflare.request")
+    def test_status_listing_targets_old_due_receipts_missing_from_recent_page(
+        self, request
+    ):
+        items = self.stage_passages(12)
+        old, recent = items[:10], items[10:]
+        now = timezone.now()
+        for item in items:
+            item.status = "poll"
+            item.remote_id = item.filename[:-4]
+            item.checked_at = now - timedelta(minutes=2) if item in old else now
+        HostedSearchItem.objects.bulk_update(
+            items, ["status", "remote_id", "checked_at"]
+        )
+
+        def inspect(current, method, path, **kwargs):
+            self.assertEqual(current.pk, self.index.pk)
+            endpoint = urlsplit(path)
+            self.assertEqual((method, endpoint.path), ("GET", "/items"))
+            filters = parse_qs(endpoint.query)
+            if "metadata_filter" not in filters:
+                self.assertEqual(filters["sort_by"], ["modified_at"])
+                return [self.response(item) for item in recent]
+            self.assertEqual(
+                json.loads(filters["metadata_filter"][0]),
+                {"filename": {"$in": [item.filename for item in old]}},
+            )
+            return [self.response(item) for item in old]
+
+        request.side_effect = inspect
+        self.deliver()
+
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(self.items.filter(status="completed").count(), 12)
 
     @patch("core.case_search.cloudflare.request")
     def test_absent_recent_poll_receipt_waits_for_its_own_due_time(self, request):
@@ -214,7 +262,7 @@ class HostedIndexDeliveryTests(TransactionTestCase):
         self, request
     ):
         accepted, deferred = self.stage_passages(2)
-        deadline = timezone.now() + timedelta(minutes=2)
+        deadline = timezone.now() + timedelta(minutes=2, milliseconds=250)
 
         def upload(current, method, path, *, file, **kwargs):
             self.assertEqual(current.pk, self.index.pk)
@@ -238,7 +286,24 @@ class HostedIndexDeliveryTests(TransactionTestCase):
             task_path="core.case_search.lifecycle.sync_index",
             args_kwargs__args=[str(self.index.pk), str(self.index.token)],
         )
-        self.assertGreaterEqual(delivery.run_after, deadline)
+        self.assertEqual(delivery.run_after, deadline)
+
+    @patch("core.case_search.cloudflare.request")
+    def test_elapsed_local_upload_deferral_is_ready_immediately(self, request):
+        self.stage_passages(1)
+        request.side_effect = cloudflare.HostedSearchError(
+            "search_rate_limit", retry_at=timezone.now() - timedelta(milliseconds=1)
+        )
+
+        self.deliver()
+
+        self.assertEqual(self.index.failures, 0)
+        self.assertEqual(self.items.get().status, "queued")
+        delivery = DBTaskResult.objects.get(
+            task_path="core.case_search.lifecycle.sync_index",
+            args_kwargs__args=[str(self.index.pk), str(self.index.token)],
+        )
+        self.assertIsNone(delivery.task.run_after)
 
     @patch("core.case_search.cloudflare.request")
     def test_repeated_provider_throttling_is_bounded(self, request):

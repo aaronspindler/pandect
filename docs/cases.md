@@ -1,72 +1,51 @@
 # Cases and collaboration
 
-`cases.Case` is the investigation/access boundary: every evidence record requires
-a case. `cases` owns collaboration, invitations, settings, authorization, and
-navigation; `core` owns Evidence, Processing, and Case Tools; `geo` owns maps/POIs.
+Every evidence record belongs to a case. Cases control investigator access,
+collaboration, invitations, and settings.
 
 ## Investigator workflow
 
 With a verified account, choose **All cases → Create case** and enter a name.
-The creator becomes owner. Opening, creating, or joining a case checks access
-and opens **Case Tools**, as do saved case URLs. Shared navigation links to
-**Case Tools**, **Evidence**, and **Processing**. On the homepage, **Explore
-evidence**, **Case records**, and **Reports** link directly to the case
-workspaces and each report. Use **Jump to latest records** to see recently
-added evidence and newly saved findings together, newest first. Open a title
-to read the original or finding.
+You become the owner. Opening, creating or joining a case leads to **Case Tools**,
+with links to case workspaces, reports and **Latest records**. Owners and
+editors can **Add evidence** and set up methods directly. Owners can open
+**Case settings** from the header. **Case details** shows the owner, your role,
+case dates and any saved description.
 
-Owners and editors can **Add evidence** or jump to **Analysis methods** and
-choose a method to set up. Owners can open **Case settings** from the header.
-**Case details** shows the owner, your role, creation and update times, and any
-saved read-only description. Navigation labels stay visible on desktop and mobile.
-All cases searches accessible names/descriptions and filters owned/shared cases.
-
-**Search this case** at the top of each case screen finds evidence, people,
-vehicles, conversations, places, saved trips and findings. Results link to
-their sources. With external AI enabled, Cloudflare AI Search finds matches in
-the private case index. You can browse and filter retained records while external
-AI is disabled.
-See the [investigator interface](interface-design.md) for shortcuts and filters.
+**Search this case** uses the private Cloudflare AI Search index when enabled.
+Results link back to current case sources. Browsing and structured filters
+remain available with external AI disabled. See the [investigator
+interface](interface-design.md) for navigation and shortcuts.
 
 Viewers inspect material and download originals. Editors also add/edit records
 and archive/restore evidence. Owners manage access and delete people, vehicles,
 or the case, subject to retained-evidence protections. Product users need no staff
 status or model permissions. See [maps](maps.md) for Map coverage and privacy.
 
-When the workspace detects a session or role change, it clears the previous
-case contents and offers a link to **All cases**. Reopening a private page with
-Back or Forward checks the current session and access before displaying it.
-
-Private pages are served without caching. Going back to a private page in the
-browser checks access again. If an open workspace detects a sign-in change or a
-changed case role, it discards the previous page and offers **All cases** to
-continue under the current access rules.
+Private pages are served without caching. Back and Forward recheck access
+before displaying a private page. When the workspace detects a session or role
+change, it clears the previous contents and offers **All cases**.
 
 ### Important items
 
-Owners and editors can choose **Mark important** in an evidence reader's
-**More** menu, on an individual finding, or on a whole Evidence chat reply. **Case Tools → Important** lists
-the case's marked items, newest mark first. Open the title to revisit the exact
-record, finding, or reply. **Back to Important** returns to its list page.
-Finding summaries keep their original labels and show the current review outcome
-for sighting proposals.
+Owners and editors can **Mark important** beside Findings on active evidence,
+on a finding, or on a whole Evidence chat reply. **Case Tools → Important**
+lists the marks, newest first. Open the exact source or **Notes**, then use
+**Back to Important** to return to its page. Sighting proposals retain their
+label and show their current review outcome.
 
-Open **Notes** to read dated entries and see who added each one. Owners and
-editors can add entries while the item is marked. Viewers can read the list
-and notes. Marking evidence and returning to it from **Notes** retain the active
-Evidence search, filters, and page. **Remove from Important** hides the item
-from the list. Its notes remain accessible from the source, and marking it
-again restores the list entry.
-Notes are investigator annotations. They are separate from evidence, findings,
-and review decisions. Evidence chat excludes them from retrieval and model prompts.
+Every case member can read dated notes and see their authors. Owners and editors
+can add entries while the item is marked. **Remove from Important** (under
+**More** on evidence) hides the item but keeps notes at the source. Mark it
+again to restore the list entry. Evidence marks and notes round trips retain
+the collection's search, filters and page. Evidence chat excludes these dated
+Important notes from retrieval and model prompts.
 
-Archiving evidence retains its Important mark and notes for restoration. It hides
-the evidence and its notes from Important, and withholds findings and replies
-that depend on archived sources. Replacing a finding in current results keeps the
-mark on the saved item. Findings and replies with unavailable sources are withheld.
-Permanent evidence deletion removes affected marks and
-notes as part of the reviewed inventory. Deleting the case also removes its
-marks and notes.
+Archiving retains marks and notes for restoration, while Important hides the
+archived evidence and saved findings or replies with unavailable sources.
+Superseding a finding keeps its mark on the saved version. Permanent evidence
+deletion removes affected marks and notes in the reviewed inventory. Whole-case
+deletion removes all case marks and notes.
 
 ## Case settings
 
@@ -80,11 +59,23 @@ and backup limits.
 
 ## External AI and hosted search
 
-Case owners can **Enable external AI** in Case settings. Every case starts with external AI disabled. Review the Cloudflare account, production namespace, investigation Agent URL, and model destinations before approving. Enabling creates a private AI Search instance for this case and queues indexing of active evidence passages and findings. Search queries, investigation questions, and relevant excerpts go through the approved Cloudflare services. Case Search also indexes source descriptions, reports, people and contact details, reported social accounts, vehicles, places of interest and investigator notes.
+Cases start with external AI disabled. A case owner can **Enable external AI**
+after reviewing the Cloudflare account and namespace, Agent and model
+destinations, and transfer scope. Enabling creates one private AI Search
+instance and queues indexing. The scope includes active evidence and derived
+passages, reports, case records, social accounts, places, and legacy notes on
+person, vehicle and POI records. These indexed record fields can also be
+retrieved by Case Chat. See [indexed material](cloudflare-search.md).
 
-Use **Models by task** to assign a model and supported reasoning effort. Each provider and material type has a separate approval. Text approvals cover case passages, questions, and source references. Vision approvals cover prepared images, plate crops and scanned PDF pages. Transcription approvals cover recording chunks. Inspect **Approved destinations** to review pending providers or revoke one. Geographic lookup uses its own approval.
+**Models by task** assigns models and supported reasoning effort. **Approved
+destinations** shows pending approvals and revocation controls. Text, vision,
+transcription, and geographic lookup have distinct approvals. See
+[configuration and transfer scope](analysis.md#external-ai-configuration).
 
-**Disable external AI** stops new hosted work, invalidates pending AI work and queues deletion of the private search instance. Saved results, chats and source citations remain available to authorized case members. Native document extraction, metadata, imports and deterministic analysis remain available. Re-enabling requires current owner approval. Operators configure endpoints and credentials for both the web application and the worker. See [AI Gateway settings](analysis.md#external-ai-configuration).
+**Disable external AI** stops new hosted work, invalidates pending AI work,
+and queues deletion of the private search instance. Authorized users retain
+saved results, chats and source citations, and can still browse, import and run
+deterministic checks. Re-enabling requires current owner approval.
 
 ## Account settings
 
@@ -249,6 +240,3 @@ case/membership/invitation schema depends on the configured user model.
 `cases.permissions` scopes product requests independently of staff/model
 permissions. Requests and [background analysis](analysis.md) must check current
 access. Public APIs and ownership transfer remain planned.
-
-The implementation follows Django's [intermediary model pattern](https://docs.djangoproject.com/en/6.1/topics/db/models/#extra-fields-on-many-to-many-relationships)
-and [admin permission hooks](https://docs.djangoproject.com/en/6.1/ref/contrib/admin/#django.contrib.admin.ModelAdmin.has_view_permission).

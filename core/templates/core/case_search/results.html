@@ -3,7 +3,10 @@
 {% block title %}Case search · {{ case.name }}{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="{% static 'core/case-search-results.css' %}">{% endblock %}
 {% block content %}
-<header class="page-header"><h1>Case search</h1></header>
+<header class="page-header">
+  <h1>Case search</h1>
+  <a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}" data-workspace-link>Browse case evidence</a>
+</header>
 {% include 'ui/components/form_errors.html' with form=search_form %}
 {% if search_form.q.errors %}<div id="case-query-errors">{{ search_form.q.errors }}</div>{% endif %}
 <details class="case-search-filters"{% if search_form.errors %} open{% endif %}>
@@ -13,7 +16,14 @@
 </details>
 {% if notice %}<p role="status">{{ notice }}</p>{% elif index.status != 'ready' %}<p>{{ index.label }} <a href="{% url 'core:analysis:processing' case.pk %}#case-search-index">Indexing status</a></p>{% endif %}
 {% if case_search_query and not notice and not search_form.errors %}
-<section aria-labelledby="passages-heading"><h2 id="passages-heading">Matching passages</h2>
-{% if rows %}{% include 'core/case_search/rows.html' with rows=rows query=case_search_query only %}{% else %}<p>No current passages matched this query.</p>{% endif %}</section>
+<section aria-labelledby="passages-heading">
+  <h2 id="passages-heading">Ranked passages</h2>
+  {% if rows %}
+    <p>{{ rows|length }} ranked passage{{ rows|length|pluralize }} returned. Case Search shows up to {{ result_limit }} per search.</p>
+    {% include 'core/case_search/rows.html' with rows=rows query=case_search_query only %}
+  {% else %}
+    <p>This search returned no verified passages.</p>
+  {% endif %}
+</section>
 {% endif %}
 {% endblock %}

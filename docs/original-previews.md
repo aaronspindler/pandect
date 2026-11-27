@@ -1,7 +1,7 @@
 # Original image, document, and recording previews
 
-The Evidence reader offers private local previews of supported originals/call
-recordings without analysis runs, original changes, or inference credentials.
+The Evidence reader offers private local previews of supported originals and
+call recordings. Previews need no analysis run or inference credentials.
 
 **Download original** opens the stored file without recomputing its checksum.
 It returns an unavailable page if storage cannot open the file. When a preview
@@ -38,17 +38,16 @@ See [email extraction](analysis-extraction.md#email-extraction) for coverage.
 
 PDFs render local page images with Previous/Next navigation and a **Page number**
 field with **Go to page**, including without JavaScript. Page changes retain the
-evidence-list filters. Invalid page requests offer **Open first page** while
-retaining those filters. Pinned `pypdfium2==5.15.2` and bundled PDFium run in the isolated parser
-child process. Uploaded PDFs are never embedded as executable app content;
-previews are neither stored nor sent to remote services.
+evidence-list filters. Invalid page requests offer **Open first page**. PDFium
+renders in the isolated parser. The reader displays the rendered page image.
+Preview images stay local and are generated per request.
 
-Limits: 16 MiB original, 2 MiB decoded text, PDFs of 1–100 pages. Each image request
-renders one page at up to 2048 pixels per side/4,194,304 total. Parser bounds are
-20 seconds wall time, 15 seconds CPU, 1 GiB memory, and 8 MiB output. Encrypted or
-malformed PDFs, invalid pages, and exhausted limits show a fallback with
-**Download original**. When the file is missing or fails integrity checks, the
-document reader asks the administrator to check the retained original and storage.
+Document previews allow up to 16 MiB per original, 2 MiB decoded text and
+100 PDF pages. Each PDF image request renders one page at up to 2,048 pixels
+per side. See [parser bounds](analysis-extraction.md#resource-and-privacy-bounds).
+Encrypted or malformed PDFs, invalid pages and exhausted limits offer
+**Download original**. Missing files or integrity failures ask for an
+administrator's storage check.
 
 ## Recordings
 
@@ -66,8 +65,7 @@ checksum-changed recordings.
 Seeking supports one HTTP byte range, including open-ended/suffix ranges.
 Invalid/multiple ranges return `416`. The bounded parser validates the entire
 recording before returning bytes. Each range request rechecks access and integrity.
-M4A decoding runs locally in that isolated parser using pinned PyAV 19.0.2 and
-its wheel's bundled FFmpeg libraries; no external executable or service is needed.
+M4A decoding uses PyAV and its wheel's FFmpeg libraries in the isolated parser.
 Metadata and transcription use decoded PCM while retaining the original-byte
 checksum and source timeline. M4A timestamps must be continuous from zero;
 ambiguous timelines remain unsupported.

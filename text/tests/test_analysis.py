@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.sources import Source
 from text.analysis.ai import content_events
+from text.analysis.attributed_writing import analyze_attributed_writing
 from text.analysis.deterministic import (
     copied_text,
     extract_entities,
@@ -35,6 +36,81 @@ SAMPLE = (
     "different subjects and enough original wording to "
     "describe punctuation and vocabulary. 😊 Thanks!"
 )
+
+
+class AttributedWritingTests(SimpleTestCase):
+    def analyze(self, sources, *, period_split=None, date_only=None):
+        scope = {} if period_split is None else {"period_split": period_split}
+        run = SimpleNamespace(
+            inputs=sources,
+            operation="style_change" if scope else "style_profiles",
+        )
+        with (
+            patch(
+                "text.analysis.attributed_writing.source_batches",
+                return_value=(sources,),
+            ),
+            patch(
+                "text.analysis.attributed_writing.date_only_message_dates",
+                return_value=date_only or {},
+            ),
+        ):
+            return analyze_attributed_writing(self, run, scope, Mock())
+
+    def test_profile_phrase_anchors_use_the_actual_punctuated_words(self):
+        unrelated = source("Entirely separate message.", kind="text-message")
+        repeated = source("One, two three. One, two three.", kind="text-message")
+        result = self.analyze([unrelated, repeated])
+        item = next(
+            item
+            for item in result["items"]
+            if item["label"] == "Repeated three-word phrases"
+        )
+        self.assertEqual(item["values"]["one two three"], 2)
+        self.assertEqual(item["source_ids"], [repeated.id])
+        self.assertEqual(
+            [repeated.text[span["start"] : span["end"]] for span in item["anchors"]],
+            ["One, two three", "One, two three"],
+        )
+
+    def test_comparison_retains_original_for_wholly_excluded_examples(self):
+        earlier = source(SAMPLE, kind="text-message", occurred_at=None)
+        excluded = source(
+            '"This passage is quoted."', kind="text-message", occurred_at=None
+        )
+        later = source(SAMPLE.upper(), kind="text-message", occurred_at=None)
+        result = self.analyze([earlier, excluded, later], period_split=2)
+        item = next(
+            item for item in result["items"] if item["label"] == "Group A coverage"
+        )
+        example = item["values"]["excluded_span_examples"][0]
+        self.assertEqual(example["source_id"], excluded.id)
+        self.assertIn(excluded.id, item["source_ids"])
+        self.assertIn(excluded.anchor(start=0, end=len(excluded.text)), item["anchors"])
+
+    def test_date_only_placeholder_is_not_a_reported_comparison_time(self):
+        earlier = source(
+            SAMPLE.lower(),
+            kind="text-message",
+            occurred_at=datetime(2026, 10, 1, 12, tzinfo=UTC),
+        )
+        later = source(
+            SAMPLE.upper(),
+            kind="text-message",
+            occurred_at=datetime(2026, 10, 5, tzinfo=UTC),
+        )
+        sources = [earlier, later]
+        exact_times = self.analyze(sources, period_split=1)
+        self.assertIsNotNone(exact_times["metrics"]["possible_change_interval"])
+
+        date_only = {later.item.pk: later.item.occurred_at.date()}
+        result = self.analyze(sources, period_split=1, date_only=date_only)
+        item = next(
+            item for item in result["items"] if item["label"] == "Group B coverage"
+        )
+        self.assertEqual(item["values"]["sources_with_reported_event_time"], 0)
+        self.assertEqual(item["values"]["sources_missing_reported_event_time"], 1)
+        self.assertIsNone(result["metrics"]["possible_change_interval"])
 
 
 class TextAnalysisTests(SimpleTestCase):

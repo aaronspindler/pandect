@@ -33,10 +33,9 @@
   <div class="form-layout">
     <details class="disclosure">
       <summary>Change type</summary>
-      <form method="get" class="type-picker" aria-label="Choose evidence type">
-        <div class="field"><label for="evidence-kind">Evidence type</label><select name="kind" id="evidence-kind">{% for value,label in kind_choices %}<option value="{{ value }}"{% if value == kind %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-        <button class="button button-secondary" type="submit">Choose type</button>
-      </form>
+      <nav class="disclosure-body related-actions" aria-label="Other evidence types">
+        {% for value,label in kind_choices %}{% if value != kind %}<a class="record-link" href="{% url 'core:evidence:create' case_id=case.pk %}?kind={{ value }}">{{ label }}</a>{% endif %}{% endfor %}
+      </nav>
     </details>
     {% if is_communication or not is_file and kind != 'text' %}
     <details class="disclosure"><summary>About {{ kind_label|lower }} evidence</summary>

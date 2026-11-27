@@ -1,8 +1,7 @@
 # Pandect arch identity
 
-Selected by the user on 2026-10-26: **A — arch + manuscript**. The symbol combines a gothic
-pointed arch, open-page base, three connected evidence points, and diamond
-terminal. The wordmark reads **Pandect**.
+The arch and manuscript identity was approved on 26 October 2026. The symbol
+combines a pointed arch, open-page base, connected evidence points, and diamond.
 
 ## Artwork
 
@@ -12,39 +11,27 @@ terminal. The wordmark reads **Pandect**.
 | Dark backgrounds | [Ivory PNG](pandect-logo-ivory.png) | [Ivory PNG](pandect-symbol-ivory.png) |
 | Single-color reproduction | [Black PNG](pandect-logo-black.png) | [Black PNG](pandect-symbol-black.png) |
 
-All six PNGs are transparent: logos are 2048 pixels wide; symbols are 1024 pixels
-high. Preserve aspect ratio and clear space. Editable vectors and font files are
-not included.
+The transparent PNG logos are 2048 pixels wide and the symbols are 1024 pixels
+high. Preserve aspect ratio and clear space.
 
 ## Preview and use
 
-[preview.html](preview.html) shows light, dark, monochrome, and actual-size symbol
-comparisons. [Overview](preview-overview.png) and individual PNG previews are
-available for sharing.
+Use oxblood (`#692D39`) on light backgrounds and ivory (`#F1E9DA`) on dark.
+Charcoal is `#1F1C20`. Use the symbol where the wordmark will not fit. Prefer at
+least 32 pixels, or 48 when connection details must read clearly.
+[Interactive size and color preview](preview.html) · [Overview image](preview-overview.png)
 
-Use oxblood (`#692D39`) on light backgrounds and ivory/parchment (`#F1E9DA`) on
-dark; charcoal is `#1F1C20`. Use the symbol when the full wordmark would be
-unreadable. The 24/32/48/64-pixel proofs show the arch recognizable at 24 pixels,
-but nodes and diamond lose definition. Prefer at least 32 pixels, or 48 when
-connection details must read clearly.
-
-Treat artwork as decorative beside accessible Pandect text; otherwise give it
+Treat artwork as decorative beside accessible Pandect text. Otherwise give it
 the accessible name **Pandect**.
 
 ## Website integration
 
-The header and case sidebar use proportionally resized 432-pixel-wide logos from
-`ui/static/ui/brand/`, selecting ivory in dark mode. Linked artwork is named
-Pandect; forced colors use system-font text. Browser and Apple touch icons use
-the arch on ivory at 32 and 180 pixels. `provenance.json` records source
-relationships and hashes.
+The shared brand component uses 432-pixel-wide logos from `ui/static/ui/brand/`
+and system-font text in forced colors. Browser and Apple touch icons use the
+arch on ivory at 32 and 180 pixels.
 
 ## Provenance and verification
 
-Built-in Image Generation produced the approved artwork and transparent edits.
-Deterministic browser rendering retained the alpha masks while normalizing clear
-space, dimensions, and solid ink colors. Originals remain in [source/](source/).
-
-[provenance.json](provenance.json) records briefs, sources, palette, dimensions,
-and checks; [manifest.json](manifest.json) records file hashes. Transparency,
-solid colors, preview loading, and mobile reflow were checked.
+Image Generation produced the approved artwork and transparent edits. The
+normalized artwork retains the original alpha masks. [Originals](source/) ·
+[Provenance and verification](provenance.json) · [File hashes](manifest.json)
