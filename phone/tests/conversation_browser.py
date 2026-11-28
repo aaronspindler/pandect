@@ -867,9 +867,8 @@ class ConversationBrowserTests(BrowserTestCase):
                         "Enter"
                     )
                     expect(second_row).to_be_in_viewport()
-                    expect(
-                        page.get_by_text("Match 2 of 2", exact=True)
-                    ).to_be_in_viewport()
+                    status = page.get_by_text("Match 2 of 2", exact=True)
+                    expect(status).to_be_in_viewport()
                     for neighbor in self.messages[50:52]:
                         neighbor_row = reader.locator(f"#message-{neighbor.pk}")
                         expect(neighbor_row).to_be_visible()
@@ -882,8 +881,10 @@ class ConversationBrowserTests(BrowserTestCase):
                     expect(first_row).to_be_in_viewport()
                     page.go_back()
                     expect(second_row).to_be_in_viewport()
+                    highlight = second_row.locator("mark")
+                    expect(status).to_be_in_viewport()
+                    expect(highlight).to_be_in_viewport()
                     if javascript:
-                        status = page.get_by_text("Match 2 of 2", exact=True)
                         for width, height in (
                             (1440, 900),
                             (1440, 1024),
@@ -892,7 +893,8 @@ class ConversationBrowserTests(BrowserTestCase):
                             (320, 844),
                         ):
                             page.set_viewport_size({"width": width, "height": height})
-                            status.scroll_into_view_if_needed()
+                            # Frame both the controls and the highlight for captures.
+                            second_row.scroll_into_view_if_needed()
                             self.assert_reflow(page, width)
                             if width in (1440, 390):
                                 self.capture(
@@ -907,9 +909,10 @@ class ConversationBrowserTests(BrowserTestCase):
                                 forced_colors=forced_colors,
                                 reduced_motion="reduce",
                             )
+                            second_row.scroll_into_view_if_needed()
                             self.assert_reflow(page, 320)
                             expect(status).to_be_in_viewport()
-                            expect(second_row.locator("mark")).to_be_in_viewport()
+                            expect(highlight).to_be_in_viewport()
                             self.capture(
                                 page,
                                 engine,
