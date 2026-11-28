@@ -6,7 +6,7 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from core.case_search.hosted import NOTICES, HostedSearchError
 from core.case_search.tests.fixtures import indexed
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from phone.models import TextMessageEvidence
 
 

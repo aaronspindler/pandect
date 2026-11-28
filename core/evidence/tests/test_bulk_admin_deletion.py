@@ -17,7 +17,7 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.evidence.deletion import CHANGED, execute_deletion
 from core.models import AnalysisRun, SavedSelection
-from core.testing import ALL_MODELS, EvidenceTestMixin
+from core.tests.testing import ALL_MODELS, EvidenceTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationImport
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence

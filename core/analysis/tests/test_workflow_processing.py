@@ -29,7 +29,7 @@ from core.models import (
     HostedSearchItem,
     HostedSearchSource,
 )
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import (
     VehicleLocationEvidence,

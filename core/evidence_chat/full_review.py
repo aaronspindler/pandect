@@ -237,7 +237,9 @@ def review_batch(turn, *, literal_result=None):
     activity.record(turn, "review", spans)
     outcomes = []
     if filters:
-        evaluated = engine_counts.evaluate(turn.case, pending, filters)
+        evaluated = engine_counts.evaluate(
+            turn.case, pending, filters, through=turn.started_at
+        )
         for source, windows, _ in work:
             if windows:
                 w = windows[0]
@@ -276,7 +278,11 @@ def review_batch(turn, *, literal_result=None):
                 outcome, refs = next(verified)
                 matched |= outcome == "match"
                 if outcome == "uncertain":
-                    gap = "Some material could not be interpreted for this question."
+                    gap = (
+                        "This record has no known time in the requested timezone."
+                        if filters
+                        else "Some material could not be interpreted for this question."
+                    )
                 for ref in refs:
                     if literal:
                         key = source.pk, ref["start"], ref["end"]

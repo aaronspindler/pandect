@@ -20,12 +20,12 @@ from core.analysis.errors import AnalysisError
 from core.analysis.form_base import source_choices
 from core.analysis.operations import get_operation
 from core.analysis.services import start_run
-from core.analysis.testing import external_grant_kwargs, image_bytes
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs, image_bytes
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from image.models import ImageEvidence

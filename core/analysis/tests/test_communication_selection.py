@@ -13,12 +13,12 @@ from django_tasks_db.models import DBTaskResult
 from core.analysis.forms import analysis_form
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.evidence.types import COMMUNICATION_KINDS
 from core.models import AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from phone.models import (
     CallEvidenceAttachment,
     FaceTimeEvidence,

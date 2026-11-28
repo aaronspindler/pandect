@@ -32,15 +32,19 @@ uv run --locked --env-file .env make check
 
 - `make static-check` runs repository hygiene, Ruff lint and format checks,
   `uv lock --check`, and Compose configuration validation.
-- `make test` runs the PostgreSQL tests with `config.test_settings`.
+- `make test` runs the PostgreSQL tests with `config.tests.settings`.
 - `make database-check` runs Django's database/system checks and checks for
   missing migrations.
 
 `make validate` runs configuration and database checks. `make format` rewrites
-files. Direct test commands need `--settings=config.test_settings`. Override
+files. Direct test commands need `--settings=config.tests.settings`. Override
 Make's module with `TEST_SETTINGS=<module>` for another test configuration.
 Routine tests use synthetic fixtures and storage, source assets, and mocked
 provider transport. Test settings clear live provider destinations and credentials.
+
+Keep tests, browser journeys, fixtures, and test helpers in the owning app's
+`tests/` package. Run browser journeys explicitly through `make browser-check`
+or by their module labels.
 
 `make compose-smoke` needs Docker with Compose v2 and host `python3`. It uses a
 temporary project, fresh volumes, random loopback ports, and synthetic
@@ -140,8 +144,8 @@ Pass an owning app's module, class, or method for focused checks. Browser module
 use the same command and isolated database setup:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings image.tests.test_previews --noinput
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings image.tests.test_previews --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
 ```
 
 When changing isolation boundaries, verify with synthetic records in separate
@@ -156,7 +160,7 @@ a loopback-only Chromium service with three scheduled checks against generated
 lists. Run from the checkout with the locked development browser installed:
 
 ```sh
-uv run --locked --env-file .env env POSTGRES_HOST=127.0.0.1 POSTGRES_DB=pandect_instagram_qualification python manage.py test socialmedia.pilot_integration --settings=config.test_settings --noinput
+uv run --locked --env-file .env env POSTGRES_HOST=127.0.0.1 POSTGRES_DB=pandect_instagram_qualification python manage.py test socialmedia.tests.pilot_integration --settings=config.tests.settings --noinput
 ```
 
 The test uses a disposable database and private media. It checks case approval,
@@ -168,8 +172,8 @@ actual daily checks on a qualified source.
 
 The Chromium browser suite verifies signed-in observer identity, profile
 discovery, and endpoint pagination against locally fulfilled pages in
-`socialmedia.live_roster_browser`, `socialmedia.endpoint_profile_browser`, and
-`socialmedia.endpoint_roster_browser`. The separate
+`socialmedia.tests.live_roster_browser`, `socialmedia.tests.endpoint_profile_browser`, and
+`socialmedia.tests.endpoint_roster_browser`. The separate
 [one-time live check](instagram-monitors.md#one-controlled-check-on-a-mac)
 uses a private browser and a controlled account.
 
@@ -177,13 +181,13 @@ Shared execution and publication tests live in `core.analysis.tests`; concrete
 processing tests live in their domain apps. For a focused parser check:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_parser_dispatch document.tests.test_analysis image.tests.test_analysis image.tests.test_ocr image.tests.test_plates core.analysis.tests.test_plates audio.tests.test_analysis geo.tests.test_geographic_context --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings core.analysis.tests.test_parser_dispatch document.tests.test_analysis image.tests.test_analysis image.tests.test_ocr image.tests.test_plates core.analysis.tests.test_plates audio.tests.test_analysis geo.tests.test_geographic_context --noinput
 ```
 
 To reproduce the findings resource benchmark and populated-database backfill check:
 
 ```sh
-uv run --locked --env-file .env python manage.py test core.analysis.tests.test_catalogue_bounds core.analysis.tests.test_catalogue_migrations --settings=config.test_settings --noinput
+uv run --locked --env-file .env python manage.py test core.analysis.tests.test_catalogue_bounds core.analysis.tests.test_catalogue_migrations --settings=config.tests.settings --noinput
 ```
 
 ### Hosted search and inference

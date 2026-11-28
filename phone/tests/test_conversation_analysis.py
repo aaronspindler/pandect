@@ -22,7 +22,7 @@ from core.models import (
     AnalysisReview,
     AnalysisRun,
 )
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import CommunicationContext, TextMessageEvidence

@@ -10,8 +10,8 @@ from core.analysis.services import start_run
 from core.analysis.worker import process_run
 from core.models import AnalysisReview, AnalysisRun
 from geo.analysis.external.geocoding import Geocoder
-from geo.testing import LOCAL_GEOCODER
 from geo.tests.test_map import SavedTripFixtures
+from geo.tests.testing import LOCAL_GEOCODER
 from geo.trip_geometry import geometry_revision, source_positions
 from geo.trip_processing import trip_sources
 

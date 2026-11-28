@@ -12,9 +12,9 @@ from core.analysis.form_base import source_choices
 from core.analysis.forms import analysis_form
 from core.analysis.services import start_run
 from core.analysis.sources import output
-from core.analysis.testing import preview_image_bytes as image_bytes
+from core.analysis.tests.testing import preview_image_bytes as image_bytes
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
 from image.models import ImageEvidence
 

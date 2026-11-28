@@ -13,7 +13,7 @@ from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
 from core.models import AnalysisResult
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
 PRIVATE_TEXT = "synthetic-private-body-and-api-token"

@@ -10,7 +10,7 @@ from core.analysis.services import start_run
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import PersonLocationEvidence
 from people.models import Person
 from text.models import TextEvidence

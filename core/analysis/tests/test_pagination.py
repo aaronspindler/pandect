@@ -11,7 +11,7 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from core.analysis.form_base import source_choices
 from core.analysis.presentation import measurement_formatter
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence
 from phone.models import CommunicationContext, PhoneCallEvidence, TextMessageEvidence

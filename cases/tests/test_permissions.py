@@ -8,7 +8,7 @@ from django.urls import URLResolver, get_resolver, reverse
 
 from cases.models import CaseMembership
 from cases.permissions import get_case
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 
 
 class CaseRouteTests(SimpleTestCase):

@@ -19,12 +19,12 @@ from pypdf.generic import (
 
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
-from core.analysis.testing import external_grant_kwargs, file_source
 from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.tests.testing import external_grant_kwargs, file_source
 from core.analysis.worker import process_run
 from core.models import GatewayRequest
 from core.parsers import run_parser
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.analysis.deterministic import native_text
 from document.models import DocumentEvidence
 

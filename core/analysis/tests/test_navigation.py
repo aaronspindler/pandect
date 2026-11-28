@@ -14,12 +14,12 @@ from core.analysis.services import start_run
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import output, source_id
-from core.analysis.testing import external_grant_kwargs, wav_bytes
-from core.analysis.testing import preview_image_bytes as image_bytes
 from core.analysis.tests.test_gateway import CONFIG, TRANSCRIPTION_CONFIG
+from core.analysis.tests.testing import external_grant_kwargs, wav_bytes
+from core.analysis.tests.testing import preview_image_bytes as image_bytes
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from document.tests.test_analysis import pdf_bytes
 from image.models import ImageEvidence

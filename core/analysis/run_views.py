@@ -48,9 +48,10 @@ from core.models import AnalysisResult, AnalysisRun
 from geo.analysis import presentation as geo_presentation
 from people.models import Person
 from text.analysis.attributed_sources import (
+    restore_excluded_source_links,
     result_batches,
     source_batches,
-    verify_membership,
+    verify_saved_membership,
     writing_scope,
 )
 from ui.live import render_live
@@ -64,7 +65,7 @@ def detail(request, case_id, run_id):
     run = case_run(case, run_id)
     source_error = None
     source_review_changed = False
-    source_page = None
+    source_page = result = None
     writing_sources = []
     try:
         if writing := writing_scope(run.operation, run.parameters):
@@ -78,14 +79,14 @@ def detail(request, case_id, run_id):
                 )
                 for source in batch
             ]
-            data = (
-                AnalysisResult.objects.filter(case=case, run=run)
-                .values_list("data", flat=True)
-                .first()
-            )
+            result = AnalysisResult.objects.filter(
+                case=case, run=run, run__case=case
+            ).first()
             sources = writing_sources
-            if data:
-                verify_membership(case, writing, run.inputs)
+            if result is not None:
+                verify_saved_membership(case, writing, run.inputs, result.pk)
+                data = result.data
+                restore_excluded_source_links(case, writing, run.inputs, data)
                 sources = [
                     source
                     for batch in result_batches(
@@ -182,6 +183,7 @@ def detail(request, case_id, run_id):
     if run.operation in {"style_profiles", "style_change"} and (
         scope := run.parameters.get("writing_scope")
     ):
+        context["writing_scope"] = scope
         if person := Person.objects.filter(case=case, pk=scope["person_id"]).first():
             context["writing_person"] = person
             writing_query = dict(parse_qsl(list_query(request)))
@@ -213,16 +215,22 @@ def detail(request, case_id, run_id):
         assumptions, case=case, sources=sources, query=request.GET
     )(assumptions)
     if source_error is None:
-        context.update(
-            retained_result_context(
-                request,
-                case,
-                run,
-                sources,
-                history=history,
-                finding_history=finding_history,
+        if writing is None:
+            result = AnalysisResult.objects.filter(
+                case=case, run=run, run__case=case
+            ).first()
+        if result is not None:
+            context.update(
+                retained_result_context(
+                    request,
+                    case,
+                    run,
+                    sources,
+                    result=result,
+                    history=history,
+                    finding_history=finding_history,
+                )
             )
-        )
     if source_page is not None and (selected := context.get("data", {}).get("metrics")):
         context["writing_coverage"] = {
             "selected": selected["sources_selected"],

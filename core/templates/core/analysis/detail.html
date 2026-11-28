@@ -37,6 +37,7 @@
 {% if source_archived %}<p class="notice">A selected source is archived. Restore the evidence to view this result.</p>{% elif source_unavailable %}<p class="notice">A selected source is unavailable or changed. The result is withheld until its exact retained inputs can be verified.</p>{% endif %}
 {% if run.status == 'complete' and not result and not source_unavailable %}<p class="notice">No result was saved for this run.</p>{% endif %}
 
+{% if result and writing_scope %}<p><strong>Selected period{% if run.operation == 'style_change' %}s{% endif %}</strong> · {% include 'text/writing_periods.html' with scope=writing_scope operation=run.operation only %}</p>{% endif %}
 {% if focused_finding %}
   {% include 'core/analysis/finding.html' with item=items.0 %}
   {% if finding_page.paginator.count > 1 %}<a class="record-link" href="{% querystring run_query page=finding_page.number %}#finding-link-{{ items.0.number }}">All findings in this result</a>{% endif %}

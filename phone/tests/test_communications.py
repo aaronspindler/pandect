@@ -17,7 +17,11 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from core.case_search.tests.fixtures import indexed
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS
-from core.testing import COMMUNICATION_MODELS, EvidenceTestMixin, EvidenceViewTestMixin
+from core.tests.testing import (
+    COMMUNICATION_MODELS,
+    EvidenceTestMixin,
+    EvidenceViewTestMixin,
+)
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import (

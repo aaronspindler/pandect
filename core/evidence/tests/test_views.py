@@ -21,7 +21,7 @@ from django.urls import reverse
 from cases.models import Case, CaseMembership
 from core.case_search.tests.fixtures import indexed
 from core.evidence.types import FILE_KINDS, KIND_LABELS, KINDS, LOCATION_KINDS
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence
 from people.models import Person

@@ -8,7 +8,7 @@ from core.analysis.services import start_run
 from core.analysis.sources import output
 from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, ExtractedPassage
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 
 

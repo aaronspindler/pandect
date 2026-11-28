@@ -18,8 +18,9 @@ from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.source_selection import snapshot_sources
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
+from core.evidence.retention import set_evidence_archive
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from people.models import Person
@@ -511,6 +512,37 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(
                     page.locator(f"#message-{self.manual_message.pk}")
                 ).to_be_attached()
+
+    def test_archive_and_restore_require_reload_before_scrolling(self):
+        first = self.messages[0]
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.live_server_url + self.reader_path)
+                first_row = page.locator(f"#message-{first.pk}")
+                messages = page.locator(".conversation-message")
+                edge = page.locator('[data-conversation-edge="next"]')
+                expect(first_row).to_have_count(1)
+                for archived in (True, False):
+                    self.db(
+                        set_evidence_archive,
+                        self.owner,
+                        self.case.pk,
+                        "text-message",
+                        first.pk,
+                        archived=archived,
+                    )
+                    edge.get_by_role("link", name="Later messages", exact=True).press(
+                        "Enter"
+                    )
+                    expect(edge).to_contain_text("Messages changed.")
+                    expect(messages).to_have_count(50)
+                    expect(first_row).to_have_count(int(archived))
+                    edge.get_by_role("link", name="Reload conversation").press("Enter")
+                    expect(first_row).to_have_count(int(not archived))
+                    expect(
+                        edge.get_by_role("link", name="Later messages", exact=True)
+                    ).to_be_attached()
 
     def test_revoked_access_blocks_the_next_scroll_batch(self):
         for engine in self.engines:

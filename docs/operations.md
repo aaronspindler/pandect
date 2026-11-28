@@ -141,6 +141,8 @@ build, check whether an invalid index remains before retrying. Earlier
 application images may be incompatible after a migration. If reversing the
 full migration plan would remove retained data or cannot be done safely,
 qualify restoration from the matching backup in a separate environment.
+For rollback to a worker that predates case approval, cancel queued external
+work or disable outbound analysis before starting that worker.
 
 When moving a PostgreSQL 18 installation from the former vector-based search,
 keep the same data directory, volume, and architecture. Before migration, record

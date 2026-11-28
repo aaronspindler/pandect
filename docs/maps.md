@@ -2,9 +2,7 @@
 
 **Case Tools → Trips** brings saved possible trips, location coverage gaps, and
 the map together for all case roles. Owners and editors can also **Add POI**.
-Existing Vehicle trips report links redirect to Trips and carry supported vehicle
-and page selections. The case-scoped routes are `geo:case_map`,
-`geo:prepare_trips`, and `geo:trip_detail`.
+Existing Vehicle trips report links redirect here with supported filters.
 
 ## Person points of interest
 
@@ -24,31 +22,21 @@ label/person and link to details; identical positions share a marker listing all
 POIs. **Show on map** offers keyboard selection. Polar positions beyond display
 limits remain in the list without coordinate changes.
 
-Expand **Search POIs** to search labels, types, addresses, citations, and person
-names or contact information. POI search and pagination keep the trip selection.
-URL-backed `poi_page` lists at most 100 POIs per page; only that page is plotted alongside
-the selected complete trip. Person details list 25 POIs per page and preselect
-the person when adding.
-POI details opened from a map marker or list return to the same map search and
-pages. **Back to trip** reopens the selected trip with its vehicle, day, source
-page, and findings page. If that trip becomes unavailable, the link returns to
-Trips with the same selection. From a Person record, **Back to person** returns to that
-person's Points of interest section with its page and People list filters.
-These origins carry through add, edit, and delete, including **Add POI here**
-on the map. Cancelling or saving an edit returns to the point. Deleting a
-point returns to the view it came from. If an edit changes the associated
-person, the return link still leads to the Person record that opened the task.
-Latitude and longitude sit together when space allows and stack on phones.
+**Search POIs** uses [hosted search](cloudflare-search.md) for POI fields such
+as label, address and source. Clear the query to browse if search is unavailable.
+The map plots the current page of up to 100 POIs alongside the trip. Person
+details list 25 POIs per page and preselect the person when adding.
+
+POI actions preserve the originating map, trip or person and its filters and
+pages. **Back to trip** falls back to Trips if the selected trip becomes
+unavailable. Changing the POI's person keeps the return link to its original
+person context.
 
 Owners/editors add/edit/delete; viewers inspect. Requests check current access
 and restrict person selection server-side. Stale edits preserve drafts for review.
 Deletion needs named confirmation and POST. Person/case deletion also removes
 POIs; retained evidence still protects person deletion. POIs record creator and
 creation/update times without versioned history, and have no admin editor.
-
-`geo.PointOfInterest` uses a UUID table scoped through its required person, with
-label/coordinate constraints in fresh `geo/0001_initial`. Use the [fresh baseline](architecture.md#primary-keys-and-the-initial-schema)
-with a new database/queue; no old-table conversion is retained.
 
 ## Processed vehicle trips
 
@@ -94,33 +82,21 @@ First/last observed places/times verify no departure/arrival, continuous presenc
 driver, or travelled distance. Positions beyond Web Mercator ±85.05112878° remain
 inspectable without clamping originals.
 
-Geometry arrives in cursor pages of at most 500 sources, progressively drawn on
-one canvas. A trip made entirely of reported coordinates can reuse one complete
-response in tab memory after a successful server recheck of that trip and its
-generation. Address lookups elsewhere in the case leave these reported positions
-unchanged. The map clears the previous overlay and shows loading during the
-recheck. A changed revision triggers a fresh read. Trips with address estimates
-or missing coordinates also fetch fresh positions on redraw. Larger trips
-stream without retaining completed coordinates. Requests recheck case access
-and the published generation. Fresh position reads resolve current address
-selections.
-Server-rendered trip/source lists work without JavaScript or tiles.
+Geometry streams in pages of up to 500 sources. Requests recheck current case
+access and trip generation. The map can reuse complete reported-coordinate data
+after rechecking its revision. Address estimates are read fresh. Trip and source
+lists work without JavaScript or tiles.
 
 ## Local address lookup
 
-Address-only trips process without geocoding. After publication, separate background
-preparation queues missing private-geocoder lookups in batches of 25 distinct
-addresses, subject to the analysis source limit (at most 500). Batches continue
-through eligible trip sources; this is no total-history cap. Failure does not
-block trip summaries. Pending/terminal lookups remain retained; failed lookups
-require deliberate retry from their Processing pages.
+Address-only trips process without geocoding. After publication, the worker
+can queue missing private-geocoder lookups in batches of 25 distinct addresses.
+Batches continue across eligible trip history. Failed lookups have a deliberate
+retry in Processing and leave trip summaries available.
 
-Set `PANDECT_GEOCODER_LOCAL=true`, private `PANDECT_GEOCODER_URL`, source name,
-dataset version, attribution, and User-Agent on **both web and worker**. See
-[configuration](analysis-locations.md#geocoding-configuration-and-estimate-selection). There is
-no public default/cloud fallback; browsers never contact the geocoder. Workers
-send selected original addresses only, excluding files, titles, case IDs, and
-vehicle identifiers. Endpoint/version checks, authorization, bounds, and provenance apply.
+Configure the private geocoder on web and worker. The worker sends only the
+selected original addresses and has no public fallback. See [geocoder
+configuration](analysis-locations.md#geocoding-configuration-and-estimate-selection).
 
 Open **Review address estimates for this trip** to see address-only observations
 together, then follow **Open address lookup** for an observation. Open a candidate and choose
@@ -143,25 +119,15 @@ start, distinct coordinates also appear in a relative position plot.
 
 ## External tiles and privacy
 
-Vendored Leaflet 1.9.4 lives in `geo/static/geo/vendor/leaflet/` with its BSD license.
-Templates live in `geo/templates/geo/`. POIs use escaped `json_script`.
-Trip positions use authorized JSON. Finding positions come from the
-server-rendered coordinates and sources list. Popups render titles as DOM text.
-Complete lists work without JavaScript, tiles, or Leaflet.
+The locally served [Leaflet build and license](../geo/static/geo/vendor/leaflet/README.md)
+render maps. No basemap is configured by default. Opening Trips or an
+observation map with configured tiles sends the tile provider the browser IP,
+site origin and viewed tile areas. Marker details and evidence render within
+Pandect. Tile images use origin-only referrers and follow the provider's cache
+headers.
 
-No basemap is configured by default. Trips and observation maps in findings load
-configured tiles on opening.
-Providers receive browser IP, site origin and viewed tile areas. Files, titles,
-notes, addresses, case IDs and observation times stay in Pandect. Marker details
-render locally, and address lookup remains local.
-Tile images use `referrerPolicy: origin`; other private pages keep same-origin
-policy. Successful Trips and eligible analysis result pages permit the tile origin
-in image CSP.
-Private HTML is uncached; tiles follow their server's cache headers.
-
-The OSM background is orientation context, not retained evidence/history.
-[Geographic context](analysis-geographic-context.md) is a separate explicit lookup
-retaining responses/provenance.
+Basemaps provide orientation. Use [Geographic context](analysis-geographic-context.md)
+for explicit lookups with retained responses and provenance.
 
 Keyboard users pan with arrows, zoom with +/− or 44px controls, inspect markers,
 and use lists/source links. Wheel zoom is disabled for document scrolling; touch
@@ -186,14 +152,11 @@ prefetch, bulk download, retry loops, or cache-busting. Browser tests mock tiles
 Use the documented local PostgreSQL setup:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings geo.tests.test_map geo.tests.test_map_geocoding geo.tests.test_pois config.tests.test_product_access --noinput
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings geo.map_browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings geo.tests.test_map geo.tests.test_map_geocoding geo.tests.test_pois config.tests.test_product_access --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings geo.tests.map_browser --noinput
 ```
 
-Chromium/WebKit use synthetic trips/POIs and mocked tiles to check progressive
-drawing, complete sources, estimate selection, keyboard/POI controls, no-JavaScript,
-tile failure, desktop/mobile, and 320px reflow. Captures use ignored
-`data/validation/maps`. Unit tests cover histories beyond 100/500 observations,
-chunk boundaries, roles/revocation, case/source integrity, retries, stale generations,
-and deletion inventories. They send no real addresses and establish neither live
-provider availability nor full accessibility compliance.
+The browser journeys use synthetic trips and POIs with mocked tiles. Cover
+keyboard controls, reflow, unavailable tiles, estimate selection, source
+navigation, and the no-JavaScript list. Keep captures under ignored
+`data/validation/maps/`.

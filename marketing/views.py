@@ -10,7 +10,7 @@ PAGE_METADATA = {
     "home": (
         "Open-source investigation software",
         "Pandect is self-hostable investigation software for organizing evidence in "
-        "private cases, searching case material, and tracing findings to sources.",
+        "private cases, collaborating, and tracing findings to sources.",
     ),
     "evidence": (
         "Evidence types and analysis tools",
@@ -30,7 +30,7 @@ PAGE_METADATA = {
     "investigation_osint": (
         "Open-source intelligence (OSINT) investigations",
         "Organize collected public sources in a private case, record source URLs, "
-        "search extracted text, and review repeated identifiers against the evidence.",
+        "and review repeated identifiers against the evidence.",
     ),
     "investigation_communications": (
         "Communications investigation software",

@@ -10,7 +10,7 @@ from django.utils import timezone
 from core.analysis.presentation import measurement_formatter
 from core.analysis.result_views import result_view
 from core.analysis.sources import Source
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from people.models import Person
 from phone.models import TextMessageEvidence
 

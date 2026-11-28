@@ -13,7 +13,7 @@ from core.analysis.errors import AnalysisError
 from core.evidence.deletion import plan_deletion
 from core.evidence_chat import corpus, services
 from core.models import ChatMatch, ChatSource, ChatTurn, ImportantItem, ImportantNote
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 
 
 class ChatServiceTests(EvidenceViewTestMixin, TestCase):

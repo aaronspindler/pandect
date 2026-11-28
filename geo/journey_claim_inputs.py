@@ -32,9 +32,9 @@ CLAIM_STATUS = {
 }
 
 
-def _trip_scope_message():
+def _movement_scope_message(reason):
     return (
-        "This trip has too many observations. A comparison can include up to "
+        f"{reason} A comparison can include up to "
         f"{settings.PANDECT_ANALYSIS_MAX_SOURCES} "
         "sources, including the statement."
     )
@@ -88,12 +88,16 @@ def derived_page(case, role, *, query="", page=1, results=None):
         )
         runs = {finding.result_id: finding.result.run for finding in rows}
         unavailable = set()
+        oversized = set()
         cache = SourceResolutionCache(case, with_content=False)
         for result_id, run in runs.items():
             try:
                 _check_prior_sources(case, run, cache)
             except AnalysisError:
                 unavailable.add(result_id)
+                continue
+            if role == "movement" and _at_movement_limit(run.inputs):
+                oversized.add(result_id)
         for finding in finding_rows(case, rows):
             if not finding["unavailable"] and finding["result_id"] not in unavailable:
                 label = finding["label"].replace("_", " ")
@@ -101,7 +105,11 @@ def derived_page(case, role, *, query="", page=1, results=None):
                 labels[("finding", finding["id"])] = (
                     f"finding:{finding['result_id']}:{finding['item_index']}",
                     f"{label.capitalize()} · {detail}",
-                    "",
+                    _movement_scope_message(
+                        "This saved finding requires too many sources."
+                    )
+                    if finding["result_id"] in oversized
+                    else "",
                 )
     trip_ids = [pk for pk, kind, _ in entries if kind == "trip"]
     if trip_ids:
@@ -110,7 +118,7 @@ def derived_page(case, role, *, query="", page=1, results=None):
                 f"trip:{trip.pk}",
                 f"Saved trip · {trip.vehicle} · {trip.start_at.isoformat()} · "
                 f"{trip.source_count} observations",
-                _trip_scope_message()
+                _movement_scope_message("This trip has too many observations.")
                 if trip.source_count >= settings.PANDECT_ANALYSIS_MAX_SOURCES
                 else "",
             )
@@ -130,6 +138,13 @@ def _choice(snapshot):
             if snapshot.get(key) is not None
         },
     }
+
+
+def _at_movement_limit(inputs):
+    # The required statement is independent of the original location selection.
+    return len({source_id(_choice(entry)) for entry in inputs}) >= (
+        settings.PANDECT_ANALYSIS_MAX_SOURCES
+    )
 
 
 def _check_prior_sources(case, run, cache):
@@ -163,6 +178,11 @@ def _finding_input(case, role, ref, *, validate_sources):
         raise AnalysisError("source_unavailable")
     if validate_sources:
         _check_prior_sources(case, run, SourceResolutionCache(case, with_content=False))
+        if role == "movement" and _at_movement_limit(run.inputs):
+            raise ValidationError(
+                _movement_scope_message("This saved finding requires too many sources.")
+                + " Choose individual observations instead."
+            )
     prior = ref | {"run_id": str(run.pk), "method_version": run.method_version}
     snapshots = {entry["id"]: entry for entry in run.inputs}
     members = item.get("source_ids")
@@ -241,7 +261,8 @@ def _trip_input(case, trip_id, *, historical=False):
         maximum_observations -= 1  # A new comparison also needs a statement source.
     if trip.source_count > maximum_observations:
         raise ValidationError(
-            f"{_trip_scope_message()} Choose individual observations instead."
+            _movement_scope_message("This trip has too many observations.")
+            + " Choose individual observations instead."
         )
     rows = list(
         versioned_trip_memberships(case, trip)

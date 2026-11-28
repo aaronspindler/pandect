@@ -47,10 +47,14 @@ def hits(
     filters=None,
     records=False,
     authorize_transfer=None,
+    deadline=None,
+    omit_record_notes=False,
 ):
     query = query.strip()
     if not query or len(query) > 2000 or not 1 <= limit <= 50:
         return []
+    if deadline is not None:
+        cloudflare.check_deadline(deadline)
     through = through or timezone.now()
     case = get_case_for_verified_user(actor.pk, case.pk)
     if not case.external_ai_enabled:
@@ -90,6 +94,7 @@ def hits(
         "POST",
         "/search",
         authorize_transfer=authorize_query,
+        **({"deadline": deadline} if deadline is not None else {}),
         payload={
             "query": query,
             "ai_search_options": {
@@ -142,7 +147,10 @@ def hits(
     results = []
     seen = set()
     materials = {}
+    note_free_records = {}
     for item_id, key, text in candidates:
+        if deadline is not None:
+            cloudflare.check_deadline(deadline)
         item = items.get(item_id)
         if (
             item is None
@@ -164,6 +172,22 @@ def hits(
         offset = found.text.find(text)
         if offset < 0 or found.text.find(text, offset + 1) >= 0:
             continue
+        if omit_record_notes and item.source.surface == "record":
+            if item_id not in note_free_records:
+                note_free_records[item_id] = material.read(
+                    case,
+                    item.source,
+                    item.start,
+                    through=through,
+                    filters=filters,
+                    omit_record_notes=True,
+                )
+            if (found := note_free_records[item_id]) is None:
+                continue
+            excerpt = found.text[offset : offset + len(text)]
+            if not excerpt.strip() or not text.startswith(excerpt):
+                continue
+            text = excerpt
         start = item.start + offset
         identity = (found.locator["key"], start)
         if identity not in seen:
@@ -172,11 +196,21 @@ def hits(
             if len(results) >= limit:
                 break
     authorize(get_case_for_verified_user(actor.pk, case.pk), index)
+    if deadline is not None:
+        cloudflare.check_deadline(deadline)
     return results
 
 
 def search(
-    case, actor, query, *, through=None, limit=8, filters=None, authorize_transfer=None
+    case,
+    actor,
+    query,
+    *,
+    through=None,
+    limit=8,
+    filters=None,
+    authorize_transfer=None,
+    omit_record_notes=False,
 ):
     return [
         (found.locator, start)
@@ -189,5 +223,6 @@ def search(
             filters=filters,
             authorize_transfer=authorize_transfer,
             records=True,
+            omit_record_notes=omit_record_notes,
         )
     ]

@@ -218,7 +218,8 @@ def inspect_turn(turn, *, read=None):
         return {}
     if turn.chat.case_id != turn.case_id or review_restart_code(turn):
         return None
-    if not recalled_sources_available(turn, read or corpus.read_window):
+    read = read or corpus.read_saved_window
+    if not recalled_sources_available(turn, read):
         return None
     if "recorded_selection" in turn.plan:
         from . import recorded
@@ -276,7 +277,7 @@ def inspect_turn(turn, *, read=None):
     for source in turn.sources.filter(status="context").exclude(key__in=keys):
         if (
             source.case_id != turn.case_id
-            or (read or corpus.read_window)(turn.case, source.locator, 0, 1) is None
+            or read(turn.case, source.locator, 0, 1) is None
         ):
             return None
     for claim in claims:
@@ -319,6 +320,7 @@ def match_page(turn, page):
             turn.case,
             hit.source,
             {"start": hit.start, "end": hit.end, "quote": hit.quote},
+            read=corpus.read_saved_window,
         )
         rows.append(
             {
@@ -343,7 +345,7 @@ def gap_page(turn, page):
     result = Paginator(sources, 25).get_page(page)
     rows = []
     for source in result:
-        window = corpus.read_window(turn.case, source.locator, 0, 1)
+        window = corpus.read_saved_window(turn.case, source.locator, 0, 1)
         rows.append(
             {
                 "label": window["label"] if window else "Unavailable source",

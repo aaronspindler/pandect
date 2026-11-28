@@ -39,7 +39,7 @@ from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
 )
-from geo.testing import csv_content, parse_csv
+from geo.tests.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import enqueue_preparation, process_import
 from image.models import ImageEvidence
 from people.models import Person
@@ -3441,7 +3441,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
         from datetime import UTC, datetime
 
         from core.analysis.services import start_run
-        from core.analysis.testing import image_bytes
+        from core.analysis.tests.testing import image_bytes
         from core.analysis.worker import process_run
         from phone.models import PhoneCallEvidence
 

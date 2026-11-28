@@ -12,7 +12,7 @@ from cases.models import CaseMembership
 from core.case_search.tests.fixtures import indexed
 from geo.models import PointOfInterest
 from geo.poi_forms import PointOfInterestForm
-from geo.testing import MapCaseFixtures
+from geo.tests.testing import MapCaseFixtures
 from people.models import Person
 
 

@@ -28,7 +28,7 @@ from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from geo.analysis.external.geocoding import Geocoder
 from geo.models import LocationEvidence, PointOfInterest, VehicleLocationEvidence
-from geo.testing import LOCAL_GEOCODER
+from geo.tests.testing import LOCAL_GEOCODER
 from geo.trip_jobs import process_trips
 from geo.trip_processing import prepare_case_trips, saved_trips
 from people.models import Person

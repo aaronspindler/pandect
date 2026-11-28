@@ -9,7 +9,11 @@ from django.utils import timezone
 
 from core.case_search.sources import name
 from core.evidence.queries import scoped_evidence
-from core.evidence.source_clocks import timestamp_fields
+from core.evidence.source_clocks import (
+    is_date_only_message,
+    message_event_clock,
+    timestamp_fields,
+)
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, LOCATION_KINDS
 from people.models import Person
 from phone.conversations import reported_pair
@@ -156,7 +160,7 @@ def count_clock(kind):
     return field
 
 
-def count_candidates(rows, kind, filters):
+def count_candidates(rows, case, kind, filters, *, through=None):
     """Freeze only eligible matches and unknown dates for a scoped count."""
     if parties := filters.get("parties"):
         rows = rows.filter(reported_pair(*parties))
@@ -166,11 +170,14 @@ def count_candidates(rows, kind, filters):
         bounds = Q(**{clock + "__gte": date_range["start"]})
         if "end" in date_range:
             bounds &= Q(**{clock + "__lt": date_range["end"]})
-        rows = rows.filter(bounds | Q(**{clock + "__isnull": True}))
+        unknown = Q(**{clock + "__isnull": True})
+        if kind == "text-message":
+            unknown |= Q(is_date_only_message(case, through=through))
+        rows = rows.filter(bounds | unknown)
     return rows
 
 
-def evaluate(case, sources, filters):
+def evaluate(case, sources, filters, *, through=None):
     """Classify each frozen original, using case-enforced participant relationships."""
     result = {}
     for kind in filters["kinds"]:
@@ -183,10 +190,14 @@ def evaluate(case, sources, filters):
         if "day" not in filters:
             result.update((pk, "match") for pk in qs.values_list("pk", flat=True))
             continue
-        date_field = count_clock(kind)
+        clock = (
+            message_event_clock(case, through=through)
+            if kind == "text-message"
+            else count_clock(kind)
+        )
         zone = ZoneInfo(filters["timezone"])
         day = date.fromisoformat(filters["day"])
-        for pk, timestamp in qs.values_list("pk", date_field):
+        for pk, timestamp in qs.values_list("pk", clock):
             if timestamp is None:
                 result[pk] = "uncertain"
             elif timezone.localdate(timestamp, zone) == day:

@@ -17,9 +17,10 @@ revisions without changing the file.
 
 ## Product direction
 
-Pandect is an open-source, self-hostable investigation platform. Follow
-[DESIGN.md](DESIGN.md) for investigator workflows and accessibility. Preserve
-source attribution, saved legacy notes, and legacy finding review reasons.
+Pandect is an open-source, self-hostable investigation and intelligence
+platform. Follow [DESIGN.md](DESIGN.md) for investigator workflows and
+accessibility. Preserve source attribution, saved legacy notes, and legacy
+finding review reasons.
 Limit new note authoring to dated notes attached to items marked Important.
 Use the [roadmap](docs/evidence-analysis-roadmap.md)
 for future scope rather than presenting planned features as available.

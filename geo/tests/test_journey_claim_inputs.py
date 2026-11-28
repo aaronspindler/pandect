@@ -16,7 +16,7 @@ from core.analysis.sources import source_id
 from core.analysis.worker import process_run
 from core.evidence.deletion import plan_deletion
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.journey_claim_inputs import derived_page, expand_input, validate_dependencies
 from geo.models import VehicleLocationEvidence
 from geo.trip_jobs import process_trips
@@ -167,6 +167,18 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
                 self.assertIn(
                     token, [key for key, _, _ in derived_page(self.case, "movement")]
                 )
+                with self.settings(PANDECT_ANALYSIS_MAX_SOURCES=3):
+                    options = {
+                        key: reason
+                        for key, _, reason in derived_page(self.case, "movement")
+                    }
+                    self.assertIn(
+                        "This saved finding requires too many sources.", options[token]
+                    )
+                    with self.assertRaisesMessage(
+                        ValidationError, "Choose individual observations"
+                    ):
+                        expand_input(self.case, token, "movement")
                 expanded = expand_input(self.case, token, "movement")
                 self.assertEqual(expanded["group"]["members"], member_ids)
                 self.assertEqual(len(expanded["selections"]), 3)

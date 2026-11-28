@@ -4,9 +4,11 @@ from collections import defaultdict
 from datetime import datetime
 
 from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.urls import reverse
 
 from core.evidence.queries import scoped_evidence
+from core.evidence.source_clocks import message_event_clock
 from core.evidence.types import KIND_LABELS
 from core.evidence_chat import corpus
 from socialmedia.models import SocialAccount
@@ -47,9 +49,17 @@ def event_dates(case, source, locator):
             datetime.fromisoformat(locator[key]) for key in ("start_at", "end_at")
         )
     if source.surface in ("original", "passage", "attachment"):
-        queryset = dated(sources(case, locator["kind"])).filter(
-            pk=locator["evidence_id"]
-        )
+        kind = locator["kind"]
+        source_rows = sources(case, kind)
+        if kind == "text-message":
+            queryset = source_rows.queryset.annotate(
+                hit_date=Coalesce(
+                    message_event_clock(case), "collected_at", "created_at"
+                )
+            )
+        else:
+            queryset = dated(source_rows)
+        queryset = queryset.filter(pk=locator["evidence_id"])
         field = "hit_date"
     else:
         queryset = rows(case, source.surface, source.kind).filter(pk=source.source_key)
@@ -97,7 +107,9 @@ def source_count(case):
     return first.union(*others, all=True).count()
 
 
-def _read(case, source, start=0, through=None, filters=None):
+def _read(
+    case, source, start=0, through=None, filters=None, *, omit_record_notes=False
+):
     surface, kind = source.surface, source.kind
     qs = rows(case, surface, kind, through).filter(pk=source.source_key)
     if surface == "report":
@@ -174,7 +186,9 @@ def _read(case, source, start=0, through=None, filters=None):
         row = qs.first()
         if row is None:
             return None
-        return record_material(case, surface, kind, row, start, WINDOW)
+        return record_material(
+            case, surface, kind, row, start, WINDOW, omit_notes=omit_record_notes
+        )
     item = corpus.clipped(qs, corpus.body_field(surface, kind), start, WINDOW).first()
     if item is None:
         return None
@@ -200,7 +214,7 @@ def _read(case, source, start=0, through=None, filters=None):
     return found
 
 
-def record_material(case, surface, kind, row, start, size):
+def record_material(case, surface, kind, row, start, size, *, omit_notes=False):
     route, fields = RECORDS[kind]
     key = row.pk
     label = (
@@ -211,6 +225,8 @@ def record_material(case, surface, kind, row, start, size):
     if surface == "social":
         fields = ("platform", "username", "source")
         key = row.person_id
+    elif omit_notes:
+        fields = tuple(field for field in fields if field != "notes")
     details = [(f.replace("_", " "), getattr(row, f)) for f in fields]
     if surface == "social" or kind == "poi":
         details.insert(0, ("Reported person", str(row.person)))
@@ -232,6 +248,8 @@ def record_material(case, surface, kind, row, start, size):
         size=size,
     )
     found.locator["record_surface"] = surface
+    if surface == "record" and omit_notes:
+        found.locator["omit_notes"] = True
     return found
 
 
@@ -245,14 +263,24 @@ def read_record(case, locator, pk, start, size):
         return None
     row = rows(case, surface, kind).filter(pk=pk).first()
     return (
-        record_material(case, surface, kind, row, start, size)
+        record_material(
+            case,
+            surface,
+            kind,
+            row,
+            start,
+            size,
+            omit_notes=locator.get("omit_notes") is True,
+        )
         if row is not None
         else None
     )
 
 
-def read(case, source, start=0, through=None, filters=None):
-    found = _read(case, source, start, through, filters)
+def read(case, source, start=0, through=None, filters=None, *, omit_record_notes=False):
+    found = _read(
+        case, source, start, through, filters, omit_record_notes=omit_record_notes
+    )
     if found:
         dependencies = defaultdict(set)
         for ref in found.locator.get("dependencies", []):

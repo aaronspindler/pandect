@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from core.case_search.retained import (
     retained_passages,
 )
 from core.evidence.queries import scoped_evidence, text_sha256
+from core.evidence.source_clocks import DATE_ONLY_MESSAGE_PATTERN, message_event_time
 from core.evidence.types import (
     CALL_KINDS,
     COMMUNICATION_KINDS,
@@ -218,7 +220,9 @@ def lines(fields, *, value_ranges=None):
     return "\n".join(rendered)
 
 
-def original_metadata(item, kind, *, value_ranges=None, hosted_metadata=False):
+def original_metadata(
+    item, kind, *, value_ranges=None, hosted_metadata=False, legacy_message_clock=False
+):
     fields = [
         ("Type", KIND_LABELS[kind]),
         ("Title", item.title),
@@ -251,11 +255,12 @@ def original_metadata(item, kind, *, value_ranges=None, hosted_metadata=False):
                     else "Reported recipient",
                     recipient,
                 ),
-                ("Occurred", item.occurred_at),
             )
         )
         if kind in CALL_KINDS:
-            fields.append(("Reported duration", item.duration))
+            fields.extend(
+                (("Occurred", item.occurred_at), ("Reported duration", item.duration))
+            )
             if item.import_row_id:
                 row = item.import_row
                 detail = f"Export row {row.number}"
@@ -271,6 +276,10 @@ def original_metadata(item, kind, *, value_ranges=None, hosted_metadata=False):
                 deps.append(dependency("document", row.batch.document_id))
         else:
             context = getattr(item, "communication_context", None)
+            event_time = (
+                item.occurred_at if legacy_message_clock else message_event_time(item)
+            )
+            fields.append(("Occurred", event_time))
             if (
                 context
                 and context.case_id == item.case_id
@@ -278,12 +287,17 @@ def original_metadata(item, kind, *, value_ranges=None, hosted_metadata=False):
                 and context.source_document.sha256 == context.source_sha256
             ):
                 detail = f"Export row {context.source_row}"
+                clock_label = "Export timestamp"
+                if not legacy_message_clock and re.fullmatch(
+                    DATE_ONLY_MESSAGE_PATTERN, context.raw_timestamp
+                ):
+                    clock_label = "Source calendar date (time not supplied)"
                 fields.extend(
                     (
                         ("Export row", context.source_row),
                         ("Reported sender in export", context.raw_sender),
                         ("Reported recipient in export", context.raw_recipient),
-                        ("Export timestamp", context.raw_timestamp),
+                        (clock_label, context.raw_timestamp),
                         ("Export timezone", context.timezone),
                         ("Message ID", context.native_message_id),
                         ("Thread ID", context.native_thread_id),
@@ -428,12 +442,17 @@ def _original_material(
     through,
     value_ranges,
     hosted_metadata,
+    legacy_message_clock,
 ):
     gap = ""
     if surface == "original":
         original = item
         suffix, detail, deps = original_metadata(
-            original, kind, value_ranges=value_ranges, hosted_metadata=hosted_metadata
+            original,
+            kind,
+            value_ranges=value_ranges,
+            hosted_metadata=hosted_metadata,
+            legacy_message_clock=legacy_message_clock,
         )
         if kind == "text" and item.body_digest != item.sha256:
             gap = "Original text failed its integrity check."
@@ -580,6 +599,7 @@ def material(
     through=None,
     literal=False,
     hosted_metadata=False,
+    legacy_message_clock=False,
 ):
     value_ranges = [] if literal else None
     if surface in ("original", "attachment"):
@@ -594,6 +614,7 @@ def material(
             through,
             value_ranges,
             hosted_metadata,
+            legacy_message_clock,
         )
     if sources is None:
         sources = result_sources(case, item.result.run, include_archived)
@@ -669,7 +690,7 @@ def discover(
     selected_rows=None,
 ):
     """Stream the evidence inventory without loading whole text bodies or recordings."""
-    from .search_scope import scope_rows
+    from .search_scope import dependencies_in_scope, scope_rows
 
     def ordinary_rows():
         for surface, kind in surfaces():
@@ -688,13 +709,15 @@ def discover(
             if count_filters:
                 from .engine_counts import count_candidates
 
-                queryset = count_candidates(queryset, kind, count_filters)
+                queryset = count_candidates(
+                    queryset, case, kind, count_filters, through=through
+                )
             yield surface, kind, queryset
 
     for surface, kind, queryset in (
         ordinary_rows() if selected_rows is None else selected_rows
     ):
-        sources, last_result = None, None
+        sources, last_result, scoped = None, None, None
         if surface in ("passage", "finding"):
             queryset = queryset.order_by("result_id", "item_index", "pk")
         for item in clipped(
@@ -703,6 +726,7 @@ def discover(
             if getattr(item, "result_id", None) != last_result:
                 last_result = item.result_id
                 sources = result_sources(case, item.result.run, include_archived)
+                scoped = None
             found = material(
                 case,
                 surface,
@@ -713,6 +737,11 @@ def discover(
                 through=through,
             )
             if found:
+                if filters and surface in ("finding", "passage"):
+                    if scoped is None:
+                        scoped = dependencies_in_scope(case, found.locator, filters)
+                    if not scoped:
+                        continue
                 yield found.locator
 
 
@@ -725,6 +754,35 @@ def read_window(
     include_archived=False,
     review=False,
     literal=False,
+):
+    return _read_window(
+        case,
+        locator,
+        start,
+        size,
+        include_archived=include_archived,
+        review=review,
+        literal=literal,
+    )
+
+
+def read_saved_window(case, locator, start, size, *, include_archived=False):
+    """Resolve published history using its original, version-checked wording."""
+    return _read_window(
+        case, locator, start, size, include_archived=include_archived, saved=True
+    )
+
+
+def _read_window(
+    case,
+    locator,
+    start,
+    size,
+    *,
+    include_archived=False,
+    review=False,
+    literal=False,
+    saved=False,
 ):
     if (
         not isinstance(locator, dict)
@@ -769,17 +827,31 @@ def read_window(
         ).first()
         if item is None:
             return None
+        options = {
+            "literal": literal,
+            "hosted_metadata": locator.get("hosted_metadata") is True,
+        }
         found = material(
-            case,
-            surface,
-            kind,
-            item,
-            include_archived,
-            start,
-            size,
-            literal=literal,
-            hosted_metadata=locator.get("hosted_metadata") is True,
+            case, surface, kind, item, include_archived, start, size, **options
         )
+        if (
+            saved
+            and kind == "text-message"
+            and message_event_time(item) is None
+            and found
+            and found.locator["version"] != locator.get("version")
+        ):
+            found = material(
+                case,
+                surface,
+                kind,
+                item,
+                include_archived,
+                start,
+                size,
+                legacy_message_clock=True,
+                **options,
+            )
     if found is None or any(
         found.locator[k] != locator.get(k)
         for k in (

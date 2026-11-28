@@ -57,7 +57,7 @@ def participant_names(sources):
             continue
         for role in ("sender", "recipient"):
             person = getattr(source.item, role)
-            if person.case_id == source.item.case_id:
+            if person is not None and person.case_id == source.item.case_id:
                 names[(role, str(person.pk))] = str(person)
     return names
 

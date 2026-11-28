@@ -8,7 +8,7 @@ from playwright.sync_api import expect
 from audio.models import AudioEvidence
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
-from core.analysis.testing import wav_bytes
+from core.analysis.tests.testing import wav_bytes
 from document.models import DocumentEvidence
 from document.tests.test_analysis import pdf_bytes
 

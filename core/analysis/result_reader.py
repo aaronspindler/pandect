@@ -30,10 +30,9 @@ from phone.analysis import presentation as phone_presentation
 from phone.models import CommunicationContext
 
 
-def retained_result_context(request, case, run, sources, *, history, finding_history):
-    result = AnalysisResult.objects.filter(case=case, run=run, run__case=case).first()
-    if result is None:
-        return {}
+def retained_result_context(
+    request, case, run, sources, *, result, history, finding_history
+):
     context = {}
     indexed_findings = list(enumerate(result.data.get("items", [])))
     weak_plate_indices = {

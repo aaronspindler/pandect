@@ -16,10 +16,10 @@ visual and accessibility standards, and [validation](validation.md) for checks.
   suggestions. **Search all results** submits the typed query. **Filter
   passages** narrows the ranked results by record type or date. See
   [Cloudflare search](cloudflare-search.md) for index coverage and availability.
-- Evidence, Images, Findings, People, Vehicles, and POIs use hosted keyword
-  search within their collections. Clear the query to browse with structured
-  filters when hosted search is unavailable. All cases and the conversation
-  transcript have their own local filters.
+- Evidence, Images, Findings, People, Vehicles, and POIs use hosted search
+  for typed queries within their collections. Clear the query to browse with
+  structured filters when hosted search is unavailable. All cases and the
+  conversation transcript have their own local filters.
 - Live collection filters apply after a 300 ms typing pause where supported.
   They update the URL, count, rows, and pagination, starting at page one.
   Filtering in a split Evidence workspace keeps the original open. Distinguish
@@ -98,8 +98,11 @@ retention and deletion](evidence.md#permanent-deletion).
 
 ## Conversation reading
 
-Show a wrapping sender/time line above each complete, selectable original.
-Preserve message whitespace and use the display timezone for date separators.
+Owners and editors have **Add text message** and **Import message CSV** in the
+Conversations header. Show a wrapping sender and time line above each
+selectable message preview. Preserve whitespace and link longer messages to
+their full originals. Use the display timezone for date separators and retain
+the reported calendar date when an original supplies a date alone.
 A real message link opens the named details panel and **View in conversation**
 returns to that message and page. Close or Escape returns focus to the message.
 
@@ -159,7 +162,8 @@ recovery easy to find. See [Instagram monitors](instagram-monitors.md).
 
 **Explore evidence** links to Evidence chat, Findings, Conversations, Trips,
 Images, Important, and Chronology. **Case records** links to People, Vehicles,
-Repeated identifiers, Sighting groups, and eligible Instagram monitors.
+Repeated identifiers, Narrative relationships, Sighting groups, and eligible
+Instagram monitors.
 **Reports** links to each report. Display the groups in one row when space
 permits. Owners and editors have **Add evidence** and direct method setup links.
 **Latest records** interleaves up to three active originals and three saved
@@ -205,7 +209,9 @@ consecutive failures, **Retry updates** resumes them.
 
 Keep populated or filtered lists, selected originals, open forms and maps in
 place. Use **Show updated results** in case collections and named refresh
-links for findings and history. The first unfiltered People or Vehicles record
+links for findings and history, including histories populated only by call
+imports. Keep a requested refresh pending through a failed status check so a
+successful retry can apply it. The first unfiltered People or Vehicles record
 can appear automatically if the empty collection is unused. A form or focus
 inside the list defers that update. Access loss stops updates, clears private
 contents, and offers **All cases**.
@@ -215,8 +221,11 @@ contents, and offers **All cases**.
 Method setup carries the selected original and Evidence return context through
 source selection, validation, cancellation and Processing. Analysis source
 search, paging and removal update the picker without replacing task fields or
-open options. Keep required evidence and questions visible and put tuning under
-**Options**. Explain unavailable sources beside their selection and link
+open options. When a draft edit interrupts picker navigation, announce the
+interruption and leave the picker controls available to retry. Focus the error
+summary if a report filter is invalid. Keep required evidence and questions
+visible and put tuning under **Options**. Explain unavailable sources beside
+their selection and link
 preparation where applicable. All actions have ordinary form fallbacks.
 
 Use explicit quotation selection for **Compare a claim**. **Compare plans with
@@ -256,7 +265,7 @@ timezone. Trip history, coverage gaps and POIs paginate separately. See
 
 Invitation and membership screens name the person, role, state, and recovery
 action. Keep acceptance after verification and show account-switching recovery
-when the email differs. Role changes and removals use explicit confirmation.
+when the email differs. Save role changes explicitly and confirm removals by name.
 See [cases](cases.md#invitations).
 
 Private requests require current server-side access. Inaccessible objects use

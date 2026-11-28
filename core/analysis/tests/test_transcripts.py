@@ -7,15 +7,15 @@ from audio.models import AudioEvidence
 from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.services import cancel_run
-from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
+from core.analysis.tests.testing import external_grant_kwargs, wav_bytes
 from core.analysis.transcripts import (
     follow_up_transcription,
     select_transcript,
 )
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 
 
 class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):

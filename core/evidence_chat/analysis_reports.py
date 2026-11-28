@@ -11,7 +11,8 @@ from django.urls import reverse
 from core.analysis.errors import AnalysisError
 from core.analysis.operations import OPERATIONS
 from core.analysis.published import successful_results
-from text.analysis.attributed_sources import verify_membership, writing_scope
+from core.analysis.source_resolution import resolve_active_inputs
+from text.analysis.attributed_sources import verify_saved_membership, writing_scope
 
 from . import corpus
 from .reports import read_timing_material
@@ -101,7 +102,7 @@ def read_analysis_material(case, result_id, start, size, *, through=None):
     if scope:
         inputs = run.inputs
         try:
-            verify_membership(case, scope, inputs)
+            verify_saved_membership(case, scope, inputs, result.pk)
             members = nsmallest(
                 64, ((source["kind"], source["evidence_id"]) for source in inputs)
             )
@@ -109,7 +110,20 @@ def read_analysis_material(case, result_id, start, size, *, through=None):
             return None
         selected_count = len(inputs)
     else:
-        sources = corpus.result_sources(case, run, include_archived=False)
+        if run.operation in {"style_profiles", "style_change"}:
+            try:
+                sources = resolve_active_inputs(run, case)
+            except (
+                AnalysisError,
+                Http404,
+                ValidationError,
+                TypeError,
+                KeyError,
+                ValueError,
+            ):
+                return None
+        else:
+            sources = corpus.result_sources(case, run, include_archived=False)
         members = sorted({(source.kind, str(source.item.pk)) for source in sources})[
             :64
         ]

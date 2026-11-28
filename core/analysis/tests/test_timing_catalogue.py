@@ -22,7 +22,7 @@ from core.models import (
     AnalysisReview,
     AnalysisRun,
 )
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from phone.models import TextMessageEvidence
 
 

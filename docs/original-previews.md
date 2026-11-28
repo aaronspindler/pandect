@@ -80,7 +80,7 @@ Responses use private/no-store and `nosniff` and omit storage paths.
 Run focused PostgreSQL integration/parser checks:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings document.tests.test_previews audio.tests.test_previews document.tests.test_analysis audio.tests.test_analysis audio.tests.test_m4a core.analysis.tests.test_parser_dispatch --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings document.tests.test_previews audio.tests.test_previews document.tests.test_analysis audio.tests.test_analysis audio.tests.test_m4a core.analysis.tests.test_parser_dispatch --noinput
 ```
 
 Synthetic fixtures cover revocation, cross-case/foreign attachments, unchanged

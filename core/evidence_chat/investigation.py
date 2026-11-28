@@ -13,7 +13,7 @@ from core.models import AnalysisRun
 from . import activity, corpus, engine
 from .checkpoints import authorize_turn, complete_turn, continue_turn, store_context
 from .history import reply_context
-from .search_scope import question_filters, review_population
+from .search_scope import context_source_allowed, question_filters, review_population
 
 TOOLS = (
     "search",
@@ -106,8 +106,11 @@ def _read(turn, refs):
         ).values_list("key", "locator")
     )
     windows = []
+    filters = question_filters(turn)
     for key, start in refs:
         loc = sources.get(key)
+        if loc is None or not context_source_allowed(turn.case, loc, filters):
+            raise AnalysisError("source_changed")
         row = corpus.read_window(turn.case, loc, start, WINDOW)
         if row is None:
             raise AnalysisError("source_changed")
@@ -117,7 +120,10 @@ def _read(turn, refs):
 
 def _windows(turn, pairs):
     out = []
+    filters = question_filters(turn)
     for loc, start in pairs:
+        if not context_source_allowed(turn.case, loc, filters):
+            continue
         row = corpus.read_window(turn.case, loc, start, WINDOW)
         if row and row["text"]:
             out.append(engine.Window(loc, start, row["text"]))
@@ -136,6 +142,7 @@ def _search(turn, query):
             limit=6,
             filters=question_filters(turn),
             authorize_transfer=lambda: authorize_turn(turn),
+            omit_record_notes=True,
         )
     except HostedSearchError as exc:
         # Partial backfills are usable. An outage or disabled grant fails closed.
@@ -170,19 +177,28 @@ def _advance(turn, windows, tool):
     continue_turn(turn)
 
 
-def current_leads(turn, case):
+def _leads(turn, case, *, source_id, term):
     from core.relationships import follow_leads
 
-    descriptions = []
-    for saved in turn.plan.get("graph_checks", ()):
-        leads = follow_leads(
+    filters = question_filters(turn)
+    return [
+        row
+        for row in follow_leads(
             case,
             actor=turn.asked_by,
             through=turn.started_at,
-            source_id=saved["source_id"],
-            term=saved["term"],
+            source_id=source_id,
+            term=term,
             limit=4,
         )
+        if context_source_allowed(case, row["locator"], filters)
+    ]
+
+
+def current_leads(turn, case):
+    descriptions = []
+    for saved in turn.plan.get("graph_checks", ()):
+        leads = _leads(turn, case, source_id=saved["source_id"], term=saved["term"])
         if _digest(leads) != saved["digest"]:
             raise AnalysisError("source_changed")
         for row in leads:
@@ -411,7 +427,12 @@ def _act(turn, decision):
             through=turn.started_at,
             filters=question_filters(turn),
         )
-        windows = [engine.Window(link.locator, 0, link.text) for link in links]
+        filters = question_filters(turn)
+        windows = [
+            engine.Window(link.locator, 0, link.text)
+            for link in links
+            if context_source_allowed(turn.case, link.locator, filters)
+        ]
     elif tool == "reports":
         from .analysis_reports import (
             eligible_results,
@@ -419,36 +440,29 @@ def _act(turn, decision):
             read_analysis_material,
         )
 
-        results = overlapping_results(
-            eligible_results(turn.case).filter(created_at__lte=turn.started_at),
-            turn.case,
-            [selected.locator],
-        )
         windows = []
-        for key in results.order_by("-created_at", "pk").values_list("pk", flat=True)[
-            :6
-        ]:
-            report = read_analysis_material(
-                turn.case, key, 0, WINDOW, through=turn.started_at
+        if not question_filters(turn):
+            results = overlapping_results(
+                eligible_results(turn.case).filter(created_at__lte=turn.started_at),
+                turn.case,
+                [selected.locator],
             )
-            if report:
-                windows.append(engine.Window(report.locator, 0, report.text))
+            for key in results.order_by("-created_at", "pk").values_list(
+                "pk", flat=True
+            )[:6]:
+                report = read_analysis_material(
+                    turn.case, key, 0, WINDOW, through=turn.started_at
+                )
+                if report:
+                    windows.append(engine.Window(report.locator, 0, report.text))
     elif tool == "leads":
-        from core.relationships import follow_leads
-
         query = engine._string(decision.get("query"), 200)
-        leads = follow_leads(
-            turn.case,
-            actor=turn.asked_by,
-            through=turn.started_at,
-            source_id=selected.locator.get("evidence_id") if selected else None,
-            term=query,
-            limit=4,
-        )
+        source_id = selected.locator.get("evidence_id") if selected else None
+        leads = _leads(turn, turn.case, source_id=source_id, term=query)
         windows = _windows(turn, [(r["locator"], r["start"]) for r in leads])
         turn.plan.setdefault("graph_checks", []).append(
             {
-                "source_id": selected.locator.get("evidence_id") if selected else None,
+                "source_id": source_id,
                 "term": query,
                 "digest": _digest(leads),
             }

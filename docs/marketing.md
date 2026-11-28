@@ -72,8 +72,8 @@ public roadmap and [reusable copy](marketing-copy.md) aligned with the
 Run sequentially against the [development PostgreSQL test setup](development.md).
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.tests config.tests.test_product_access --noinput
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings marketing.tests config.tests.test_product_access --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings marketing.tests.browser --noinput
 ```
 
 The browser suite runs without JavaScript. Review captures using the

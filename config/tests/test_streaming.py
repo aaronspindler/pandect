@@ -10,7 +10,7 @@ from django.test import AsyncRequestFactory, SimpleTestCase, TransactionTestCase
 
 from cases.models import CaseMembership
 from config.streaming import AsyncStreamingMiddleware
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 
 

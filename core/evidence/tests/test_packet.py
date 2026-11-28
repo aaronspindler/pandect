@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from cases.models import CaseMembership
 from core.evidence.packet import MAX_EXHIBITS
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
 

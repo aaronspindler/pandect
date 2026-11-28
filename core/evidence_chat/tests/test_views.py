@@ -14,7 +14,7 @@ from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.evidence_chat import ai, corpus
 from core.models import ChatSource, ChatTurn, EvidenceChat, ImportantItem
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 
 
 class ChatViewTests(EvidenceViewTestMixin, TestCase):

@@ -3,7 +3,7 @@
 from django.test import TestCase
 
 from core.case_search.tests.fixtures import indexed
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence
 
 

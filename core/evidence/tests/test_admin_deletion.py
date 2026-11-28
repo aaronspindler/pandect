@@ -29,7 +29,7 @@ from core.models import (
     ExtractedPassage,
     GatewayRequest,
 )
-from core.testing import ALL_MODELS, EvidenceTestMixin
+from core.tests.testing import ALL_MODELS, EvidenceTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationImport
 from phone.models import CallEvidenceAttachment

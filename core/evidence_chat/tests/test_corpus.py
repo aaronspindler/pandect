@@ -14,7 +14,7 @@ from core.analysis.source_selection import snapshot_sources
 from core.evidence_chat import corpus
 from core.evidence_chat.corpus import cite, discover, read_window
 from core.models import AnalysisResult, AnalysisRun, ExtractedPassage
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from phone.models import TextMessageEvidence

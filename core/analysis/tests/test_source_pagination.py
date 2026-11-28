@@ -8,7 +8,7 @@ from django.test.utils import CaptureQueriesContext
 from core.analysis.form_base import source_choices
 from core.analysis.forms import analysis_form
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence

@@ -10,10 +10,12 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ValidationError
 
 from core.analysis.sources import output
+from core.evidence.source_clocks import date_only_message_dates
 from text.analysis.shared import FUNCTION_WORDS, STOPWORDS, WORD, bounded_sources
 
 VERSION = "text-rules-v1"
 ENTITY_VERSION = "entity-rules-v2"
+QUOTATION_LIMIT_REASON = "Original excluded: too many quotation spans"
 RELATIVE_DATES = ("today", "tomorrow", "yesterday")
 ABBREVIATIONS = set(
     "lol lmao brb btw idk imo imho rn tbh ttyl asap fyi omg thx pls u ur bc".split()
@@ -253,13 +255,15 @@ def _exclusion_spans(source, parameters):
             position = start + len(phrase)
     if parameters.get("exclude_quotes", True):
         for match in re.finditer(
-            r'(?m)^\s*>[^\n]*(?:\n|$)|"[^"\n]{2,}"|“[^”\n]{2,}”', source.text
+            r'(?m)^[^\S\n]*>[^\n]*(?:\n|$)|"[^"\n]{2,}"|“[^”\n]{2,}”', source.text
         ):
+            if len(validated) == 200:
+                # Keep quotation-rich originals out of the measured sample without
+                # stopping the other selected sources or accumulating unbounded spans.
+                return [(0, len(source.text), QUOTATION_LIMIT_REASON)]
             validated.append(
                 (*match.span(), "Quotation candidate excluded under selected rule")
             )
-    if len(validated) > 200:
-        raise ValidationError("A source has more than 200 exclusion spans.")
     return sorted(validated)
 
 
@@ -393,6 +397,11 @@ def style_profile(sources, parameters):
             metrics=metrics,
             warnings=[
                 "No usable original writing remains after the selected exclusions.",
+                *(
+                    ["A quotation-heavy original was excluded in full."]
+                    if any(e["reason"] == QUOTATION_LIMIT_REASON for e in exclusions)
+                    else []
+                ),
                 (
                     "Derived, translated, and transcribed formatting "
                     "is not a writer profile."
@@ -717,13 +726,13 @@ def _feature_comparison_examples(profiles, feature, a, b, comparable):
     }
 
 
-def _profile_time_coverage(profile, parameters):
+def _profile_time_coverage(profile, parameters, date_only):
     usable = profile[0]
     times = []
     for source, _ in usable:
         timestamp = (
             getattr(source.item, "occurred_at", None)
-            if source.kind == "text-message"
+            if source.kind == "text-message" and source.item.pk not in date_only
             else None
         )
         if (
@@ -756,7 +765,7 @@ def _profile_time_coverage(profile, parameters):
     return values, times
 
 
-def style_changes(sources, parameters):
+def style_changes(sources, parameters, *, case=None):
     sources = bounded_sources(sources)
     group_a = parameters.get("group_a", [])
     group_b = parameters.get("group_b", [])
@@ -827,7 +836,17 @@ def style_changes(sources, parameters):
                 },
             }
         )
-    coverage = [_profile_time_coverage(profile, parameters) for profile in profiles]
+    message_ids = [
+        source.item.pk for source in sources if source.kind == "text-message"
+    ]
+    date_only = (
+        date_only_message_dates(case, message_ids)
+        if case is not None and message_ids
+        else {}
+    )
+    coverage = [
+        _profile_time_coverage(profile, parameters, date_only) for profile in profiles
+    ]
     for index, profile in enumerate(profiles):
         examples = _style_examples(
             profile, "mean_message_words", "A" if index == 0 else "B"

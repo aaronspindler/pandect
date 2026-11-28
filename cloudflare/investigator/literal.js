@@ -29,15 +29,21 @@ export function literalOffsets({ literal, records }) {
       positions.set(units, points);
     }
     const offsets = [];
-    for (const match of text.matchAll(regex)) {
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
       const offset = positions.get(match.index);
       const from = start + offset;
       const end = from + chars.length;
-      if ((left && offset === 0 && start !== 0) ||
-          (right && offset + chars.length === points && end < length)) continue;
-      if (ranges.some(([a, b]) => a <= from && end <= b)) {
+      const clipped = (left && offset === 0 && start !== 0) ||
+        (right && offset + chars.length === points && end < length);
+      if (!clipped && ranges.some(([a, b]) => a <= from && end <= b)) {
         offsets.push(offset);
         if (offsets.length === 4) break;
+      } else {
+        // A rejected match can overlap an eligible match at the start of a
+        // retained field. Resume one code point after its start.
+        regex.lastIndex = match.index + (text.codePointAt(match.index) > 0xffff ? 2 : 1);
       }
     }
     return offsets;

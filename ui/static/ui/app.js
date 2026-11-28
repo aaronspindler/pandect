@@ -114,16 +114,16 @@ window.PandectPage((signal) => {
     });
   }, {signal});
   document.querySelector("[data-error-summary]")?.focus();
-  document.querySelectorAll("[data-error-summary] a").forEach((link) => {
-    link.addEventListener("click", () => {
-      const field = document.getElementById(link.hash.slice(1));
-      if (!field) return;
-      for (let parent = field.parentElement; parent; parent = parent.parentElement) {
-        if (parent.tagName === "DETAILS") parent.open = true;
-      }
-      field.focus();
-    });
-  });
+  document.addEventListener("click", event => {
+    const link = event.target.closest("[data-error-summary] a");
+    if (event.defaultPrevented || !link?.hash) return;
+    const field = document.getElementById(link.hash.slice(1));
+    if (!field) return;
+    for (let parent = field.parentElement; parent; parent = parent.parentElement) {
+      if (parent.tagName === "DETAILS") parent.open = true;
+    }
+    field.focus();
+  }, {signal});
   const dirtyForms = new Set();
   document.addEventListener("input", (event) => {
     const form = event.target.closest("[data-unsaved-form]:not([data-evidence-upload])");

@@ -11,7 +11,7 @@ from django.urls import reverse
 
 from core.case_search.tests.fixtures import indexed
 from core.evidence.types import KINDS, LOCATION_KINDS
-from core.testing import LOCATION_MODELS, EvidenceTestMixin, EvidenceViewTestMixin
+from core.tests.testing import LOCATION_MODELS, EvidenceTestMixin, EvidenceViewTestMixin
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from people.models import Person
 

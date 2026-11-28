@@ -15,7 +15,7 @@ from core.analysis.review_signals import REVIEW_SIGNALS
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.tests import test_catalogue
 from core.models import AnalysisFinding
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
 

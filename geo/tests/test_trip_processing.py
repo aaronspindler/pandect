@@ -11,10 +11,10 @@ from django_tasks_db.models import DBTaskResult
 
 from core.analysis.worker import process_run
 from core.models import AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.daily_chronology import attach_daily_location_details, daily_location_rows
 from geo.models import LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence
-from geo.testing import LOCAL_GEOCODER
+from geo.tests.testing import LOCAL_GEOCODER
 from geo.trip_jobs import prepare_addresses, process_trips
 from geo.trip_models import VehicleTripGeneration, VehicleTripInput, VehicleTripState
 from geo.trip_processing import (

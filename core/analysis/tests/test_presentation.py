@@ -6,19 +6,23 @@ from uuid import uuid4
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
 from django.utils import timezone
 
+from core.analysis.catalogue import project_result
 from core.analysis.presentation import (
     measurement_formatter,
     participant_names,
     participant_text,
 )
 from core.analysis.projection import is_ai_suggestion
+from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import Source, source_id
-from core.testing import EvidenceViewTestMixin
+from core.models import AnalysisResult, AnalysisRun
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.models import CommunicationContext, TextMessageEvidence
+from phone.models import CommunicationContext, PhoneCallEvidence, TextMessageEvidence
 
 
 class FindingProvenanceTests(SimpleTestCase):
@@ -208,6 +212,92 @@ class AnalysisPresentationTests(EvidenceViewTestMixin, TestCase):
             ),
             f"Reported sender {self.person}.",
         )
+
+    def test_participant_labels_allow_absent_group_and_call_parties(self):
+        group = TextMessageEvidence(case=self.case, sender=self.person, recipient=None)
+        call = PhoneCallEvidence(case=self.case, sender=None, recipient=self.person)
+        self.assertEqual(
+            participant_names(
+                [
+                    Source("group", "text-message", group),
+                    Source("call", "phone-call", call),
+                ]
+            ),
+            {
+                ("sender", str(self.person.pk)): str(self.person),
+                ("recipient", str(self.person.pk)): str(self.person),
+            },
+        )
+
+    def test_group_message_suggestion_renders_on_both_finding_views(self):
+        owner = self.users["owner"]
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=owner,
+            title="Group export",
+            file=SimpleUploadedFile("synthetic.csv", b"Synthetic group export"),
+        )
+        group = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=owner,
+            title="Group message",
+            body="I plan to pick up a parcel.",
+            sender=self.person,
+            group_source=document,
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=group,
+            source_document=document,
+            source_sha256=document.sha256,
+            source_row=1,
+            source_start=0,
+            source_end=1,
+            parser_version="synthetic-v1",
+            timezone="UTC",
+            raw_sender="Synthetic person",
+        )
+        inputs = snapshot_sources(self.case, [{"kind": "text-message", "id": group.pk}])
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=owner,
+            operation="content_events",
+            method_version="test",
+            inputs=inputs,
+            status="complete",
+        )
+        result = AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={
+                "items": [
+                    {
+                        "label": "Parcel pickup",
+                        "text": f"Reported sender {self.person.pk} planned a pickup.",
+                        "source_ids": [inputs[0]["id"]],
+                        "anchors": [
+                            {
+                                "source_id": inputs[0]["id"],
+                                "start": 0,
+                                "end": len(group.body),
+                            }
+                        ],
+                        "values": {"status": "unresolved"},
+                    }
+                ]
+            },
+        )
+        project_result(result)
+        self.login("viewer")
+
+        for view, identifiers in (
+            ("core:analysis:index", [self.case.pk]),
+            ("core:analysis:detail", [self.case.pk, run.pk]),
+        ):
+            with self.subTest(view=view):
+                response = self.client.get(reverse(view, args=identifiers))
+                self.assertContains(response, "Parcel pickup")
+                self.assertContains(response, f"{self.person} planned a pickup.")
 
     def test_unknown_zero_and_false_keep_different_visible_meanings(self):
         content = self.show(

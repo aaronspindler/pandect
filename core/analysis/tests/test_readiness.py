@@ -16,7 +16,7 @@ from core.analysis.readiness import configuration_readiness, source_readiness
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence

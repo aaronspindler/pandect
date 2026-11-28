@@ -19,7 +19,7 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from config.asgi import application
 from config.http_body import PandectASGIHandler, RequestBody
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 
 

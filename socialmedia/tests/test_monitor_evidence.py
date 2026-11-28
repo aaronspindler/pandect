@@ -9,7 +9,7 @@ from django.test import TestCase
 
 from core.evidence.deletion import CASE_CONFLICT, execute_deletion, plan_deletion
 from core.storage import retain_uploaded_originals
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
 from socialmedia.models import (
     InstagramCapture,

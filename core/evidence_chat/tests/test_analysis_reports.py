@@ -22,10 +22,11 @@ from core.models import (
     ChatTurn,
     EvidenceChat,
 )
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
+from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.conversations import _pattern_metrics
-from phone.models import TextMessageEvidence
+from phone.models import CommunicationContext, TextMessageEvidence
 from text.analysis.attributed_sources import snapshot_messages
 
 
@@ -104,6 +105,64 @@ class SavedAnalysisTests(EvidenceTestMixin, TestCase):
                 archive_changed_at=timezone.now(),
             )
             self.assertIsNone(corpus.read_window(self.case, report.locator))
+
+    def test_historical_writing_reports_recheck_canonical_message_bytes(self):
+        original = self.create_evidence(TextMessageEvidence)
+        inputs = [
+            {
+                "id": source_id({"kind": "text-message", "id": original.pk}),
+                "kind": "text-message",
+                "evidence_id": str(original.pk),
+                "sha256": original.sha256,
+            }
+        ]
+        result = self.save_report("style_profiles", inputs, {"sources_selected": 1})
+        self.assertIsNotNone(read_analysis_material(self.case, result.pk, 0, 1600))
+        TextMessageEvidence.objects.filter(pk=original.pk).update(body="Changed text")
+        self.assertIsNone(read_analysis_material(self.case, result.pk, 0, 1600))
+
+    def test_group_context_change_invalidates_warm_writing_verification(self):
+        document = self.create_evidence(DocumentEvidence)
+        group = self.create_evidence(
+            TextMessageEvidence, group_source=document, recipient=None
+        )
+        link = CommunicationContext.objects.create(
+            case=self.case,
+            message=group,
+            source_document=document,
+            source_sha256=document.sha256,
+            source_row=1,
+            source_start=0,
+            source_end=5,
+            parser_version="imessage-csv-v1",
+            timezone="UTC",
+            raw_sender="Synthetic sender",
+        )
+        scope = {"version": 1, "person_id": str(self.person.pk)}
+        inputs = snapshot_messages(
+            self.case, scope, [{"kind": "text-message", "id": str(group.pk)}]
+        )
+        result = self.save_report(
+            "style_profiles",
+            inputs,
+            {"sources_selected": 1},
+            parameters={"writing_scope": scope},
+        )
+        self.assertIsNotNone(read_analysis_material(self.case, result.pk, 0, 1600))
+        with patch(
+            "text.analysis.attributed_sources.verify_membership",
+            side_effect=AssertionError("The current verification should be reused."),
+        ):
+            self.assertIsNotNone(read_analysis_material(self.case, result.pk, 0, 1600))
+
+        CommunicationContext.objects.filter(pk=link.pk).update(source_sha256="0" * 64)
+        self.assertIsNone(read_analysis_material(self.case, result.pk, 0, 1600))
+        CommunicationContext.objects.filter(pk=link.pk).update(
+            source_sha256=document.sha256
+        )
+        self.assertIsNotNone(read_analysis_material(self.case, result.pk, 0, 1600))
+        DocumentEvidence.objects.filter(pk=document.pk).update(case=self.other_case)
+        self.assertIsNone(read_analysis_material(self.case, result.pk, 0, 1600))
 
     def test_large_timing_report_reuses_verified_manifest_and_follows_uncited_members(
         self,

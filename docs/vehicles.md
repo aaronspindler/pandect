@@ -1,19 +1,15 @@
 # Vehicles
 
-`vehicle.Vehicle` is an investigator-maintained record in exactly one `cases.Case`.
-Reported plates/VINs do not establish identity, ownership, or association with a
-person. Records are not automatically linked to people or vehicles; investigators
-can link location evidence explicitly to a same-case vehicle. `vehicle` owns entity
-models, forms, views, templates, admin, and tests; `geo` owns locations, imports,
-maps, and analysis.
+Vehicles are investigator-maintained case records. Reported plates and VINs
+establish neither ownership nor identity. Investigators can link location
+evidence explicitly to a vehicle in the same case.
 
 ## Investigator workflow
 
-Open **Case tools → Vehicles**. Owners/editors choose **Add vehicle**, enter at
-least one make, model, plate, or VIN, and save; partial details are allowed.
-Viewers search/inspect. Search covers make, model, exact numeric year, color,
-plate, VIN, and saved notes, with 25 records per page. Search and page context
-survives adding, editing, deleting, and returning from records.
+Open **Case Tools → Vehicles**. Owners and editors can **Add vehicle** with at
+least one make, model, plate or VIN. All case members can browse 25 records
+per page and use [hosted search](cloudflare-search.md) when enabled. Return links
+retain the search and page during record changes.
 
 **Edit vehicle** corrects reported details. Stale forms preserve the draft beside
 all current details and require **Save reviewed changes**; deleted records cannot
@@ -24,21 +20,15 @@ Details show reported identifiers, locations, and an unverified-record caption.
 Owner-only **Delete vehicle** is visible below that disclosure and opens the
 separate confirmation.
 
-Only owners delete individual vehicles after named-target confirmation. Retained
-vehicle locations, including archived observations, and CSV imports that reference
-the vehicle block deletion. The deletion page links to the retained records and
-omits the confirmation when blocked. Deleting an unlinked vehicle retains its
-case, people, other vehicles, and login accounts;
-whole-case deletion removes vehicles and observations together. Product users
-need no staff permissions.
+Only owners can delete individual vehicles after named confirmation. Retained
+locations, including archived observations, and CSV imports that reference the
+vehicle block deletion. The deletion page links to those records. Whole-case
+deletion removes vehicles and observations together.
 
-Details paginate active locations at 25 per page.
-Owners/editors have **Add a location** and **Import vehicle locations** beside
-**Edit vehicle** in the header, including before any trips exist. Both actions
-suggest the current case vehicle. Imports review an Asset Location CSV and
-map assets explicitly. Source identifiers
-never overwrite plates/VINs or verify identity, ownership, or presence. See
-[CSV imports](vehicle-location-imports.md) for formats, retention, limits, and recovery.
+Details paginate active locations at 25 per page. Owners and editors have
+**Add a location** and **Import vehicle locations** beside **Edit vehicle**.
+Both preselect the current vehicle. Review CSV asset associations explicitly.
+See [CSV imports](vehicle-location-imports.md) for formats, limits and recovery.
 
 ## Fields and validation
 
@@ -59,17 +49,13 @@ Use `/admin/` → **Vehicles** under the [shared gates](cases.md#django-admin) a
 Retained observations and CSV references block deletion. Existing case, notes,
 and timestamps are read-only.
 
-Product mutations recheck case permissions under a case lock and require
-CSRF-protected POST. ORM callers, exports, jobs, and integrations must enforce
-the case boundary themselves.
+Jobs, exports and other ORM callers enforce current case access themselves.
 
 ## Migration and scope
 
-`vehicle` owns the entity table/constraints; `geo` owns vehicle-location evidence
-and imports. Use the [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema).
-
-Person/vehicle relationships, external lookups, and public APIs remain planned.
-`geo` implements analysis of retained vehicle locations.
+`vehicle` owns the entity table. `geo` owns location evidence, imports, maps and
+location analysis. Use the [fresh migration
+baseline](architecture.md#primary-keys-and-the-initial-schema).
 
 ## Automatic trips
 
@@ -81,8 +67,5 @@ than five. **Jump to date** opens the date control. Both links preselect the
 vehicle. Each trip links to its paginated source observations. See
 [Trips and the investigation map](maps.md).
 
-New evidence, completed imports, and archive/restore changes queue rebuilding.
-Pending/failed generations are not current; Processing provides progress/recovery.
-Address-only records form trips without geocoding; map positions require reported
-coordinates or specifically reviewed local estimates. Stops/gaps separate trips
-without reconstructing roads or verifying presence. See [trip processing](analysis-locations.md#automatic-vehicle-trips).
+Processing shows rebuild progress and recovery. See [trip preparation and
+map interpretation](maps.md#processed-vehicle-trips).

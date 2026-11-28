@@ -2,9 +2,12 @@
 
 import json
 import re
+from concurrent.futures import Future
 from contextlib import nullcontext
 from functools import partial
 from http.client import HTTPException
+from threading import BoundedSemaphore, Thread
+from time import monotonic
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, build_opener
@@ -22,6 +25,7 @@ from . import rate_limit
 
 MAX_RESPONSE = 1024 * 1024
 MATCH_THRESHOLD = 0.4
+_deadline_slots = BoundedSemaphore(8)
 
 
 def instance_settings(keyword_match_mode):
@@ -71,6 +75,15 @@ def destination():
     return {key: config.get(key, "") for key in ("account", "namespace")}
 
 
+def check_deadline(deadline):
+    if deadline is None:
+        return None
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise HostedSearchError("search_deadline")
+    return remaining
+
+
 def request(
     index,
     method,
@@ -84,8 +97,10 @@ def request(
     allow_conflict=False,
     authorize_transfer=None,
     usage_callback=None,
+    deadline=None,
     _budget=None,
 ):
+    check_deadline(deadline)
     config = settings.PANDECT_CLOUDFLARE_SEARCH
     if (
         not config.get("token")
@@ -123,16 +138,18 @@ def request(
     elif payload is not None:
         headers["Content-Type"] = "application/json"
         body = json.dumps(payload).encode()
+    timing = {"deadline": deadline} if deadline is not None else {}
     budget_scope = nullcontext(_budget) if _budget else rate_limit.budget(index.account)
     with budget_scope as budget:
         if _budget is None and (retry_at := budget.reserve(3 if track else 1)):
             raise HostedSearchError("search_rate_limit", retry_at=retry_at)
         if track:
             # Public routing can change on either resource after provisioning.
-            private_namespace(index, _budget=budget)
-            private_instance(index, request(index, "GET", _budget=budget))
+            private_namespace(index, _budget=budget, **timing)
+            private_instance(index, request(index, "GET", _budget=budget, **timing))
         if (_budget or track) and (retry_at := budget.cooldown()):
             raise HostedSearchError("search_rate_limit", retry_at=retry_at)
+        check_deadline(deadline)
         if track:
             authorize_transfer()
 
@@ -143,6 +160,7 @@ def request(
                 Request(url + path, data=body, method=method, headers=headers),
                 missing_ok,
                 allow_conflict,
+                **timing,
             )
             outcome = "complete"
             return result
@@ -181,10 +199,53 @@ def record_usage(case_id, operation, status, sent, received):
         )
 
 
-def exchange(req, missing_ok, allow_conflict):
+def exchange(req, missing_ok, allow_conflict, *, deadline=None):
+    if deadline is None:
+        return _exchange(req, missing_ok, allow_conflict, deadline)
+    check_deadline(deadline)
+    if not _deadline_slots.acquire(blocking=False):
+        raise HostedSearchError("search_unavailable")
+    result = Future()
+
+    def transport():
+        # urllib's socket timeout is an inactivity limit. Keep a stalled header,
+        # body or DNS read off the page's critical path without queueing requests.
+        try:
+            result.set_result(_exchange(req, missing_ok, allow_conflict, deadline))
+        except Exception as exc:
+            result.set_exception(exc)
+        finally:
+            _deadline_slots.release()
+
     try:
-        with build_opener(NoRedirect()).open(req, timeout=15) as response:
-            raw = response.read(MAX_RESPONSE + 1)
+        Thread(target=transport, daemon=True, name="cloudflare-search").start()
+    except RuntimeError:
+        _deadline_slots.release()
+        raise HostedSearchError("search_unavailable") from None
+    try:
+        value = result.result(timeout=check_deadline(deadline))
+    except TimeoutError:
+        raise HostedSearchError("search_deadline") from None
+    check_deadline(deadline)
+    return value
+
+
+def _exchange(req, missing_ok, allow_conflict, deadline):
+    remaining = check_deadline(deadline)
+    timeout = 15 if remaining is None else min(15, remaining)
+    try:
+        with build_opener(NoRedirect()).open(req, timeout=timeout) as response:
+            if deadline is None:
+                raw = response.read(MAX_RESPONSE + 1)
+            else:
+                raw = bytearray()
+                while len(raw) <= MAX_RESPONSE:
+                    check_deadline(deadline)
+                    chunk = response.read1(min(65536, MAX_RESPONSE + 1 - len(raw)))
+                    if not chunk:
+                        break
+                    raw.extend(chunk)
+                check_deadline(deadline)
     except HTTPError as exc:
         retry_after = exc.headers.get("Retry-After") if exc.headers else None
         exc.close()
@@ -200,6 +261,7 @@ def exchange(req, missing_ok, allow_conflict):
             return None, 0
         raise HostedSearchError("search_unavailable") from None
     except OSError, HTTPException:
+        check_deadline(deadline)
         raise HostedSearchError("search_unavailable") from None
     if len(raw) > MAX_RESPONSE:
         raise HostedSearchError("search_response_invalid")
@@ -214,8 +276,9 @@ def exchange(req, missing_ok, allow_conflict):
     return value.get("result"), len(raw)
 
 
-def private_namespace(index, *, _budget=None):
-    namespace = request(index, "GET", namespace=True, _budget=_budget)
+def private_namespace(index, *, _budget=None, deadline=None):
+    timing = {"deadline": deadline} if deadline is not None else {}
+    namespace = request(index, "GET", namespace=True, _budget=_budget, **timing)
     if not isinstance(namespace, dict) or namespace.get("name") != index.namespace:
         raise HostedSearchError("search_instance_private")
     endpoint = namespace.get("public_endpoint_params")

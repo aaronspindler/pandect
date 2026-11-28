@@ -12,7 +12,7 @@ from core.analysis.catalogue import project_result
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from people.models import Person
 from phone.models import TextMessageEvidence
 

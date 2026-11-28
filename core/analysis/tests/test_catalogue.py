@@ -28,7 +28,7 @@ from core.models import (
     AnalysisReview,
     AnalysisRun,
 )
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
 from people.models import Person
 from phone.models import TextMessageEvidence

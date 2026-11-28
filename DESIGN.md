@@ -9,9 +9,10 @@ See [screen specifications](docs/interface-design.md) and
 - Give each screen a task, title, and primary action. Keep controls beside their
   material, choose sensible defaults, and ask only for necessary decisions.
   Simplify confusing interactions before adding explanations.
-- Open cases to **Case Tools** for investigation workflows. Keep **Evidence**
-  and **Processing** directly available. Processing owns active work, history,
-  and rerun controls.
+- Open cases to **Case Tools**, with direct links to **Findings**,
+  **Conversations**, **Trips**, and **Images**. Keep **Evidence** and
+  **Processing** directly available. Processing owns active work, history, and
+  rerun controls.
 - Favor compact navigation, aligned rows, and progressive disclosure. Use strong
   hierarchy and consistent controls. Let evidence, source references, and useful
   actions establish the product's investigative character; decoration must not

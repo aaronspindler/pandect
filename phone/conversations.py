@@ -1,6 +1,7 @@
 """Reported-participant conversation queries and evidence navigation."""
 
 from urllib.parse import urlencode
+from uuid import uuid5
 
 from django.db.models import (
     BooleanField,
@@ -9,6 +10,8 @@ from django.db.models import (
     Count,
     Exists,
     F,
+    Func,
+    IntegerField,
     Min,
     Q,
     UUIDField,
@@ -16,12 +19,56 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KT
-from django.db.models.functions import Cast, Collate, Greatest, Least, NullIf, Trim
+from django.db.models.functions import (
+    Cast,
+    Collate,
+    Greatest,
+    Least,
+    Length,
+    NullIf,
+    Substr,
+    Trim,
+)
+from django.db.models.lookups import GreaterThan
 from django.urls import reverse
 
 from core.evidence.queries import scoped_evidence
+from phone.grouping_models import ConversationPairRevision
 from phone.message_csv import WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext
+
+MESSAGE_PREVIEW_LENGTH = 2048
+
+
+def message_match_position(query):
+    # PostgreSQL's literal regex prefix keeps punctuation in the search
+    # term literal. Both the hit list and its excerpts use the same match.
+    return Func(
+        F("body"),
+        Value(f"***={query}"),
+        Value(1),
+        Value(1),
+        Value(0),
+        Value("i"),
+        function="REGEXP_INSTR",
+        output_field=IntegerField(),
+    )
+
+
+def message_previews(queryset, query=""):
+    length = Length("body")
+    start = 1
+    if query:
+        position = message_match_position(query)
+        start = Least(
+            Greatest(Value(1), position - (MESSAGE_PREVIEW_LENGTH // 2)),
+            Greatest(Value(1), length - MESSAGE_PREVIEW_LENGTH + 1),
+        )
+        queryset = queryset.annotate(matches_search=GreaterThan(position, Value(0)))
+    return queryset.defer("body").annotate(
+        body_preview=Substr("body", start, MESSAGE_PREVIEW_LENGTH),
+        body_is_excerpt=GreaterThan(length, Value(MESSAGE_PREVIEW_LENGTH)),
+    )
 
 
 def active_pair_messages(case):
@@ -46,6 +93,21 @@ def pair_messages(case, first_person, second_person):
     return active_pair_messages(case).filter(
         first_person=first_id, second_person=second_id
     )
+
+
+def pair_revision(case, first, second):
+    """Read the revision of an unordered pair, including never-populated pairs."""
+    first_id, second_id = sorted(
+        (getattr(first, "pk", first), getattr(second, "pk", second))
+    )
+    revision = (
+        ConversationPairRevision.objects.filter(
+            case=case, first_person_id=first_id, second_person_id=second_id
+        )
+        .values_list("revision", flat=True)
+        .first()
+    )
+    return (revision or uuid5(case.pk, f"{first_id}:{second_id}")).hex
 
 
 def reported_pair(first_id, second_id):

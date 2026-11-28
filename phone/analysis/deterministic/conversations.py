@@ -9,6 +9,7 @@ from django.db.models import Exists, F, OuterRef
 from django.utils.dateparse import parse_datetime
 
 from core.analysis.sources import output
+from core.evidence.source_clocks import message_event_time
 from core.evidence.types import COMMUNICATION_KINDS
 from phone.message_csv import WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext
@@ -20,7 +21,6 @@ from phone.session_matching import (
 )
 from text.analysis.shared import STOPWORDS, WORD, bounded_sources
 
-VERSION = "conversation-rules-v1"
 DEFAULT_SESSION_GAP_MINUTES = 120
 
 
@@ -36,7 +36,11 @@ def _number(parameters, key, default, minimum, maximum):
 
 
 def _time(source):
-    value = getattr(source.item, "occurred_at", None)
+    value = (
+        message_event_time(source.item)
+        if source.kind == "text-message"
+        else getattr(source.item, "occurred_at", None)
+    )
     if value is not None and (value.tzinfo is None or value.utcoffset() is None):
         raise ValidationError("Communication event times must include their timezone.")
     return value
@@ -498,7 +502,7 @@ def cross_channel_links(sources, parameters):
             "missing_event_times": sum(_time(s) is None for s in rows),
             "window_minutes": window,
             "omitted_temporal_candidates": omitted_temporal,
-            "method": VERSION,
+            "method": SESSION_RULES_VERSION,
         },
         warnings=warnings,
         outcome=outcome,

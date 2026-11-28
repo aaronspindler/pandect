@@ -18,7 +18,7 @@ from core.analysis.import_checks import imported_sources
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.imessage import (

@@ -14,7 +14,7 @@ from core.models import ChatSource, ChatTurn
 
 from . import activity, ai, corpus
 from .history import read_context_window, reply_context
-from .search_scope import review_restart_code
+from .search_scope import context_source_allowed, question_filters, review_restart_code
 
 
 def enqueue_turn(turn):
@@ -75,7 +75,10 @@ def authorize_turn(turn, windows=(), *, lock=False, metadata=False, review=False
             for key, locator in locators.items()
         ):
             raise AnalysisError("source_changed")
+    filters = question_filters(turn)
     for window in windows:
+        if not context_source_allowed(case, window.locator, filters):
+            raise AnalysisError("source_changed")
         current = corpus.read_window(
             case,
             window.locator,

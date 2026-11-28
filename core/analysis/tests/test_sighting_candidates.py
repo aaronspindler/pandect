@@ -18,7 +18,7 @@ from core.analysis.source_resolution import resolve_snapshots
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import output, source_item
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from geo.analysis.deterministic.locations import spatial_groups
 from geo.models import LocationEvidence
 from image.models import ImageEvidence

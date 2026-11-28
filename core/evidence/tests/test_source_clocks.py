@@ -5,10 +5,10 @@ from django.test import TestCase
 
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
-from geo.testing import csv_content, parse_csv
+from geo.tests.testing import csv_content, parse_csv
 from phone.models import CommunicationContext, PhoneCallEvidence, TextMessageEvidence
 
 
@@ -136,9 +136,15 @@ class SourceClockTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(
             self.url("chronology"), {"view": "day", "day": "2026-10-31"}
         )
-        self.assertNotContains(response, "Inferred session")
+        self.assertContains(response, "Inferred session · 1 message")
         self.assertNotContains(response, "20:00:00")
-        self.assertEqual([r["id"] for r in response.context["rows"]], [other.pk])
+        self.assertEqual(
+            [
+                (row["sort_id"], row["at"], row["end_at"])
+                for row in response.context["rows"]
+            ],
+            [(other.pk, other.occurred_at, other.occurred_at)],
+        )
         unplaced = self.client.get(self.url("chronology"), {"view": "unplaced"})
         self.assertContains(unplaced, "Only a day")
         info = next(

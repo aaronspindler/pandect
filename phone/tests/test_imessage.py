@@ -23,7 +23,7 @@ from core.analysis.errors import AnalysisError
 from core.analysis.result_validation import validate_output
 from core.analysis.sources import Source
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.imessage import (

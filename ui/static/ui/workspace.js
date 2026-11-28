@@ -47,9 +47,10 @@
     useUrl(currentUrl(), true);
   }
   function headingFocus(scope, preventScroll = true) {
-    const heading = scope.querySelector("h1") || scope.querySelector("h2, h3, summary") || scope;
-    if (!heading.hasAttribute("tabindex")) heading.tabIndex = -1;
-    heading.focus({preventScroll});
+    const target = scope.querySelector("[data-error-summary]") ||
+      scope.querySelector("h1") || scope.querySelector("h2, h3, summary") || scope;
+    if (!target.hasAttribute("tabindex")) target.tabIndex = -1;
+    target.focus({preventScroll});
   }
   function swap(element, fresh) {
     htmx.swap(element, fresh.outerHTML, {swapStyle: "outerHTML", swapDelay: 0, settleDelay: 0});
@@ -174,17 +175,28 @@
     if (picker.hasAttribute("aria-busy")) return;
     const isCurrent = beginLocal();
     const values = new FormData(form, submitter);
-    let edited = false;
+    let browsing = true;
     let applied = false;
-    const markEdited = () => { edited = true; };
-    picker.addEventListener("input", markEdited);
+    function finish() {
+      if (!browsing) return;
+      browsing = false;
+      picker.removeEventListener("input", cancelOnEdit);
+      picker.removeAttribute("aria-busy");
+    }
+    function cancelOnEdit() {
+      finish();
+      if (!isCurrent()) return;
+      cancelVisit();
+      driver.textContent = "Source choices stayed on this page. Search or choose a page again.";
+    }
+    picker.addEventListener("input", cancelOnEdit);
     picker.setAttribute("aria-busy", "true");
     try {
       await htmx.ajax("POST", url.pathname + url.search, {
         source: driver, target: picker, values,
         headers: {"X-Pandect-Analysis-Browse": "1"},
         handler: (_, {xhr}) => {
-          if (!isCurrent() || edited || !picker.isConnected || xhr.status !== 200 ||
+          if (!isCurrent() || !picker.isConnected || xhr.status !== 200 ||
               new URL(xhr.responseURL).pathname !== url.pathname) return;
           if (!window.PandectPrivateSession.matches(xhr.getResponseHeader("X-Pandect-Session"))) return;
           const page = new DOMParser().parseFromString(xhr.responseText, "text/html");
@@ -209,11 +221,8 @@
         },
       });
     } catch { /* The same source-browse action works as an ordinary submission. */ }
-    finally {
-      picker.removeEventListener("input", markEdited);
-      picker.removeAttribute("aria-busy");
-    }
-    if (!applied && !edited && isCurrent() && form.isConnected) {
+    finally { finish(); }
+    if (!applied && isCurrent() && form.isConnected) {
       form.dataset.browseFallback = "true";
       form.requestSubmit(submitter);
       delete form.dataset.browseFallback;
@@ -268,6 +277,9 @@
     accessLost = true;
     cancelVisit();
   });
+  document.addEventListener("htmx:beforeRequest", ({detail: {target}}) => {
+    if (target?.id === "writing-message-count") target.textContent = "Updating message count…";
+  });
   document.addEventListener("htmx:beforeSwap", event => {
     const {target, xhr} = event.detail;
     if (target?.id !== "writing-message-count") return;
@@ -279,12 +291,17 @@
       event.preventDefault();
     }
   });
-  document.addEventListener("htmx:afterRequest", event => {
-    const {target, xhr, failed} = event.detail;
-    if (target?.id === "writing-message-count" && failed && target.isConnected && xhr.status !== 0) {
+  function writingCountUnavailable({detail: {target}}) {
+    if (target?.id === "writing-message-count" && target.isConnected) {
       target.textContent = "Message count unavailable. You can still start analysis.";
     }
+  }
+  document.addEventListener("htmx:afterRequest", event => {
+    const {xhr, failed} = event.detail;
+    if (failed && xhr.status !== 0) writingCountUnavailable(event);
   });
+  document.addEventListener("htmx:sendError", writingCountUnavailable);
+  document.addEventListener("htmx:timeout", writingCountUnavailable);
   window.addEventListener("pagehide", cancelVisit);
   if (!needsDocument(document)) remember();
   window.PandectWorkspace = {

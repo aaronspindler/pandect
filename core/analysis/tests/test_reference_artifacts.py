@@ -19,10 +19,10 @@ from cases.models import Case, CaseMembership
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
 from core.analysis.sources import output
-from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.models import AnalysisArtifact, AnalysisResult
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
 
 

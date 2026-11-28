@@ -10,7 +10,7 @@ from cases.deletion import CaseDeletionBlocked, delete_case_record
 from core.evidence.deletion import CASE_CONFLICT, execute_deletion, plan_deletion
 from core.evidence.queries import scoped_evidence
 from core.storage import canonical_bytes
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
 from phone.models import (
     CommunicationContext,

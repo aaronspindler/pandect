@@ -21,7 +21,7 @@ from cases.models import Case
 from socialmedia import instagram_connector, monitor_jobs
 from socialmedia.models import InstagramCapture, InstagramMonitor
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 # Run the bundled handler in its own process with a deterministic fixture clock.
 # The first pair of collections straddles a change. The third repeats the

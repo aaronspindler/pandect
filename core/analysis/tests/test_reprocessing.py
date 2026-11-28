@@ -15,11 +15,11 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.execution import requires_inference
 from core.analysis.operations import OPERATIONS
 from core.analysis.reprocessing import start_reprocessing
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.models import AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from text.models import TextEvidence
 

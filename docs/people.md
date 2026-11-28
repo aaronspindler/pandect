@@ -1,33 +1,28 @@
 # People
 
-`people.Person` is an investigator-maintained record in exactly one `cases.Case`,
-independent of login accounts. Matching names, emails, or phone numbers do not
-prove identity or automatically link/merge records. These records are investigative
-work, separate from verified evidence and model output.
+People are investigator-maintained case records independent of login accounts.
+Matching names or contact details establish neither identity nor a link.
 
 ## Investigator workflow
 
-Open **Case tools → People**. Owners/editors choose **Add person**, enter at least
-one name, phone number, or email, and save. Viewers inspect. Search and every
-detail/edit/delete route remain case-scoped. Adding, editing, or deleting a
-record retains the People search and page in return links.
+Open **Case Tools → People**. Owners and editors can **Add person** with at
+least one name, phone number or email. All case members can browse and, when
+enabled, use [hosted search](cloudflare-search.md). Return links retain search
+and page during record changes.
 
-**Edit person** corrects name/contact details. Stale forms preserve the draft
-beside newer values and require **Save reviewed changes**; they cannot recreate
-a deleted record. Case reassignment, identity verification, and automatic merging
-are unsupported.
+**Edit person** corrects name and contact details. Stale edits preserve the
+draft beside newer values for **Save reviewed changes**. Records belong to
+their original case.
 
 Details show related evidence/findings, populated contacts, social accounts,
 POIs, and an unverified-record caption. **Record details** holds saved read-only
 notes, name components, and timestamps. Owner-only **Delete person** is visible
 below that disclosure and opens the separate confirmation.
 
-Only owners can delete people, after named-target confirmation. Unlinked-person
-deletion retains evidence, login accounts, and matching people. Retained
-person-location evidence or communication sender/recipient links block deletion,
-including when archived. The deletion page links to blocking originals before
-offering any confirmation. Whole-case deletion removes both; see [location
-observations](evidence.md#location-observations). Product users need no staff access.
+Only owners can delete an individual person after named confirmation.
+Person locations and communication links block deletion even when archived.
+The deletion page links to blocking evidence. Whole-case deletion removes both
+the people and evidence. See [location observations](evidence.md#location-observations).
 
 ### Related evidence and findings
 
@@ -58,15 +53,10 @@ Choose **Add social account** to record a named platform and reported username,
 preserving spelling/punctuation. Optional **Source / citation** records the
 reported association; ownership remains unverified.
 
-People may have multiple usernames per platform, with each exact platform/username
-pair allowed once per person. People search includes platform/usernames within
-the case. Viewers inspect/search; owners/editors edit or confirm removal. Stale
-edits preserve drafts beside current values. Changed removal targets require fresh
-review/confirmation. Accounts are managed in the product and deleted with their
-person or case.
-
-`socialmedia.SocialAccount` owns the table; forms, views, templates, and tests live
-in `socialmedia`. Person details display accounts through that relationship.
+Each exact platform/username pair is allowed once per person. Hosted People
+search includes these fields. Viewers inspect. Owners and editors edit or
+confirm removal. Stale edits retain drafts, and changed removal targets need
+fresh review. Deleting the person or case removes its social accounts.
 
 ### Points of interest
 
@@ -100,10 +90,7 @@ and no protected evidence links. Existing case, notes, and timestamps are read-o
 
 ## Migration and scope
 
-`people` owns the UUID person table; `socialmedia` and `geo` own linked accounts
-and POIs. Use the [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema).
-
-Product/admin enforce authorization; ORM queries do not. Exports, jobs, and
-integrations must check current case access themselves. Public APIs and broader
-identity linkage remain planned. Immutable, case-scoped person-location links
-record reported association, not verified identity or presence.
+`people` owns the person table. `socialmedia` owns reported accounts and
+`geo` owns POIs and person locations. Use the [fresh migration
+baseline](architecture.md#primary-keys-and-the-initial-schema). Jobs, exports
+and other ORM callers enforce current case access themselves.

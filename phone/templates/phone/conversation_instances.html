@@ -1,6 +1,6 @@
 {% if instance_query.contains %}<p>Sessions containing the selected message. <a class="record-link" href="{% querystring instance_query contains=None %}">Show all sessions</a></p>{% endif %}
 {% if page_obj.object_list %}
-<section aria-labelledby="instances-heading" id="instances-reader" data-conversation-scroll data-scroll-label="sessions">
+<section aria-labelledby="instances-heading" id="instances-reader" data-conversation-scroll data-scroll-label="sessions" data-conversation-revision="{{ conversation_revision }}">
   <div class="section-header conversation-section-header">
     <div><h2 id="instances-heading">Sessions &amp; summaries</h2><p class="muted">{{ page_obj.paginator.count }} saved session{{ page_obj.paginator.count|pluralize }}</p></div>
     {% if can_edit %}<div class="actions">
@@ -48,13 +48,14 @@
         <a data-workspace-link class="record-link" href="{{ instance.url }}">Grouping details{% if instance.partial %} · Partial coverage{% endif %}</a>
       </div>
       {% if instance.messages %}
-      <div class="instance-originals" id="instance-messages-{{ instance.id }}" data-conversation-scroll data-scroll-label="messages" data-page-param="message_page">
+      <div class="instance-originals" id="instance-messages-{{ instance.id }}" data-conversation-scroll data-scroll-label="messages" data-page-param="message_page" data-conversation-revision="{{ conversation_revision }}">
         {% if instance.messages.has_previous %}{% include 'phone/instance_paging.html' with direction='previous' page_number=instance.messages.previous_page_number label='Earlier messages' %}{% endif %}
         <ol class="instance-message-list" start="{{ instance.messages.start_index }}" data-conversation-items data-page="{{ instance.messages.number }}">
           {% for message in instance.messages %}
           <li id="instance-message-{{ instance.id }}-{{ message.pk }}" tabindex="-1">
-            <div class="instance-message-meta"{% if instance.day_message == message.pk %} id="conversation-day-result" tabindex="-1"{% endif %}><strong>{{ message.sender }}</strong> · {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</div>
-            <div class="conversation-message-body">{{ message.body }}</div>
+            <div class="instance-message-meta"{% if instance.day_message == message.pk %} id="conversation-day-result" tabindex="-1"{% endif %}><strong>{{ message.sender }}</strong> · {% if message.date_only %}{% if message.recorded_day %}<time datetime="{{ message.recorded_day|date:'Y-m-d' }}">{{ message.recorded_day|date:'j M Y' }}</time> · {% endif %}Time not recorded{% elif message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</div>
+            <div class="conversation-message-body">{{ message.body_preview }}</div>
+            {% if message.body_is_excerpt %}<a class="small" data-workspace-link href="{{ message.evidence_url }}">Read full original</a>{% endif %}
             <div class="instance-message-meta">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %} · <a data-workspace-link href="{{ message.transcript_url }}">Message details</a></div>
           </li>
           {% endfor %}

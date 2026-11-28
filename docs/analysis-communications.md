@@ -133,7 +133,8 @@ your display timezone. A profile without date filters also includes undated
 messages and imports that supply only a calendar date. Date-only messages
 cannot establish a writing time or interval boundary. A comparison requires
 separate earlier and later periods, each with a start and end date.
-The form shows the matching count before submission. A run supports up to 10,000
+The form shows the matching count before submission and indicates when the
+count is being refreshed or unavailable. A run supports up to 10,000
 messages and 16 MiB of message text. Narrow the dates when a selection exceeds
 either limit. Within those limits, the run retains the exact ordered originals
 and their checksums. Processing shows progress, and retries keep the same
@@ -141,10 +142,13 @@ originals and periods. If an original is archived or access is removed before
 publication, the run stops without publishing a result.
 
 The worker reads messages in bounded batches and calculates measurements across
-each entire period. Results show the examined and usable counts, with a
-selection of cited examples. Displayed examples and terms are limited for
-readability. The result's selected messages list is paginated, and the download
-retains full provenance. Each included message links to the analysis from its
+each entire period. A message whose automatic quotation candidates exceed 200
+is excluded in full with a recorded reason. Results show the examined and
+usable counts, selection dates and timezone, and a selection of cited examples.
+Displayed examples and terms are limited for readability. The result's selected
+messages list is paginated. Readers reuse byte verification while the case's
+evidence revision stays the same. The download retains full provenance. Each
+included message links to the analysis from its
 evidence history, even when the report does not use the message as an example.
 
 ## Conversation sessions and interaction
@@ -183,7 +187,9 @@ Select exact call transcripts/transcriptions under **Inspect keywords and topics
 or **Suggest claims and commitments**; cross-channel comparison also accepts calls.
 
 `sessions` orders reported times, breaking ties by message/source IDs. Untimed
-messages form unresolved singletons and never bridge exchanges. Source-native
+messages, including imports that supply only a calendar date, form unresolved
+singletons and never bridge exchanges. If a run was still queued under an earlier
+method version, start it again to use the updated clock rules. Source-native
 participant context stays scoped to its export; otherwise same-case reported
 pairs define streams without verifying identity. Forms default to 60-minute gaps,
 range 1–10,080; omitted/cleared `gap_minutes` uses the processor's 120 minutes.

@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from django.core.exceptions import PermissionDenied
 from django.db import connections, transaction
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.http import Http404
 from django.tasks import task
 from django.utils import timezone
@@ -140,7 +140,7 @@ def changed(case_id, surface, kind, ids):
 
 
 @transaction.atomic
-def reconcile(case_id):
+def reconcile(case_id, *, archived_source=None):
     index = (
         HostedSearchIndex.objects.select_for_update()
         .filter(case_key=case_id, retired=False)
@@ -149,10 +149,20 @@ def reconcile(case_id):
     if index:
         index.phase, index.cursor = 0, None
         HostedSearchSource.objects.filter(index=index).update(dirty=True, offset=0)
-        if index.status == "ready":
+        if archived_source:
+            index.failures = 0
+            kind, source_key = archived_source
+            HostedSearchItem.objects.filter(
+                source__index=index,
+                source__surface="original",
+                source__kind=kind,
+                source__source_key=source_key,
+            ).update(status="delete")
+        if index.status == "ready" or (archived_source and index.status == "failed"):
+            index.failures = 0
             enqueue(index)
         else:
-            index.save(update_fields=["phase", "cursor"])
+            index.save(update_fields=["phase", "cursor", "failures"])
 
 
 def prepare_window(case, source):
@@ -212,7 +222,14 @@ def receipt(item, value):
         raise HostedSearchError("search_response_invalid")
     cloudflare.item_path(value["id"])
     status = value.get("status")
-    if status not in {"queued", "running", "completed", "error", "skipped", "outdated"}:
+    if not isinstance(status, str) or status not in {
+        "queued",
+        "running",
+        "completed",
+        "error",
+        "skipped",
+        "outdated",
+    }:
         raise HostedSearchError("search_response_invalid")
     item.remote_id = value["id"]
     item.status = {
@@ -433,6 +450,14 @@ def advance_passages(index, case):
     items = HostedSearchItem.objects.filter(source__index=index)
     if item := items.filter(status="delete").order_by("pk").first():
         delete_passage(index, item)
+        return 0
+    # Recheck existing remote material before polling or uploading unrelated work.
+    # Only the first window needs to decide which earlier receipts are obsolete.
+    with_remote_material = sources.filter(
+        Exists(items.filter(source_id=OuterRef("pk")).exclude(status="queued")),
+        offset=0,
+    )
+    if prepare_passages(case, with_remote_material):
         return 0
     # When the oldest check is due, reconcile neighboring receipts in the same
     # request so recently submitted items do not each trigger their own poll.

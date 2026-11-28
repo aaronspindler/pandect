@@ -15,9 +15,9 @@ Unavailable sources, weak OCR and timing-only findings are excluded. Open
 **Findings** for the catalogue or **Processing** for results and run history.
 For saved possible trips, use [Trips and the investigation map](maps.md).
 
-**Browse all findings** searches retained labels, text and measurements.
-Filters cover method, evidence type, exact evidence and person. Pages contain
-25 findings. Person filters use linked locations and cited communication
+**Browse all findings** uses [Cloudflare AI Search](cloudflare-search.md) for
+keyword queries. Clear the query to browse by method, evidence type, exact
+evidence or person without hosted search. Pages contain 25 findings. Person filters use linked locations and cited communication
 participants. The evidence reader opens the exact-source filter. **Back to
 findings** restores the search, filters and page. **Mark important** saves the
 exact result in [Important](cases.md#important-items).
@@ -268,7 +268,7 @@ model IDs and request formats. The bundled catalog records its source revision.
 
 | Environment variable | Additional model choices |
 | --- | --- |
-| `PANDECT_AI_TEXT_MODEL_CHOICES` | Comma-separated IDs for the configured OpenAI or Anthropic text provider, through AI Gateway. |
+| `PANDECT_AI_TEXT_MODEL_CHOICES` | Comma-separated custom OpenAI IDs when the installation uses the OpenAI text route. Anthropic choices come from the bundled catalog. |
 | `PANDECT_AI_TRANSCRIPTION_MODEL_CHOICES` | Comma-separated IDs for external recording transcription through Workers AI. |
 
 Set the same configuration in web and worker. For custom model IDs, use models
@@ -391,10 +391,11 @@ and [Workers AI integration](https://developers.cloudflare.com/ai-gateway/usage/
 
 ### Limits, retention, and recovery
 
-Workers AI uses a 60-second client timeout. All external AI routes have an
-8 MiB request limit and 2 MiB response limit. Each HTTP attempt records its case, model, bytes and the
-associated analysis run or Evidence Chat turn. Missing token usage stays unknown. Provider rate and quota
-limits apply.
+Default Workers AI JSON and installation-selected OpenAI vision requests time
+out after 60 seconds. Catalog routes and installation-selected OpenAI text
+requests use 300 seconds. Model inference routes allow 8 MiB requests
+and 2 MiB responses. Each HTTP attempt records its case, model, bytes, and run or
+Evidence chat turn. Missing token usage stays unknown. Provider limits apply.
 
 Match web/worker configuration. Pandect retains the provider, API format, any
 stored-key alias, and inference settings without secrets. A changed execution

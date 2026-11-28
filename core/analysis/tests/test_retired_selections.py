@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from core.analysis.source_selection import snapshot_sources
 from core.models import SavedSelection
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 
 
 class RetiredSelectionTests(EvidenceViewTestMixin, TestCase):

@@ -16,11 +16,11 @@ from core.analysis.services import start_run
 from core.analysis.source_resolution import resolve_inputs, resolve_snapshots
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import source_id
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
 from text.analysis.synthesis import finding_text, synthesize
 from text.models import TextEvidence

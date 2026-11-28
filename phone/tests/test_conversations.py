@@ -17,10 +17,10 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.conversations import conversation_url
+from phone.conversations import MESSAGE_PREVIEW_LENGTH, conversation_url
 from phone.message_csv import IMESSAGE_PARSER_VERSION, WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext, TextMessageEvidence
 
@@ -795,19 +795,51 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
                 200,
             )
 
-    def test_escaped_original_body_is_complete_and_not_executable(self):
-        body = (
-            "  <script>alert('untrusted')</script>\n" + "a" * 2048 + "\n  preserved.  "
-        )
+    def test_oversized_body_is_clipped_but_deep_literal_search_and_original_work(self):
+        unsafe = "<script>alert('untrusted')</script>"
+        phrase = "Meet [here]+ at noon?"
+        tail = "Synthetic content visible only in the full original."
+        body = f"{unsafe}\n{'é' * 3500}\n{phrase}\n{'a' * 4000}\n{tail}"
         message = self.message(body=body)
         self.login("viewer")
         response = self.client.get(self.reader_url())
-        self.assertContains(
-            response, "&lt;script&gt;alert(&#x27;untrusted&#x27;)&lt;/script&gt;"
+        row = response.context["page_obj"].object_list[0]
+        self.assertIn("body", row.get_deferred_fields())
+        self.assertEqual(row.body_preview, body[:MESSAGE_PREVIEW_LENGTH])
+        self.assertContains(response, escape(unsafe))
+        self.assertNotContains(response, unsafe)
+        self.assertNotContains(response, tail)
+        self.assertContains(response, "Read full original")
+        original = self.url("detail", message, kind="text-message")
+        self.assertContains(response, f'href="{original}"')
+
+        response = self.client.get(
+            self.reader_url(), {"q": phrase.lower(), "message": str(message.pk)}
         )
-        self.assertNotContains(response, "<script>alert('untrusted')</script>")
-        self.assertContains(response, "a" * 2048)
-        self.assertContains(response, f"/text-message/{message.pk}/")
+        inspected = response.context["selected_message"]
+        self.assertEqual(response.context["match_page"].paginator.count, 1)
+        self.assertEqual(len(inspected.body_preview), MESSAGE_PREVIEW_LENGTH)
+        self.assertIn(phrase, inspected.body_preview)
+        self.assertContains(response, f"<mark>{phrase}</mark>")
+        self.assertContains(response, "Message excerpt")
+        self.assertNotContains(response, tail)
+        self.assertContains(self.client.get(original), tail)
+
+    def test_date_only_transcript_uses_source_day_when_display_timezone_differs(self):
+        message = self.message(occurred_at=datetime(2026, 1, 5, 0, tzinfo=UTC))
+        self.context(message, self.document(), raw_timestamp="2026-W02-1")
+        self.login("viewer")
+        with timezone.override("America/Toronto"):
+            previous = self.client.get(self.reader_url(), {"day": "2026-01-04"})
+            day = self.client.get(self.reader_url(), {"day": "2026-01-05"})
+            panel = self.client.get(self.reader_url(), {"message": str(message.pk)})
+        self.assertTrue(previous.context["day_not_found"])
+        self.assertEqual(day.context["day_message"].pk, message.pk)
+        self.assertContains(day, "Monday, 5 January 2026")
+        self.assertContains(day, "Time not recorded")
+        self.assertContains(panel, '<time datetime="2026-01-05">5 Jan 2026</time>')
+        for response in (previous, day, panel):
+            self.assertNotContains(response, "19:00:00")
 
     def test_empty_conversations_and_database_pagination_bound_rows_and_queries(self):
         self.login("viewer")

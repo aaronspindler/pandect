@@ -100,13 +100,13 @@ for path in ("/health/", "/events/health/"):
 '
 compose exec -T web python manage.py migrate --check
 compose exec -T web python manage.py check_task_worker --timeout 30
-compose exec -T web python manage.py shell <<'PY'
+# Feed fixture generators from the checkout so the runtime image can exclude tests.
+cat "$smoke_root/audio/tests/testing.py" - <<'PY' | compose exec -T web python manage.py shell
 import base64
 import io
 
 from PIL import Image
 from pypdf import PdfWriter
-from audio.testing import m4a_bytes
 from core.parsers import run_parser
 
 writer = PdfWriter()
@@ -137,7 +137,7 @@ result.refresh()
 assert result.status == TaskResultStatus.READY
 assert result.started_at is None
 PY
-compose exec -T web python manage.py shell <<'PY'
+cat "$smoke_root/image/tests/testing.py" - <<'PY' | compose exec -T web python manage.py shell
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
@@ -202,7 +202,6 @@ from core.parsers import run_parser
 from django.db import transaction
 from django.http import QueryDict
 from django.test import override_settings
-from image.testing import plate_scene
 
 image_bytes = plate_scene()
 prepared = run_parser("plate_ocr", image_bytes)

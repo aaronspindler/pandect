@@ -1,7 +1,7 @@
 {% extends 'marketing/investigation_detail.html' %}
 {% block breadcrumb_title %}Open-source investigations (OSINT){% endblock %}
 {% block investigation_heading %}Open-source investigations <em>(OSINT)</em>{% endblock %}
-{% block investigation_answer %}Pandect gives open-source intelligence investigators a private workspace for public documents, images, and text they have collected. Keep each source’s URL and collection time, search extracted text, and review where the same identifier appears.{% endblock %}
+{% block investigation_answer %}Organize public documents, images, and text you collected in a private case. Record source URLs and collection times, and review where the same identifier appears.{% endblock %}
 {% block evidence_filter %}?type=documents{% endblock %}
 {% block evidence_link_label %}See document and text formats{% endblock %}
 {% block source_guide %}
@@ -21,7 +21,7 @@
   </article>
   <article>
     <h3>Search text in the case</h3>
-    <p>Search retained text and extracted passages from supported files. Follow each match to the material that supplied it.</p>
+    <p>When the case owner enables configured Cloudflare search, find retained text and extracted passages. Follow each match back to its source.</p>
   </article>
   <article>
     <h3>Review repeated identifiers</h3>

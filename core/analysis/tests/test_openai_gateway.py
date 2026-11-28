@@ -17,11 +17,11 @@ from core.analysis.execution import (
     snapshot_execution,
 )
 from core.analysis.services import start_run
-from core.analysis.testing import approve_case_execution, external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG, error, response
+from core.analysis.tests.testing import approve_case_execution, external_grant_kwargs
 from core.analysis.worker import authorize_run, process_run
 from core.models import AnalysisRun, GatewayRequest
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from phone.models import TextMessageEvidence
 
 OPENAI = CONFIG | {

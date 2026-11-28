@@ -10,9 +10,9 @@ from django.test import SimpleTestCase
 from audio import parsers
 from audio.analysis.ai import transcription
 from audio.analysis.metadata import audio_metadata
-from audio.testing import m4a_bytes
+from audio.tests.testing import m4a_bytes
 from core.analysis.errors import AnalysisError
-from core.analysis.testing import file_source
+from core.analysis.tests.testing import file_source
 from core.parser_contract import ParserFailure
 from core.parsers import run_parser
 

@@ -1,23 +1,39 @@
 """Exercise the Worker callback protocol against synthetic originals in PostgreSQL."""
 
 import json
+from datetime import UTC, datetime
 from unittest.mock import patch
 from uuid import uuid4
 
 from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
-from cases.models import CaseMembership
+from cases.models import Case, CaseMembership
 from core.analysis import chat_usage
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import configured_external_executions
-from core.analysis.testing import approve_case_execution
+from core.analysis.tests.testing import approve_case_execution
+from core.case_search import hosted, lifecycle
 from core.case_search.tests.fixtures import indexed
-from core.evidence_chat import ai, corpus, hosted_agent, jobs, services
+from core.evidence_chat import (
+    ai,
+    checkpoints,
+    corpus,
+    engine,
+    history,
+    hosted_agent,
+    jobs,
+    services,
+)
 from core.evidence_chat.usage import interaction_usage
-from core.models import AnalysisRun, HostedSearchIndex
-from core.testing import EvidenceViewTestMixin
+from core.models import AnalysisRun, HostedSearchIndex, HostedSearchItem
+from core.tests.testing import EvidenceViewTestMixin
+from document.models import DocumentEvidence
+from people.models import Person
+from phone.models import CommunicationContext, TextMessageEvidence
 from text.models import TextEvidence
 
 WORKER = {"url": "https://agent.example.test/step", "secret": "t" * 48}
@@ -42,9 +58,13 @@ class InvestigationTests(EvidenceViewTestMixin, TestCase):
         self.case.save(update_fields=["external_analysis_approval"])
         self.enterContext(patch("core.evidence_chat.checkpoints.enqueue_turn"))
 
-    def ask(self, question="Who drove the van to North Quay?"):
+    def ask(self, question="Who drove the van to North Quay?", *, chat_id=None):
         turn = services.submit_turn(
-            self.users["editor"], self.case.pk, question, submission_id=uuid4()
+            self.users["editor"],
+            self.case.pk,
+            question,
+            submission_id=uuid4(),
+            chat_id=chat_id,
         )
         return self.claim(turn)
 
@@ -75,12 +95,13 @@ class InvestigationTests(EvidenceViewTestMixin, TestCase):
             headers={"Authorization": "Bearer " + hosted_agent.capability(turn)},
         )
 
-    def record(self, body):
+    def record(self, body, **fields):
         item = TextEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
             body=body,
             title="Synthetic source",
+            **fields,
         )
         return next(
             loc
@@ -255,6 +276,353 @@ class InvestigationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(turn.mode, "full")
         self.assertEqual(turn.reviewed, 1)
         self.assertEqual(turn.plan["matched_records"], 1)
+
+    def test_explicit_scope_rechecks_search_and_does_not_reuse_prior_prose(self):
+        allowed = self.record(
+            "The dispatch is open.",
+            collected_at=datetime(2026, 4, 2, 12, tzinfo=UTC),
+        )
+        previous_quote = "The earlier dispatch is closed."
+        excluded = self.record(
+            previous_quote,
+            collected_at=datetime(2026, 4, 1, 12, tzinfo=UTC),
+        )
+        prior = self.ask("Summarize the earlier dispatch.")
+        checkpoints.source_row(prior, excluded, "context").save()
+        prior.answer = engine.empty_answer()
+        prior.answer["claims"] = [
+            {
+                "text": previous_quote,
+                "citations": [
+                    {
+                        "key": excluded["key"],
+                        "start": 0,
+                        "end": len(previous_quote),
+                        "quote": previous_quote,
+                    }
+                ],
+            }
+        ]
+        prior.status = "complete"
+        prior.save(update_fields=["answer", "status"])
+        self.assertIsNotNone(services.inspect_turn(prior))
+
+        turn = self.ask(
+            "What does the dispatch say? type:text on:2026-04-02",
+            chat_id=prior.chat_id,
+        )
+        with patch(
+            "core.case_search.hosted.search",
+            return_value=[(excluded, 0), (allowed, 0)],
+        ):
+            self.assertEqual(self.call(turn, "start").status_code, 200)
+        turn = self.claim(turn)
+        self.assertEqual(
+            list(turn.sources.values_list("key", flat=True)), [allowed["key"]]
+        )
+
+        def model(_, authorize, prompt, schema):
+            authorize()
+            payload = json.loads(prompt.split("\n", 1)[1])
+            self.assertEqual(payload["history"], [])
+            self.assertNotIn("earlier dispatch", prompt)
+            self.assertIn("The dispatch is open.", prompt)
+            return self.decision("reports", source=0)
+
+        with patch.object(ai, "infer", side_effect=model):
+            reply = self.call(turn, "model", instructions="Review the dispatch.")
+        self.assertEqual(reply.status_code, 200)
+        with patch(
+            "core.evidence_chat.analysis_reports.overlapping_results"
+        ) as reports:
+            self.assertEqual(
+                self.call(turn, "act", decision=reply.json()).status_code, 200
+            )
+            reports.assert_not_called()
+
+        turn = self.claim(turn)
+        with self.assertRaisesMessage(AnalysisError, "source_changed"):
+            checkpoints.authorize_turn(
+                turn, [engine.Window(excluded, 0, "The earlier dispatch is closed.")]
+            )
+
+    def test_scoped_relationship_context_keeps_only_eligible_leads(self):
+        from core.evidence_chat.investigation import _digest, current_leads
+
+        allowed = self.record(
+            "In-scope dispatch.",
+            collected_at=datetime(2026, 4, 2, 12, tzinfo=UTC),
+        )
+        excluded = self.record(
+            "Unrelated dispatch.",
+            collected_at=datetime(2026, 4, 1, 12, tzinfo=UTC),
+        )
+        turn = self.ask("What linked reports exist? type:text on:2026-04-02")
+        description = {
+            "subject": "Dispatch",
+            "predicate": "reported",
+            "object": "arrival",
+            "status": "candidate",
+            "qualification": "Recorded assertion",
+            "quote": "In-scope dispatch.",
+        }
+        visible = description | {"locator": allowed}
+        hidden = description | {"locator": excluded, "quote": "Unrelated dispatch."}
+        turn.plan["graph_checks"] = [
+            {"source_id": None, "term": "Dispatch", "digest": _digest([visible])}
+        ]
+        with patch("core.relationships.follow_leads", return_value=[hidden, visible]):
+            self.assertEqual(current_leads(turn, self.case), [description])
+
+    def test_chat_record_windows_exclude_legacy_notes_and_keep_record_fields(self):
+        from core.case_search.hosted import hits, search
+        from core.evidence_chat.search_scope import context_source_allowed
+
+        self.person.notes = "Synthetic confidential note."
+        self.person.save(update_fields=["notes"])
+        with indexed(self.case, [("record", "person", self.person.pk)]):
+            actor = self.users["editor"]
+            old, old_start, _ = hits(
+                self.case, actor, "confidential note", records=True
+            )[0]
+            historical = corpus.read_window(self.case, old.locator, old_start, 1200)
+            self.assertIn("confidential note", historical["text"])
+            self.assertFalse(context_source_allowed(self.case, old.locator, {}))
+            clean, clean_start = search(
+                self.case, actor, self.person.first_name, omit_record_notes=True
+            )[0]
+            self.assertTrue(context_source_allowed(self.case, clean, {}))
+            current = corpus.read_window(self.case, clean, clean_start, 1200)
+            self.assertIn(self.person.first_name, current["text"])
+            self.assertNotIn("confidential note", current["text"])
+            receipt = HostedSearchItem.objects.get(source__source_key=self.person.pk)
+            with patch(
+                "core.case_search.cloudflare.request",
+                return_value={
+                    "chunks": [
+                        {
+                            "item": {"key": receipt.filename},
+                            "text": "Synthetic confidential note.",
+                        }
+                    ]
+                },
+            ):
+                self.assertEqual(
+                    search(
+                        self.case, actor, "confidential note", omit_record_notes=True
+                    ),
+                    [],
+                )
+
+    def test_older_affected_reviews_restart_without_hiding_saved_history(self):
+        from core.evidence_chat.search_scope import review_restart_code
+
+        turn = self.ask("Check the dispatch.")
+        turn.mode = "full"
+        profiles = (
+            ({"literal": "Dispatch"}, "chat_literal_review_retired"),
+            (
+                {"filters": {"day": "2026-04-01", "kinds": ["text-message"]}},
+                "chat_review_scope_retired",
+            ),
+        )
+        for plan, code in profiles:
+            with self.subTest(plan=plan):
+                turn.plan = {"review_version": 2} | plan
+                turn.status = "running"
+                self.assertEqual(review_restart_code(turn), code)
+                turn.status = "complete"
+                self.assertEqual(review_restart_code(turn), "")
+
+    def retained_message_clocks(self):
+        date_only = datetime(2026, 4, 1, tzinfo=UTC)
+        recipient = Person.objects.create(case=self.case, first_name="Observer")
+        exact, calendar = [
+            TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                sender=self.person,
+                recipient=recipient,
+                occurred_at=clock,
+                collected_at=datetime(2026, 4, 3, 12, tzinfo=UTC),
+                title=body,
+                body=body,
+            )
+            for clock, body in (
+                (date_only.replace(hour=12), "Reported with an exact time."),
+                (date_only, "Calendar date only."),
+            )
+        ]
+        export = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Retained date-only source",
+            file=SimpleUploadedFile("dates.csv", b"Date\\n2026-04-01\\n", "text/csv"),
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=calendar,
+            source_document=export,
+            source_sha256=export.sha256,
+            source_row=1,
+            source_start=5,
+            source_end=16,
+            parser_version="fixture",
+            timezone="UTC",
+            raw_sender="Observer",
+            raw_timestamp="2026-04-01",
+        )
+        return exact, calendar
+
+    def finish_structured_count(self, question):
+        with timezone.override("UTC"):
+            turn = self.ask(question)
+        self.assertEqual(self.call(turn, "start").status_code, 200)
+        for _ in range(6):
+            turn.refresh_from_db()
+            if turn.status == "complete":
+                break
+            turn = self.claim(turn)
+            self.assertEqual(self.call(turn, turn.plan["stage"]).status_code, 200)
+        self.assertEqual(turn.status, "complete")
+        return turn
+
+    def test_dated_message_count_discloses_date_only_as_uncertain(self):
+        _, calendar = self.retained_message_clocks()
+        turn = self.finish_structured_count(
+            "How many messages were sent on 2026-04-01?"
+        )
+        self.assertEqual(turn.plan["matched_records"], 1)
+        self.assertEqual(turn.gaps, 1)
+        self.assertIn("no known time", turn.sources.get(evidence_id=calendar.pk).gap)
+
+    def test_undated_message_count_cites_the_source_date_without_a_time(self):
+        exact, calendar = self.retained_message_clocks()
+        turn = self.finish_structured_count("How many messages are there?")
+        self.assertEqual(turn.plan["matched_records"], 2)
+        page = services.match_page(turn, 1)
+        quotes = {
+            row["record_key"]: row["citations"][0]["quote"] for row in page.object_list
+        }
+        exact_quote = quotes[f"text-message:{exact.pk}"]
+        self.assertIn("Occurred: 2026-04-01 12:00:00+00:00", exact_quote)
+        calendar_quote = quotes[f"text-message:{calendar.pk}"]
+        self.assertIn(
+            "Source calendar date (time not supplied): 2026-04-01", calendar_quote
+        )
+        self.assertNotIn("Occurred:", calendar_quote)
+        self.assertNotIn("00:00:00", calendar_quote)
+
+    def test_hosted_date_only_message_uses_canonical_text_and_acquisition_clock(self):
+        exact, calendar = self.retained_message_clocks()
+        sources = [
+            ("original", "text-message", message.pk) for message in (exact, calendar)
+        ]
+        with indexed(self.case, sources):
+            receipts = {
+                item.source.source_key: item
+                for item in HostedSearchItem.objects.filter(
+                    source__index__case_key=self.case.pk
+                ).select_related("source")
+            }
+            exact_receipt = receipts[exact.pk]
+            self.assertEqual(exact_receipt.event_start, exact.occurred_at)
+            self.assertEqual(exact_receipt.event_end, exact.occurred_at)
+            calendar_receipt = receipts[calendar.pk]
+            self.assertEqual(calendar_receipt.event_start, calendar.collected_at)
+            self.assertEqual(calendar_receipt.event_end, calendar.collected_at)
+            ((found, start, text),) = hosted.hits(
+                self.case, self.users["editor"], "Calendar date only."
+            )
+            self.assertIn("Source calendar date (time not supplied): 2026-04-01", text)
+            self.assertNotIn("Occurred:", text)
+            self.assertEqual(
+                corpus.read_window(self.case, found.locator, start)["text"], text
+            )
+            self.assertEqual(
+                hosted.hits(
+                    self.case,
+                    self.users["editor"],
+                    "Calendar date only.",
+                    filters={"start": calendar.occurred_at},
+                ),
+                [],
+            )
+
+            # A receipt for the prior text must be refreshed before reuse.
+            legacy = self.old_message_material(calendar)
+            HostedSearchItem.objects.filter(pk=calendar_receipt.pk).update(
+                version=legacy.locator["version"],
+                digest=corpus.digest(legacy.text),
+                length=len(legacy.text),
+                event_start=calendar.occurred_at,
+                event_end=calendar.occurred_at,
+            )
+            self.assertEqual(
+                hosted.hits(self.case, self.users["editor"], "Calendar date only."), []
+            )
+            source = calendar_receipt.source
+            source.offset = 0
+            lifecycle.prepare_window(self.case, source)
+            calendar_receipt.refresh_from_db()
+            self.assertEqual(calendar_receipt.status, "delete")
+            replacement = HostedSearchItem.objects.get(source=source, status="queued")
+            self.assertEqual(replacement.version, found.locator["version"])
+            self.assertEqual(replacement.event_start, calendar.collected_at)
+
+    def old_message_material(self, message):
+        rows = corpus.rows(self.case, "original", "text-message", False)
+        item = corpus.clipped(rows.filter(pk=message.pk), "body", 0, 1200).get()
+        return corpus.material(
+            self.case,
+            "original",
+            "text-message",
+            item,
+            False,
+            0,
+            1200,
+            hosted_metadata=True,
+            legacy_message_clock=True,
+        )
+
+    def test_published_date_only_citations_resolve_without_entering_a_new_prompt(self):
+        _, calendar = self.retained_message_clocks()
+        legacy = self.old_message_material(calendar)
+        quote = "Occurred: 2026-04-01 00:00:00+00:00"
+        start = legacy.text.index(quote)
+        prior = self.ask("What did the message say?")
+        checkpoints.source_row(prior, legacy.locator, "context").save()
+        prior.answer = engine.empty_answer()
+        prior.answer["claims"] = [
+            {
+                "text": "The message was sent at midnight.",
+                "citations": [
+                    {
+                        "key": legacy.locator["key"],
+                        "start": start,
+                        "end": start + len(quote),
+                        "quote": quote,
+                    }
+                ],
+            }
+        ]
+        prior.status = "complete"
+        prior.save(update_fields=["answer", "status"])
+        self.assertEqual(
+            services.inspect_turn(prior)["claims"][0]["citations"][0]["quote"], quote
+        )
+        self.assertIsNone(
+            corpus.read_window(self.case, legacy.locator, start, len(quote))
+        )
+        other_case = Case.objects.create(owner=self.users["outsider"])
+        self.assertIsNone(
+            corpus.read_saved_window(other_case, legacy.locator, start, len(quote))
+        )
+
+        followup = self.ask("What else happened earlier?", chat_id=prior.chat_id)
+        hints = []
+        self.assertEqual(history.reply_context(followup, hints=hints), [])
+        self.assertEqual(hints, [])
 
     def test_worker_ack_without_committed_checkpoint_fails_and_is_retryable(self):
         turn = self.ask()

@@ -25,11 +25,15 @@ from core.analysis.navigation import finding_url
 from core.analysis.presentation import participant_names, participant_text
 from core.analysis.published import SUCCESSFUL
 from core.analysis.source_resolution import SourceResolutionCache, resolve_inputs
-from core.evidence.queries import local_date_range, scoped_evidence
-from core.evidence.source_clocks import is_date_only_message
+from core.evidence.queries import scoped_evidence
+from core.evidence.source_clocks import (
+    attach_message_dates,
+    is_date_only_message,
+    messages_on_recorded_day,
+)
 from core.models import AnalysisFindingSource, AnalysisRun
 from phone.conversation_sessions import ordered_members, session_findings
-from phone.conversations import imported_contexts, pair_messages
+from phone.conversations import imported_contexts, message_previews, pair_messages
 from phone.models import ConversationSessionMember
 from phone.saved_sessions import (
     distinct_sessions,
@@ -604,7 +608,9 @@ def review_instance_page(case, messages, number, per_page, *, executions=None):
 
 def _expanded_messages(case, messages, members, page_number):
     page = Paginator(members, MESSAGES_PER_PAGE).get_page(page_number)
-    records = messages.select_related("sender", "recipient").in_bulk(page.object_list)
+    records = message_previews(messages.select_related("sender", "recipient")).in_bulk(
+        page.object_list
+    )
     contexts = {
         row.message_id: row
         for row in imported_contexts(case)
@@ -616,6 +622,7 @@ def _expanded_messages(case, messages, members, page_number):
     for message in records.values():
         message.imported_source = contexts.get(message.pk)
     page.object_list = [records[key] for key in page.object_list]
+    attach_message_dates(case, page.object_list)
     return page
 
 
@@ -635,9 +642,7 @@ def instance_page(
     target = _instance_id(instance_id) if instance_id is not None else None
     instances = _InstanceList(case, messages, containing=containing)
     dated_messages = (
-        messages.filter(
-            **local_date_range("occurred_at", start=day, end=day)
-        ).order_by()
+        messages_on_recorded_day(messages, case, day).order_by()
         if day is not None and target is None
         else None
     )

@@ -12,7 +12,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from audio.models import AudioEvidence
-from core.testing import (
+from core.tests.testing import (
     ALL_MODELS,
     COMMUNICATION_MODELS,
     FILE_MODELS,

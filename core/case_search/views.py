@@ -1,6 +1,7 @@
 """Investigator-facing passage search and private index recovery."""
 
 from datetime import date, datetime, time, timedelta
+from time import monotonic
 
 from django import forms
 from django.contrib import messages
@@ -15,6 +16,7 @@ from django.views.decorators.http import require_POST, require_safe
 from cases.permissions import accessible_cases, case_context, get_case
 from config.access import product_login_required
 
+from .cloudflare import check_deadline
 from .hosted import NOTICES, HostedSearchError, hits
 from .indexing import prepare_case_search, search_index_status
 from .material import kind_label
@@ -22,6 +24,8 @@ from .sources import TYPE_CHOICES
 
 CASE_RESULT_LIMIT = 30
 CROSS_CASE_RESULT_LIMIT = 4
+CROSS_CASE_SEARCH_SECONDS = 8
+CROSS_CASE_TIMEOUT_NOTICE = "Search time ran out. Open this case to search it directly."
 
 
 class SearchForm(forms.Form):
@@ -75,10 +79,11 @@ class SearchForm(forms.Form):
         }
 
 
-def result_rows(case, actor, query, limit, filters=None):
+def result_rows(case, actor, query, limit, filters=None, *, deadline=None):
     rows = []
+    timing = {"deadline": deadline} if deadline is not None else {}
     for found, start, text in hits(
-        case, actor, query, limit=limit, filters=filters, records=True
+        case, actor, query, limit=limit, filters=filters, records=True, **timing
     ):
         url = found.url
         loc = found.locator
@@ -165,9 +170,17 @@ def all_cases(request):
     )
     page = Paginator(enabled, 8).get_page(request.GET.get("page"))
     if query:
+        deadline = monotonic() + CROSS_CASE_SEARCH_SECONDS
         for case in page:
             try:
-                rows = result_rows(case, request.user, query, CROSS_CASE_RESULT_LIMIT)
+                check_deadline(deadline)
+                rows = result_rows(
+                    case,
+                    request.user,
+                    query,
+                    CROSS_CASE_RESULT_LIMIT,
+                    deadline=deadline,
+                )
                 groups.append({"case": case, "rows": rows})
             except Http404, PermissionDenied:
                 continue
@@ -175,7 +188,9 @@ def all_cases(request):
                 groups.append(
                     {
                         "case": case,
-                        "notice": NOTICES.get(exc.code, NOTICES["search_unavailable"]),
+                        "notice": CROSS_CASE_TIMEOUT_NOTICE
+                        if exc.code == "search_deadline"
+                        else NOTICES.get(exc.code, NOTICES["search_unavailable"]),
                     }
                 )
         # Membership might have changed during another case's request.

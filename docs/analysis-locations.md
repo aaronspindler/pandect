@@ -38,8 +38,9 @@ at least one quoted passage from a message, captured text, supplied transcript
 or exact retained extraction, OCR or transcription. A saved claim suggestion
 can supply the quote with its AI attribution. Select at least one observation,
 or include the samples from a retained visit, journey or active vehicle trip.
-The trip picker shows its observation count and links back to individual
-observations if the trip exceeds the available selection. This method runs locally.
+The picker shows saved trip observation counts. If a saved trip, journey or
+visit would use all available source slots before adding the required statement,
+the picker links back to individual observations. This method runs locally.
 
 Select the exact occurrence, subject, place and any interpretable time with UTC
 offset. Cite the reference for a relative time. Use one interpretation for

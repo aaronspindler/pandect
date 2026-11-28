@@ -17,7 +17,7 @@ from core.analysis.source_selection import snapshot_sources
 from core.analysis.worker import process_run
 from core.evidence.deletion import plan_deletion
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, ImportantItem
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence, PersonLocationEvidence
 
 

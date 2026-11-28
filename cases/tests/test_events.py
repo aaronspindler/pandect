@@ -12,7 +12,7 @@ from django.urls import reverse
 
 from cases.events import CaseEvents
 from cases.models import CaseMembership
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from people.models import Person
 
 

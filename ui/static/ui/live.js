@@ -214,7 +214,7 @@
           snapshot.chat_progress, snapshot.chat_activity, snapshot.versions.evidence, snapshot.versions.findings,
         ]) : undefined;
         const progressChanged = pendingChat ? chatProgress !== currentChat : changed && (discoversWork || localWork());
-        const needsFragment = (controls || discoversWork) && (forced || fragmentDue || progressChanged);
+        const needsFragment = (controls || discoversWork) && (forced || loadSaved || fragmentDue || progressChanged);
         if (needsFragment) {
           fragmentDue = true;
           const requestedUrl = location.href;

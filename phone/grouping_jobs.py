@@ -4,7 +4,6 @@ from datetime import datetime
 from hashlib import sha256
 from json import dumps
 from math import isfinite
-from uuid import uuid5
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
@@ -14,8 +13,9 @@ from django.utils import timezone
 from accounts.verification import has_verified_email
 from cases.permissions import get_case
 from core.analysis.errors import AnalysisError, error_message
+from core.evidence.source_clocks import message_event_clock
 from people.models import Person
-from phone.conversations import pair_messages
+from phone.conversations import pair_messages, pair_revision
 from phone.grouping_sources import (
     checked_message,
     matching_originals,
@@ -25,7 +25,6 @@ from phone.models import (
     CommunicationContext,
     ConversationGrouping,
     ConversationGroupingRequest,
-    ConversationPairRevision,
     ConversationSession,
     ConversationSessionMember,
 )
@@ -41,8 +40,10 @@ PAGE_SIZE = 100
 
 
 def _originals(case, first, second):
-    return pair_messages(case, first, second).order_by(
-        F("occurred_at").asc(nulls_last=True), "pk"
+    return (
+        pair_messages(case, first, second)
+        .annotate(reported_at=message_event_clock(case))
+        .order_by(F("reported_at").asc(nulls_last=True), "pk")
     )
 
 
@@ -59,8 +60,10 @@ def _legacy_scope(case, first, second):
     """Keep the historical ordered digest for already queued revisions."""
     digest = b""
     count = 0
-    keys = _originals(case, first, second).values_list(
-        "pk", "sha256", "communication_context__pk"
+    keys = (
+        pair_messages(case, first, second)
+        .order_by(F("occurred_at").asc(nulls_last=True), "pk")
+        .values_list("pk", "sha256", "communication_context__pk")
     )
     for pk, checksum, context_id in keys.iterator(chunk_size=1000):
         digest = _extend_scope(digest, pk, checksum, context_id)
@@ -68,25 +71,11 @@ def _legacy_scope(case, first, second):
     return count, digest.hex()
 
 
-def _pair_revision(case, first, second):
-    first_id, second_id = sorted(
-        (getattr(first, "pk", first), getattr(second, "pk", second))
-    )
-    revision = (
-        ConversationPairRevision.objects.filter(
-            case=case, first_person_id=first_id, second_person_id=second_id
-        )
-        .values_list("revision", flat=True)
-        .first()
-    )
-    return (revision or uuid5(case.pk, f"{first_id}:{second_id}")).hex
-
-
 def grouping_scope(case, first, second):
     """Bind the form to the transactionally tracked original selection."""
     return (
         _originals(case, first, second).order_by().count(),
-        _pair_revision(case, first, second),
+        pair_revision(case, first, second),
     )
 
 
@@ -200,12 +189,12 @@ def _native_parent(current, session, originals, page_members, case):
 def _next_messages(originals, cursor):
     if cursor:
         moment = datetime.fromisoformat(cursor["time"]) if cursor["time"] else None
-        later = Q(occurred_at__isnull=True, pk__gt=cursor["id"])
+        later = Q(reported_at__isnull=True, pk__gt=cursor["id"])
         if moment is not None:
             later = (
-                Q(occurred_at__gt=moment)
-                | Q(occurred_at=moment, pk__gt=cursor["id"])
-                | Q(occurred_at__isnull=True)
+                Q(reported_at__gt=moment)
+                | Q(reported_at=moment, pk__gt=cursor["id"])
+                | Q(reported_at__isnull=True)
             )
         originals = originals.filter(later)
     return list(originals[:PAGE_SIZE])
@@ -240,8 +229,8 @@ def _append_page(revision, case, originals, rows):
         session, previous = active[key]
         parent = None
         gap = revision.parameters["gap_minutes"]
-        if previous and previous.occurred_at and current.occurred_at:
-            elapsed = current.occurred_at - previous.occurred_at
+        if previous and previous.reported_at and current.reported_at:
+            elapsed = current.reported_at - previous.reported_at
             if gap * 60 < elapsed.total_seconds() <= REPLY_WINDOW.total_seconds():
                 parent = _native_parent(current, session, originals, page_members, case)
         decision = session_decision(
@@ -254,11 +243,11 @@ def _append_page(revision, case, originals, rows):
                 stream_key=key,
                 start_ordinal=revision.processed_count + 1,
                 boundary_reason=decision.boundary,
-                first_at=current.occurred_at,
+                first_at=current.reported_at,
             )
             new_sessions.append(session)
         session.message_count += 1
-        session.last_at = current.occurred_at
+        session.last_at = current.reported_at
         session.membership_digest = sha256(
             bytes.fromhex(session.membership_digest) + current.pk.bytes
         ).hexdigest()
@@ -284,7 +273,7 @@ def _append_page(revision, case, originals, rows):
         page_members[current.pk] = current, session
     if rows:
         revision.cursor = {
-            "time": rows[-1].occurred_at.isoformat() if rows[-1].occurred_at else None,
+            "time": rows[-1].reported_at.isoformat() if rows[-1].reported_at else None,
             "id": str(rows[-1].pk),
         }
         revision.processed_digest = digest.hex()
@@ -317,7 +306,7 @@ def _prepare_revision(revision, case, batch):
                 case, *pair
             ) != (revision.source_count, revision.scope_digest):
                 raise AnalysisError("grouping_scope_changed")
-        elif _pair_revision(
+        elif pair_revision(
             case, *pair
         ) != revision.scope_digest or Person.objects.filter(
             case=case, pk__in=pair

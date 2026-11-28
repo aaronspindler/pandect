@@ -55,7 +55,7 @@
   {% include 'phone/conversation_instances.html' %}
 {% elif page_obj.object_list %}
 <div class="conversation-workspace" data-conversation-workspace>
-<section class="conversation-reader" aria-labelledby="conversation-messages-heading" data-conversation-scroll data-scroll-label="messages">
+<section class="conversation-reader" aria-labelledby="conversation-messages-heading" data-conversation-scroll data-scroll-label="messages" data-conversation-revision="{{ conversation_revision }}">
   {% if conversation_timing_only_count %}
   <p class="conversation-analysis-empty muted" id="conversation-finding-visibility">{% if show_timing_only_findings %}Showing {{ conversation_timing_only_count }} timing-only finding{{ conversation_timing_only_count|pluralize }}. <a data-workspace-link class="record-link" href="{{ finding_visibility_url }}">Hide timing-only findings</a>{% else %}{{ conversation_timing_only_count }} timing-only finding{{ conversation_timing_only_count|pluralize }} hidden. <a data-workspace-link class="record-link" href="{{ finding_visibility_url }}">Show all findings</a>{% endif %}</p>
   {% endif %}

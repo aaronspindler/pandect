@@ -186,8 +186,25 @@ class PersonWritingBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("button", name="Start analysis")
                 ).to_be_enabled()
+                count_url = "**/*writing_counts=1*"
+                held = []
+
+                def hold_request(route, _request, held=held):
+                    held.append(route)
+
+                page.route(count_url, hold_request)
+                with page.expect_request(count_url):
+                    page.locator("input[name='first_start']").fill("2026-01-01")
+                expect(count).to_have_text("Updating message count…")
+                held.pop().abort()
+                expect(count).to_have_text(
+                    "Message count unavailable. You can still start analysis."
+                )
+                page.unroute(count_url)
+                page.locator("input[name='first_start']").fill("")
+                expect(count).to_have_text("2 messages selected")
                 page.route(
-                    "**/*writing_counts=1*",
+                    count_url,
                     lambda route: route.fulfill(
                         status=401, json={"code": "authentication_required"}
                     ),

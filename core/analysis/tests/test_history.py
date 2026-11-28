@@ -8,10 +8,10 @@ from django.utils import timezone
 
 from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationEvidence
 from people.models import Person
 from phone.models import PhoneCallEvidence, TextMessageEvidence

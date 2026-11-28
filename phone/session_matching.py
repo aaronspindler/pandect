@@ -6,9 +6,10 @@ from datetime import timedelta
 
 from django.core.exceptions import ObjectDoesNotExist
 
+from core.evidence.source_clocks import message_event_time
 from text.analysis.shared import STOPWORDS, WORD
 
-SESSION_RULES_VERSION = "conversation-rules-v2"
+SESSION_RULES_VERSION = "conversation-rules-v3"
 REPLY_WINDOW = timedelta(hours=4)
 WORDING_LIMIT = 8192
 
@@ -90,9 +91,9 @@ def _delayed_continuation(previous, current, native_parent, gap):
         parent_context = message_context(native_parent)
         thread = getattr(context, "native_thread_id", "")
         parent_thread = getattr(parent_context, "native_thread_id", "")
+        parent_time = message_event_time(native_parent) if native_parent else None
         if (
-            native_parent is None
-            or native_parent.occurred_at is None
+            parent_time is None
             or native_parent.case_id != current.case_id
             or participant_stream(native_parent) != participant_stream(current)
             or getattr(parent_context, "source_document_id", None)
@@ -101,7 +102,7 @@ def _delayed_continuation(previous, current, native_parent, gap):
             or (thread and parent_thread and thread != parent_thread)
         ):
             return None
-        elapsed = current.occurred_at - native_parent.occurred_at
+        elapsed = message_event_time(current) - parent_time
         if timedelta() < elapsed <= REPLY_WINDOW:
             return SessionDecision(
                 continuation="The export records a reply to the earlier message.",
@@ -136,7 +137,8 @@ def session_decision(
     greeting_boundaries=True,
 ):
     """Compare one step with its uniquely resolved parent in the open session."""
-    if current.occurred_at is None:
+    current_time = message_event_time(current)
+    if current_time is None:
         return SessionDecision(
             boundary="The message time is unknown. Its session is unresolved."
         )
@@ -150,13 +152,14 @@ def session_decision(
         )
     if break_before:
         return SessionDecision(boundary="Investigator-adjusted boundary")
-    if previous.occurred_at is None:
+    previous_time = message_event_time(previous)
+    if previous_time is None:
         return SessionDecision(
             boundary="The message time is unknown. Its session is unresolved."
         )
     if join_before:
         return SessionDecision()
-    gap = current.occurred_at - previous.occurred_at
+    gap = current_time - previous_time
     if gap > timedelta(minutes=gap_minutes):
         if decision := _delayed_continuation(previous, current, native_parent, gap):
             return decision

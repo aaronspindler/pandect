@@ -27,7 +27,7 @@ from core.analysis.services import cancel_run, start_run
 from core.analysis.source_resolution import resolve_inputs, resolve_snapshots
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import Source, output
-from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.models import (
     AnalysisResult,
@@ -36,11 +36,11 @@ from core.models import (
     ExtractedPassage,
     GatewayRequest,
 )
-from core.testing import EvidenceViewTestMixin
 from core.tests.test_tasks import drain_queue
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
-from geo.testing import LOCAL_GEOCODER
+from geo.tests.testing import LOCAL_GEOCODER
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence
 from text.analysis.deterministic import extract_entities
 from text.models import TextEvidence

@@ -7,60 +7,46 @@ superusers have no access bypass.
 
 ## Import workflow
 
-1. Choose a UTF-8 Asset Location CSV, an optional vehicle for the whole file, and
-   the export timezone (initially **America/Toronto**, editable).
-   Starting from a vehicle's details preselects that vehicle, which you can change.
-   **Back to vehicle** and **Cancel** return to the vehicle record.
-   [miTrail's Profile Preferences](https://info.mitrail.com/en-US/profile-preferences-password-change-740866)
-   describes account timezone selection, not a universal export timezone. Check
-   that preference; never infer timezone from an address. Optionally supply a
-   source/citation and explicitly confirm **Created Time** means observation time.
-2. **Upload CSV** retains the exact file (optional UTF-8 BOM) as Document evidence
-   with SHA-256 and an import record. The worker prepares review with progress
-   that updates automatically with JavaScript. **Refresh status** is available
-   without JavaScript, and **Retry updates** appears if automatic updates pause.
-   No observations exist yet. To return later, open the
-   Document and choose **Continue vehicle location import**.
-3. Review paginated original cells and interpreted timestamps in your
-   [account/device timezone](cases.md#account-settings); the export timezone still
-   controls interpretation. The upload vehicle preselects every `(Asset, Serial Number)` pair. Change these choices or select all vehicles now if none was
-   chosen. **Add a vehicle** preserves your vehicle choices and duplicate setting
-   when you return from saving or cancelling. Choose the new vehicle for each
-   applicable asset and confirm the reviewed associations. Assets never create
-   vehicles or overwrite their details automatically.
-4. Confirm associations/import. Leave **Keep the possible duplicates as separate
-   observations** unchecked to skip matches, or check it to retain them. Background
-   publication commits all observations and completion together, reporting imported
-   and skipped counts with paginated results. Failure retains the source and adds
-   no observations.
+1. Choose the UTF-8 Asset Location CSV, an optional vehicle, and the export
+   timezone. Use the timezone in the export account's profile. The form starts
+   at **America/Toronto**. Starting from a vehicle preselects it. Optionally
+   supply a citation and confirm that **Created Time** represents observation
+   time.
+2. **Upload CSV** retains the exact file as a Document and queues review
+   preparation. Progress updates automatically with JavaScript. **Refresh
+   status** works without JavaScript and **Retry updates** resumes paused
+   automatic updates. Return from the Document with **Continue vehicle location
+   import**.
+3. Review original cells and interpreted times. The export timezone governs
+   parsing, while the [account or device timezone](cases.md#account-settings)
+   governs display. Confirm a vehicle for each Asset/Serial Number pair. The
+   upload choice preselects each pair. **Add a vehicle** preserves your review
+   choices. Apply the new vehicle to the relevant pairs when you return.
+4. Review possible duplicates and confirm **Import locations**. Select **Keep
+   the possible duplicates as separate observations** to retain matches. The
+   default skips matches. Publication commits all retained observations and
+   completion together. Failure retains the CSV without adding observations.
 
-The flow works without JavaScript. Invalid rows require a corrected new CSV;
-earlier sources remain retained. Reconfirming a completed import returns its
-saved result. Retrying the original submission ID with identical file, uploader,
-case, timezone, and upload vehicle reopens review without another file; changed
-values require a new submission.
+Use **Rows to correct** to inspect invalid rows at their original row numbers.
+Upload a corrected CSV to proceed. Reconfirming a completed import returns
+its saved result. Retrying identical file, uploader, case, timezone and vehicle
+with the same submission ID reopens review without duplicating the file.
 
 Any owner/editor can finish a collaborator's review. Observations attribute the
 confirmer separately from the source uploader. Workers recheck edit access and
 verified email during preparation/publication. A verified owner/editor can retry
 if the original requester loses access/verification.
 
-Screens lead with progress and matching, with the export timezone and Created Time
-interpretation visible beside the review. **Rows to correct** lists the blocking
-errors beside their original row numbers, with a separate link to all source rows.
-**Source and time interpretation** and individual source rows use native
-disclosures. The completed import leads with published and skipped counts, a
-direct **View source CSV** link, and **Open case map** when observations are
-retained. Expand **Imported observations** to see the individual records. Saved trips process
-retained addresses/times without geocoding or review; see [automatic trips](analysis-locations.md#automatic-vehicle-trips).
-Each observation retains **Original CSV row and interpretation**, including receipt
-time, source cells, asset labels, and parser provenance.
+Completion shows imported and skipped counts, **View source CSV**, and **Open
+case map** when observations were retained. **Imported observations** links to
+each original and its source row, receipt time, asset labels and parser
+provenance.
 
 ## Supported columns and interpretation
 
-Exactly these nine headers are required in any order. Duplicate/missing/additional
-headers are rejected. Standard CSV quoting supports commas/newlines. Empty physical
-records are ignored; malformed rows remain visible and block completion.
+Use exactly these nine headers in any order. Pandect accepts a UTF-8 BOM and
+standard CSV quoting, skips blank records, and shows malformed rows that block
+publication.
 
 | Column | Interpretation |
 | --- | --- |
@@ -128,13 +114,12 @@ original retention, preparation, publication, and recovery.
 
 ## Operational bounds and scope
 
-Limits are **100,000 data rows**, **100 MiB**,
-and **100 asset/serial pairs**. Uploads stream within that byte limit; workers
-bound reads, process chunks, and store private review rows in PostgreSQL. Review
-and results show 50 rows per page. Addresses allow 20,000 characters, triggers
-2,000, other cells 255, and logical records 64 Ki characters including multiline
-cells. Each phase has a ten-minute deadline, sixty-second statement timeout, and
-ten-second lock timeout. Split files that reach these limits.
+Limits are **100,000 data rows**, **100 MiB** (or the application upload limit
+if lower) and **100 asset/serial pairs**. Review and results show 50 rows per
+page. Addresses allow 20,000 characters, triggers 2,000, other cells 255 and
+quoted logical records 64 Ki characters. Each phase has a ten-minute deadline,
+60-second statement timeout and 10-second lock timeout. Split files at these
+limits.
 
 Preparation/publication use the [PostgreSQL worker](background-tasks.md) with
 atomic domain/queue insertion. Publication locks case/import and rechecks edit
@@ -148,11 +133,9 @@ worker stopped; elapsed time is insufficient. Use the [fresh baseline](architect
 and matching web/worker revisions: old task paths are incompatible. Commands never
 reset runtime data automatically.
 
-Publication queues saved trips and applicable analysis for newly added
-observations. Bounded background lookups use the configured private or
-case-approved external geographic service. Observations feed [Trips](maps.md).
-CSV format alone establishes no vendor timestamp, event, duration, or identifier
-semantics; the investigator's explicit interpretation is retained.
+Publication queues applicable checks and refreshes [Trips](maps.md) for
+newly retained observations. Trip preparation can queue configured
+[private address lookup](maps.md#local-address-lookup) independently.
 
 ## Checking published observations
 

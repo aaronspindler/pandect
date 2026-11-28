@@ -5,10 +5,10 @@ from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
 from cases.models import CaseMembership
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
 from core.models import AnalysisRun, CaseAnalysisBatch
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
 
 

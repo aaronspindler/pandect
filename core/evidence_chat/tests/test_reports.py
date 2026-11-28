@@ -13,7 +13,7 @@ from core.analysis.source_selection import snapshot_sources
 from core.evidence_chat import corpus, reports
 from core.evidence_chat.corpus_navigation import linked_materials
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from people.models import Person
 from phone.analysis.deterministic.conversations import interaction_patterns
 from phone.models import TextMessageEvidence

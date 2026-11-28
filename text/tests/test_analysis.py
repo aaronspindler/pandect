@@ -88,6 +88,32 @@ class AttributedWritingTests(SimpleTestCase):
         self.assertIn(excluded.id, item["source_ids"])
         self.assertIn(excluded.anchor(start=0, end=len(excluded.text)), item["anchors"])
 
+    def test_quote_dense_original_does_not_stop_the_rest_of_the_selection(self):
+        quotes = source(
+            '"Quoted wording." ' * 201 + "Uncounted words.", kind="text-message"
+        )
+        usable = source(SAMPLE, kind="text-message")
+        result = self.analyze([quotes, usable])
+        self.assertEqual(result["outcome"], "complete")
+        self.assertEqual(result["metrics"]["sources_selected"], 2)
+        self.assertEqual(result["metrics"]["sources_usable"], 1)
+        excluded = [
+            item for item in result["items"] if item["label"] == "Excluded sample span"
+        ]
+        self.assertEqual(len(excluded), 1)
+        self.assertEqual(
+            excluded[0]["anchors"], [quotes.anchor(start=0, end=len(quotes.text))]
+        )
+        self.assertIn("too many quotation spans", excluded[0]["text"])
+        insufficient = self.analyze([quotes])
+        self.assertEqual(insufficient["outcome"], "insufficient")
+        self.assertIn("too many quotation spans", insufficient["items"][0]["text"])
+        legacy = style_profile([quotes], {})
+        self.assertEqual(legacy["outcome"], "insufficient")
+        self.assertIn(
+            "A quotation-heavy original was excluded in full.", legacy["warnings"]
+        )
+
     def test_date_only_placeholder_is_not_a_reported_comparison_time(self):
         earlier = source(
             SAMPLE.lower(),
@@ -420,6 +446,18 @@ class TextAnalysisTests(SimpleTestCase):
             item for item in result["items"] if item["label"] == "Group A coverage"
         )
         self.assertEqual(coverage["values"]["sources_with_reported_event_time"], 1)
+        case = SimpleNamespace(pk=uuid4())
+        with patch(
+            "text.analysis.deterministic.date_only_message_dates",
+            return_value={b.item.pk: b.item.occurred_at.date()},
+        ) as classify:
+            date_only = style_changes([a, b], parameters, case=case)
+        classify.assert_called_once_with(case, [a.item.pk, b.item.pk])
+        self.assertIsNone(date_only["metrics"]["possible_change_interval"])
+        later = next(
+            item for item in date_only["items"] if item["label"] == "Group B coverage"
+        )
+        self.assertEqual(later["values"]["sources_missing_reported_event_time"], 1)
         b.item.occurred_at = None
         self.assertIsNone(
             style_changes([a, b], parameters)["metrics"]["possible_change_interval"]

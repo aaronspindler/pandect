@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { investigate, instructions } from "./investigator.js";
+import { investigate, instructions } from "../investigator.js";
 
 test("the Agent follows a new model-selected lead and delegates that exact decision", async () => {
   const decision = { action: "search", query: "North Quay dispatch receipt driver field" };
@@ -52,4 +52,16 @@ test("literal metacharacters remain plain text and dotted i preserves saved case
     result = value;
   });
   assert.deepEqual(result.offsets, [[2, 10]]);
+});
+
+test("a rejected overlap cannot consume the start of an eligible literal", async () => {
+  let result;
+  await investigate("review", async (op, value) => {
+    if (op === "review") return {
+      batch: "overlap", literal: ": :",
+      records: [{text: "🚩 Title: : :", start: 0, length: 12, ranges: [[9, 12]]}],
+    };
+    result = value;
+  });
+  assert.deepEqual(result.offsets, [[9]]);
 });

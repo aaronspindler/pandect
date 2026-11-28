@@ -4,10 +4,12 @@ Case Search, record filters and Evidence chat retrieve passages from a private
 Cloudflare AI Search instance per enabled case. **Search evidence across cases**
 on the case list queries up to eight accessible enabled cases per page and shows
 up to four verified ranked passages per case. Open a case's search for up to
-30 passages and record type and date filters. These results show ranked
-retrieval, not a total match count. **Browse case evidence** opens the retained
-collection. Clear the query to browse collections when hosted search is
-unavailable.
+30 passages and record type and date filters. Each across-case page shares an
+eight-second lookup budget, including provider connection and response time.
+Cases skipped when the budget runs out keep their direct search links. Counts
+reflect the ranked passages returned. **Browse case evidence** opens the
+retained collection. Clear the query to browse collections when hosted search
+is unavailable.
 
 ## Configure the production namespace
 
@@ -78,9 +80,11 @@ approved payloads.
 Each UTF-8 receipt contains up to 2,048 Unicode characters from one source
 version. Its filename is opaque. Typed metadata supplies record kind, surface,
 availability time and event date interval. Filters use the observed or occurred
-time, then collection or creation time as available. A trip uses its saved
-interval. Pandect keeps locators, hashes and delivery state to verify the match
-and reopen the exact original passage, attachment, record or finding.
+time, then collection or creation time as available. Date-only message text
+preserves the source calendar date. Its search date uses the collection or
+creation time. A trip uses its saved interval. Pandect keeps locators, hashes and
+delivery state to verify the match and reopen the exact original passage,
+attachment, record or finding.
 
 Each case can upload four receipts at once, with privacy and approval checked
 per upload. The worker can check 50 recent item statuses, up to ten exact
@@ -105,10 +109,13 @@ indexing and failures. Current sources can produce several passages, so the
 passage count can grow during preparation. The panel shows the last available
 Cloudflare status and identifies previously indexed passages under recheck.
 
-Owners and editors can resume a failed active index. Search and upload usage records
-contain transferred byte counts and status. A lost worker delivery retains its cursor
-and token. Inspect and recover a single
-delivery from the application environment with:
+Archiving evidence queues the removal of its indexed passages and rechecks
+indexed derivatives before unrelated uploads. Archiving also restarts a failed
+active index. Canonical verification excludes archived originals during cleanup.
+Owners and editors can resume an index if bounded recovery still fails.
+Search and upload usage records contain transferred byte counts and status.
+A lost worker delivery retains its cursor and token. Inspect and recover a
+single delivery from the application environment with:
 
 ```sh
 python manage.py prepare_case_search --case CASE_UUID --status
@@ -116,10 +123,14 @@ python manage.py prepare_case_search --case CASE_UUID --retry
 python manage.py prepare_case_search --case CASE_UUID --confirm-interrupted DELIVERY_TOKEN
 ```
 
-Use the last command after confirming the worker stopped. A superseded delivery cannot
-publish against a later case approval. Upload retries address the same immutable receipt
-key. Unavailable responses retry after 15, 60 and 240 seconds and then require
-recovery. HTTP 429 uses the same retry limit and waits at least until the shared
+After upgrading a case with previously indexed date-only messages, run the
+command with `--retry` once the current delivery settles. Pandect replaces
+outdated receipts and withholds their matches until verified.
+
+Use `--confirm-interrupted` after confirming the worker stopped. A superseded
+delivery cannot publish against a later case approval. Upload retries use the
+same immutable receipt key. Unavailable responses retry after 15, 60 and 240
+seconds and then require recovery. HTTP 429 uses the same retry limit and waits at least until the shared
 cooldown ends. Workers resume local budget deferrals at the next eligible time
 without using a retry attempt.
 Items that Cloudflare rejects remain visible as an indexing failure while other

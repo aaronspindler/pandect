@@ -145,11 +145,13 @@ or outside the checkout. Generate committed fixtures in code. See
 
 ## Manage dependencies
 
+Replace `package-name` and `tool-name` with the intended dependencies.
+
 ```sh
-uv add <package>
-uv add --dev <tool>
-uv remove <package>
-uv lock --upgrade-package <package>
+uv add package-name
+uv add --dev tool-name
+uv remove package-name
+uv lock --upgrade-package package-name
 uv sync --locked
 ```
 

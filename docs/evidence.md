@@ -84,7 +84,7 @@ A reload may require file reselection. Use the single-document form without
 JavaScript and **Change type** for other evidence types. See [batch states and
 fallbacks](interface-design.md#evidence-creation-and-batch-uploads).
 
-**Filter evidence** uses hosted ranked keyword search within the collection.
+**Filter evidence** uses hosted ranked search to narrow the collection.
 A matching transcript or finding can link to its passage. Clear the keyword
 query to browse when hosted search is unavailable. Structured **Filters** for
 type, related person, and active or archived state still work. Related person
@@ -216,33 +216,25 @@ Pair-based analysis requires two linked people.
 
 ### Reading conversations
 
-**Case Tools → Conversations** groups messages by reported person pair regardless
-of direction. The pair list shows the message count and latest recorded time,
-with most recent activity first and 25 pairs per page. Open a pair to read its
-messages in chronological order, 50 per page. Unknown times come last. Messages
-with identical timestamps have a stable display order based on UUID. Scroll up
-when the reader opens on a later message to load earlier messages without losing
-your place. Earlier and later links work by keyboard, without JavaScript, and
-after a loading failure. Every page request checks current access.
+**Case Tools → Conversations** groups direct messages by reported pair in either
+direction, with 25 pairs per page. Open a pair for the chronological transcript,
+50 messages per page, with unknown times last. Longer messages show excerpts
+with a link to the full original. Scroll for adjacent pages or use the earlier
+and later links without JavaScript or after a loading failure. If active
+membership changes, reload the conversation before loading more messages.
+Open imported group messages from the import result or **Evidence**. **Info**
+shows the retained CSV, source row and sender details.
 
-Open imported group messages from the import result or the **Evidence** list.
-Each record shows the confirmed sender and the group destination, with a link
-to the retained CSV. **Info** shows the source row and the export's sender
-details. Group messages also appear in case search and chronology.
+**Search messages** finds literal text in active message bodies across pages,
+ignoring case and counting each matching timeline row once. It works with
+external AI disabled. **Previous match** and **Next match** jump among highlights.
+A long matching message shows the excerpt around its match.
+**Clear search** keeps your place.
 
-Use **Search messages** on the **Messages** tab to find literal text in the
-bodies of active messages in the conversation, including across pages. Search
-ignores letter case and counts each matching timeline row once. It runs in
-Pandect's database and works with external AI disabled. **Previous match** and
-**Next match** jump between highlighted messages in the chronological transcript.
-You can read the surrounding messages and scroll to earlier or later pages as
-usual. **Clear search** keeps your place in the transcript.
-
-Use **Jump to date** on either tab to go to the first recorded message on that
-day in the reader's display timezone. In **Sessions & summaries**, Pandect opens
-the first saved session with a message on that day. Scroll up for earlier entries or down
-for later ones. If the day has no matches, choose another date from the same
-reader page.
+**Jump to date** opens the first message on that local day. An import that
+supplies only a date uses its original calendar day and is labeled as having no
+reported time. On **Sessions & summaries**, the jump opens the first saved
+session with a message that day. If the day has no matches, choose another date.
 
 The **Messages** tab opens by default and combines all exports and individually
 retained messages. Matching copies share one timeline row when distinct exports
@@ -254,14 +246,12 @@ row and findings. Mixed-source transcripts include a short
 source reference per message. The reported participants alone do not establish
 native thread identity or a complete exchange.
 
-Select a message to open **Message details** beside the transcript. On a narrow
-screen the details fill the reader. Close the panel to return to the message.
-The panel starts with the original, reported participants and time.
-Expand **Message source** to find the retained export and row
-or recorded collection information. **View source metadata** opens evidence Info
-with native references and source-supplied fields such as reactions, status and
-attachment references. The attachments themselves are never fetched. With
-JavaScript off, the same message link opens the details through ordinary navigation.
+Select a message to open **Message details** with the message text or an
+excerpt, reported participants and time when supplied. **Open evidence** shows
+the full retained original. Close the panel to return to it. **Message source**
+shows the export and row or collection details. **View source metadata** opens
+Info with native IDs, reactions, status and attachment references. Import
+retains those references without fetching attachments.
 
 Messages cited together in a saved inferred session share a colour.
 **Session starts** and **Session ends** mark its first and last cited messages.
@@ -273,11 +263,11 @@ Missing messages and overlapping topics can affect any inferred boundary.
 
 Switch to **Sessions & summaries** to browse saved groupings for the pair in
 chronological order, 25 per page. Identical memberships appear once. Distinct
-groupings can overlap. **Show messages** expands the saved originals in order,
-50 at a time, with source references and links to Message details. When a saved
-report covers the full session, a short AI suggestion appears by default. Open
-**Full summary** for the saved statements and **View cited report** for the
-complete report.
+groupings can overlap. **Show messages** expands the saved messages in order,
+50 at a time, with source references, bounded excerpts and links to the
+originals. When a saved report covers the full session, a short AI suggestion
+appears by default. Open **Full summary** for the saved statements and
+**View cited report** for the complete report.
 Owners and editors can **Request summary** for a session when an eligible
 service has yet to summarize the exact grouping. **Summarize missing sessions**
 opens a review of up to 50 saved sessions per page. Submit eligible groups from
@@ -289,17 +279,13 @@ Long sessions stay together across pages. **View summary coverage** shows which
 ranges have a saved report or still need a summary. See
 [communication analysis](analysis-communications.md) for the matching rules.
 
-**Findings** starts open with up to three short previews of saved findings for
-the message. Select a finding title for its full details. **More findings** opens
-the complete list at that message, 25 per page.
-Expand **Conversation findings (count)** above the transcript to see saved
-session results and findings citing several sources, with links to cited messages.
-**More findings** opens the rest with separate pagination. **Show message** opens
-the cited message. Results label citations outside the current conversation.
-**Open finding** retains full context, source inventory, and history. AI
-suggestions and partial coverage remain labelled. If an analyzed source has
-changed or is unavailable, the reader withholds the finding content. Opening the
-reader or selecting a message never starts analysis.
+The message panel shows up to three **Findings** previews, and **More
+findings** opens the complete paginated list. **Conversation findings (count)**
+above the transcript shows session results and findings that cite several sources.
+**Show message** opens the citation. Results label AI suggestions, partial
+coverage and citations outside the conversation. The reader withholds content
+when analyzed sources have changed or become unavailable. Reading never queues
+analysis.
 
 **Open evidence** shows original, findings, integrity, native reply/thread links,
 and actions. **View in conversation** returns to that message with details open,

@@ -291,6 +291,12 @@ def _profile(sample, metrics, adequate, originals, database):
     if not sample.usable:
         return output(
             "The selected messages contain no usable writing.",
+            items=[
+                _item(
+                    sample, "Excluded sample span", [example], text=example["excerpt"]
+                )
+                for example in sample.details["Excluded sample span"]
+            ],
             metrics=metrics,
             warnings=warnings,
             outcome="insufficient",

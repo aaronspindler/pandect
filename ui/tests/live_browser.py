@@ -24,11 +24,12 @@ from core.models import (
 )
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
-from geo.testing import csv_content
+from geo.tests.testing import csv_content
 from geo.trip_jobs import process_trips
 from geo.trip_processing import prepare_case_trips
 from geo.vehicle_import_jobs import enqueue_preparation, process_import
 from people.models import Person
+from phone.models import CallHistoryImport, CallImportSource
 from phone.tests.test_imessage_views import message_csv
 from text.models import TextEvidence
 from vehicle.models import Vehicle
@@ -564,10 +565,63 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 added = page.locator(f'#evidence-saved-history a[href*="{run}"]')
                 expect(added).to_have_count(0)
                 self.assertTrue(first.evaluate("el => el === window.originalFinding"))
-                button.click()
+                activity = self.url("cases:activity", case_id=self.case.pk)
+                page.route(activity, lambda route: route.fulfill(status=503), times=1)
+                page.clock.install()
+                button.press("Enter")
+                expect(page.locator("[data-activity-message]")).to_have_text(
+                    "Could not update progress. Retrying shortly."
+                )
+                expect(added).to_have_count(0)
+                page.clock.fast_forward(60_001)
                 expect(added).to_have_count(1)
                 expect(button).to_be_hidden()
                 self.assertFalse(first.evaluate("el => el === window.originalFinding"))
+
+    def test_only_call_import_history_waits_for_explicit_refresh(self):
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic call history",
+            file=SimpleUploadedFile("calls.csv", b"Synthetic call CSV", "text/csv"),
+        )
+        source = CallImportSource.objects.create(
+            case=self.case, label="Synthetic line", created_by=self.owner
+        )
+        batch = CallHistoryImport.objects.create(
+            case=self.case,
+            document=document,
+            source=source,
+            source_sha256=document.sha256,
+            source_label=source.label,
+            uploaded_by=self.owner,
+            requested_by=self.owner,
+            timezone="UTC",
+            parser_version="test.v1",
+            status=CallHistoryImport.Status.COMPLETED,
+        )
+        imports = CallHistoryImport.objects.filter(pk=batch.pk)
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.db(imports.update, status=CallHistoryImport.Status.COMPLETED)
+                self.sign_in(page, self.viewer)
+                page.goto(
+                    self.url("core:analysis:processing", case_id=self.case.pk)
+                    + "?call_imports_page=1"
+                )
+                row = page.locator("#call-import-history").get_by_role(
+                    "link", name=document.title
+                )
+                expect(row).to_contain_text("Complete")
+                self.db(imports.update, status=CallHistoryImport.Status.PREPARE_FAILED)
+                page.evaluate("document.dispatchEvent(new Event('pandect:refresh'))")
+                refresh = page.get_by_role(
+                    "link", name="Show updated processing history"
+                )
+                expect(refresh).to_be_visible()
+                expect(row).to_contain_text("Complete")
+                refresh.press("Enter")
+                expect(row).to_contain_text("Preparation needs attention")
 
     def test_case_tools_keeps_results_stable_and_detects_short_jobs(self):
         for engine in self.engines:

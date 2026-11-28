@@ -13,7 +13,7 @@ from core.models import (
     ImportantItem,
     ImportantNote,
 )
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence
 from people.models import Person
 from socialmedia.models import SocialAccount

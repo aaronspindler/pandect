@@ -7,7 +7,7 @@ from django.urls import reverse
 from cases.deletion import CASCADE_CONFLICT, collected_querysets, outside_case
 from cases.models import Case
 from core.models import AnalysisRun, CaseAnalysisBatch, PendingFileDeletion
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleTripState
 from people.models import Person

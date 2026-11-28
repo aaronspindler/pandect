@@ -11,7 +11,7 @@ from PIL import Image
 
 from core.analysis.errors import AnalysisError
 from core.analysis.gateway import GatewayClient
-from core.analysis.testing import file_source, image_bytes
+from core.analysis.tests.testing import file_source, image_bytes
 from document.tests.test_analysis import scanned_pdf
 from image.analysis.ai import ocr
 

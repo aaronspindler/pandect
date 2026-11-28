@@ -6,11 +6,11 @@ from django.test import TestCase
 from django.urls import reverse
 
 from audio.models import AudioEvidence
-from audio.testing import m4a_bytes
+from audio.tests.testing import m4a_bytes
 from cases.models import CaseMembership
 from core.analysis.services import start_run
-from core.analysis.testing import wav_bytes
-from core.testing import EvidenceViewTestMixin
+from core.analysis.tests.testing import wav_bytes
+from core.tests.testing import EvidenceViewTestMixin
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence
 
 

@@ -13,7 +13,7 @@ from core.analysis.services import start_run
 from core.analysis.sources import source_id
 from core.analysis.worker import process_run
 from core.models import AnalysisResult
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from document.tests.test_analysis import pdf_bytes
 from geo.models import (

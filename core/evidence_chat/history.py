@@ -6,7 +6,7 @@ from functools import partial
 from core.analysis.errors import AnalysisError
 from core.models import ChatSource, ChatTurn
 
-from .search_scope import review_restart_code
+from .search_scope import context_source_allowed, question_filters, review_restart_code
 
 TURN_NUMBER = re.compile(r"\b(?:question|answer|reply|turn)\s*#?\s*(\d{1,8})\b", re.I)
 MAX_DEPENDENCIES = 32
@@ -106,6 +106,8 @@ def read_context_window(turn, case, locator, start, size, *, include_archived=Fa
     """Keep refreshed context stamps on the active turn's checkpoint."""
     from . import corpus
 
+    if not context_source_allowed(case, locator, question_filters(turn)):
+        return None
     key = f"{locator['key']}@{locator['version']}"
     recorded = locator.get("verified_body")
     checkpoint = turn.plan.get("context_bodies", {}).get(key)
@@ -153,6 +155,10 @@ def _ordinary_reply_context(previous, turn, hints, read, *, recalled):
 
 
 def reply_context(turn, *, hints=None):
+    if question_filters(turn):
+        # Earlier prose can mix original evidence with facts from outside the
+        # new scope. Retrieve current evidence afresh for an explicit filter.
+        return []
     turns = history_turns(turn, select=hints is not None)
     history = {}
     source_ids = set()

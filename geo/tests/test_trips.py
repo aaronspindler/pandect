@@ -9,10 +9,10 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.analysis.reports import report
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport, VehicleTrip
-from geo.testing import csv_content, parse_csv
+from geo.tests.testing import csv_content, parse_csv
 from geo.trip_jobs import process_trips
 from geo.trip_processing import (
     format_trip,

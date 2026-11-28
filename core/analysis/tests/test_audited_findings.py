@@ -11,7 +11,7 @@ from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
 from core.analysis.source_selection import snapshot_sources
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
 

@@ -13,14 +13,14 @@ from PIL import Image
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.parsers import MAX_BYTES
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence
-from image.testing import jpeg_bytes
+from image.tests.testing import jpeg_bytes
 
 
 def image_bytes(format="PNG", size=(80, 50), **options):

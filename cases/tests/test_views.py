@@ -28,7 +28,7 @@ from core.analysis.execution import (
 from core.analysis.tests.test_gateway import CONFIG
 from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
 from geo.models import PersonLocationEvidence
-from geo.testing import LOCAL_GEOCODER
+from geo.tests.testing import LOCAL_GEOCODER
 from people.models import Person
 from phone.models import PhoneCallEvidence
 from text.models import TextEvidence

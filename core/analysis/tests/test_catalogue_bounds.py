@@ -14,7 +14,7 @@ from django.test.utils import CaptureQueriesContext
 from core.analysis.catalogue import catalogue_page, project_result
 from core.models import AnalysisResult, AnalysisRun
 from core.storage import original_upload_path
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from image.models import ImageEvidence
 
 

@@ -26,10 +26,10 @@ from core.analysis.operations import get_operation
 from core.analysis.services import start_run
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.sources import output
-from core.analysis.testing import external_grant_kwargs
-from core.analysis.testing import preview_image_bytes as image_bytes
 from core.analysis.tests.test_gateway import response as gateway_response
 from core.analysis.tests.test_openai_gateway import OPENAI, openai_reply
+from core.analysis.tests.testing import external_grant_kwargs
+from core.analysis.tests.testing import preview_image_bytes as image_bytes
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.models import (
@@ -40,10 +40,10 @@ from core.models import (
     ExtractedPassage,
     GatewayRequest,
 )
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
-from geo.testing import LOCAL_GEOCODER
+from geo.tests.testing import LOCAL_GEOCODER
 from image.models import ImageEvidence
 
 

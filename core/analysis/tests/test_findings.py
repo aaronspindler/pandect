@@ -15,9 +15,9 @@ from core.analysis.services import start_run
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationImport
-from geo.testing import csv_content, parse_csv
+from geo.tests.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import process_import
 from people.models import Person
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test investigator.test.js",
+    "test": "node --test tests/investigator.test.js",
     "check": "wrangler deploy --dry-run --outdir dist"
   },
   "dependencies": { "agents": "0.34.1" },

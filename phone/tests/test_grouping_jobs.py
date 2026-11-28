@@ -6,6 +6,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.test import TestCase
 from django.urls import reverse
 
@@ -14,10 +15,12 @@ from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.bulk import prepare_case_analysis_batch, resume_case_analysis
 from core.analysis.reprocessing import start_reprocessing
 from core.evidence.deletion import plan_deletion
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
+from document.models import DocumentEvidence
 from people.models import Person
 from phone.grouping_jobs import _legacy_scope, grouping_scope, start_grouping
 from phone.models import (
+    CommunicationContext,
     ConversationGrouping,
     ConversationPairRevision,
     ConversationSessionMember,
@@ -77,6 +80,45 @@ class GroupingJobTests(EvidenceViewTestMixin, TestCase):
             ),
             [m.pk for m in messages],
         )
+
+    def test_date_only_original_does_not_supply_a_session_clock(self):
+        dated, timed = self.messages(2)
+        export = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["editor"],
+            title="Retained export",
+            file=ContentFile(b"Synthetic originals", name="messages.csv"),
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=dated,
+            source_document=export,
+            source_sha256=export.sha256,
+            source_row=1,
+            source_start=0,
+            source_end=1,
+            parser_version="synthetic-v1",
+            timezone="America/Toronto",
+            raw_sender="Reported sender",
+            raw_timestamp="2026-04-18",
+            native_message_id="day-only",
+        )
+        batch, _ = self.request_grouping()
+        with patch("phone.grouping_jobs.PAGE_SIZE", 1):
+            self.assertEqual(prepare_case_analysis_batch(batch.pk), "queued")
+            self.assertEqual(prepare_case_analysis_batch(batch.pk), "queued")
+            self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+
+        known, unknown = batch.conversation_groupings.get().sessions.order_by(
+            "start_ordinal"
+        )
+        self.assertEqual((known.first_at, known.last_at), (timed.occurred_at,) * 2)
+        self.assertEqual(unknown.members.get().message_id, dated.pk)
+        self.assertIsNone(unknown.first_at)
+        self.assertIsNone(unknown.last_at)
+        self.assertIsNone(unknown.members.get().elapsed_seconds)
+        dated.refresh_from_db()
+        self.assertIsNotNone(dated.occurred_at)
 
     def test_new_grouping_uses_pair_revisions_across_bulk_writes(self):
         first = self.messages(1)[0]

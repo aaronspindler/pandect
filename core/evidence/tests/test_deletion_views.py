@@ -25,14 +25,14 @@ from core.models import (
     ImportantItem,
     ImportantNote,
 )
-from core.testing import ALL_MODELS, EvidenceTestMixin
+from core.tests.testing import ALL_MODELS, EvidenceTestMixin
 from document.models import DocumentEvidence
 from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
     VehicleLocationImportRow,
 )
-from geo.testing import csv_content, parse_csv
+from geo.tests.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import process_import
 from phone.models import CallEvidenceAttachment, CommunicationContext
 

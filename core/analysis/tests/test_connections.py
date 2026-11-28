@@ -6,7 +6,7 @@ from django.urls import reverse
 from core.analysis.source_selection import snapshot_sources
 from core.analysis.tests.test_catalogue import CatalogueTests
 from core.models import AnalysisFindingSource, AnalysisReview
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
 

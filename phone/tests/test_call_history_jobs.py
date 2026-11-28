@@ -12,7 +12,7 @@ from django.http import Http404
 from django.test import SimpleTestCase, TestCase
 
 from cases.models import CaseMembership
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.call_history import HEADERS, MAX_RECORD_CHARS, parse_call_history

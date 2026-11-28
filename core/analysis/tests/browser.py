@@ -1,4 +1,4 @@
-"""Synthetic journeys: run explicitly with manage.py test core.analysis.browser."""
+"""Run these synthetic journeys with manage.py test core.analysis.tests.browser."""
 
 import json
 import re
@@ -28,15 +28,15 @@ from core.analysis.navigation import finding_url
 from core.analysis.services import cancel_run, start_run
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.source_selection import snapshot_sources
-from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
+from core.analysis.tests.testing import external_grant_kwargs, wav_bytes
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from geo.analysis.external.geocoding import Geocoder
 from geo.models import LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence
-from geo.testing import LOCAL_GEOCODER
+from geo.tests.testing import LOCAL_GEOCODER
 from image.models import ImageEvidence
 from people.models import Person
 from phone.analysis.ingest import describe_import_selection
@@ -182,6 +182,27 @@ class AnalysisBrowserTests(BrowserTestCase):
                 )
                 next_button = page.get_by_role("button", name="Next sources")
                 expect(next_button).to_be_visible()
+                path = page.locator("#analysis-selection").evaluate(
+                    "form => new URL(form.action).pathname"
+                )
+                browse_url = re.compile(re.escape(path) + r"(?:\?|$)")
+                page.route(browse_url, lambda _route: None, times=1)
+                with page.expect_request(
+                    lambda request: (
+                        request.headers.get("x-pandect-analysis-browse") == "1"
+                    )
+                ):
+                    next_button.press("Enter")
+                # Editing the draft cancels the pending browse and allows a fresh one.
+                first_choice.uncheck()
+                expect(page.locator("[data-workspace-status]")).to_contain_text(
+                    "Source choices stayed on this page."
+                )
+                expect(page.get_by_label("Source choice pages")).to_contain_text(
+                    "Page 1"
+                )
+                expect(first_choice).not_to_be_checked()
+                first_choice.check()
                 next_button.press("Enter")
                 expect(page.get_by_label("Source choice pages")).to_contain_text(
                     "Page 2"
@@ -226,6 +247,18 @@ class AnalysisBrowserTests(BrowserTestCase):
                     "data-test-marker", "kept"
                 )
                 page.locator("#report-filters").press("Enter")
+                end = page.locator('input[name="end"]')
+                end.fill("2069-12-31T00:00")
+                page.get_by_role("button", name="Update report").press("Enter")
+                errors = page.locator("[data-error-summary]")
+                expect(errors).to_be_focused()
+                expect(page.locator("#case-search")).to_have_attribute(
+                    "data-test-marker", "kept"
+                )
+                errors.get_by_role("link", name=re.compile("end must follow")).press(
+                    "Enter"
+                )
+                expect(end).to_be_focused()
                 page.get_by_role("link", name="Reset selection").press("Enter")
                 expect(page).to_have_url(url)
                 expect(page.locator("#case-search")).to_have_attribute(

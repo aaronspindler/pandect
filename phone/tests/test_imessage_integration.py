@@ -17,7 +17,7 @@ from core.analysis.operations import get_operation
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.imessage import HEADERS

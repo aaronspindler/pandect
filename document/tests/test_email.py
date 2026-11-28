@@ -10,12 +10,12 @@ from django.test import SimpleTestCase, TestCase
 from cases.models import CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
-from core.analysis.testing import file_source
+from core.analysis.tests.testing import file_source
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.models import CaseAnalysisBatch
 from core.parsers import run_parser
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.analysis.deterministic import native_text
 from document.models import DocumentEvidence
 

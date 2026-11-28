@@ -45,7 +45,7 @@ The focused suite mocks Gateway responses and checks citation validation, source
 boundaries, access and failed publication.
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings text.tests.test_synthesis --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.tests.settings text.tests.test_synthesis --noinput
 ```
 
 Use representative sanitized selections to evaluate interpretation separately

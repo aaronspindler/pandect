@@ -64,8 +64,8 @@ window.PandectPage((signal) => {
         return;
       }
       const bubble = event.target.closest(".conversation-bubble");
-      if (!bubble) return;
-      // The original is plain selectable text. Finishing a drag must not open the inspector.
+      if (!bubble || event.target.closest("a[href]:not([data-message-select])")) return;
+      // Finishing a text selection must not open the inspector.
       if (!event.target.closest("[data-message-select]") && !window.getSelection()?.isCollapsed) return;
       const row = bubble.closest(".conversation-message");
       const link = bubble.querySelector("[data-message-select]");
@@ -113,7 +113,23 @@ window.PandectPage((signal) => {
     const items = reader.querySelector("[data-conversation-items]");
     const label = reader.dataset.scrollLabel;
     const pageParam = reader.dataset.pageParam || "page";
-    reader.querySelectorAll(":scope > [data-conversation-edge]").forEach((edge) => {
+    const revision = reader.dataset.conversationRevision;
+    const edges = reader.querySelectorAll(":scope > [data-conversation-edge]");
+    let needsReload = false;
+
+    function markChanged() {
+      needsReload = true;
+      edges.forEach((edge) => {
+        const link = edge.querySelector("[data-conversation-page]");
+        if (!link || link.hidden) return;
+        link.href = window.location.href;
+        link.textContent = "Reload conversation";
+        edge.querySelector("[data-conversation-status]").textContent =
+          "Messages changed. Reload the conversation before loading more.";
+      });
+    }
+
+    edges.forEach((edge) => {
       const link = edge.querySelector("[data-conversation-page]");
       if (!link) return;
       const status = edge.querySelector("[data-conversation-status]");
@@ -122,7 +138,7 @@ window.PandectPage((signal) => {
       let failed = false;
 
       const load = async (activated = false) => {
-        if (signal.aborted || loading || failed || link.hidden) return;
+        if (signal.aborted || needsReload || loading || failed || link.hidden) return;
         const isCurrent = activated && window.PandectWorkspace?.beginLocal();
         const focus = document.activeElement;
         loading = true;
@@ -140,8 +156,12 @@ window.PandectPage((signal) => {
           if (!response.ok) throw new Error("Page unavailable");
           if (!window.PandectPrivateSession.matches(response.headers.get("X-Pandect-Session"))) return;
           const page = new DOMParser().parseFromString(await response.text(), "text/html");
-          if (signal.aborted) return;
+          if (signal.aborted || needsReload) return;
           const incomingReader = reader.id ? page.getElementById(reader.id) : page.querySelector("[data-conversation-scroll]");
+          if (revision !== undefined && (!revision || incomingReader?.dataset.conversationRevision !== revision)) {
+            markChanged();
+            return;
+          }
           const incoming = incomingReader?.querySelector("[data-conversation-items]");
           if (!incoming || incoming.dataset.page !== new URL(link.href).searchParams.get(pageParam)) {
             throw new Error("Page unavailable");
@@ -195,13 +215,13 @@ window.PandectPage((signal) => {
           }
           if (focusLoaded) records[0]?.focus();
         } catch {
-          if (signal.aborted) return;
+          if (signal.aborted || needsReload) return;
           failed = true;
           status.textContent = `Could not load ${label}. Use the link to open the page.`;
         } finally {
           loading = false;
           link.removeAttribute("aria-disabled");
-          if (!signal.aborted && !failed && !link.hidden) observer.observe(edge);
+          if (!signal.aborted && !needsReload && !failed && !link.hidden) observer.observe(edge);
         }
       };
       const observer = new IntersectionObserver((entries) => {
@@ -209,9 +229,14 @@ window.PandectPage((signal) => {
       }, { rootMargin: "200px 0px" });
       signal.addEventListener("abort", () => observer.disconnect(), {once: true});
       link.addEventListener("click", (event) => {
-        if (failed || !window.PandectPage.isPlainClick(event)) return;
-        event.preventDefault();
-        load(true);
+        if (!window.PandectPage.isPlainClick(event)) return;
+        if (needsReload) {
+          event.preventDefault();
+          window.location.reload();
+        } else if (!failed) {
+          event.preventDefault();
+          load(true);
+        }
       }, {signal});
       observer.observe(edge);
     });

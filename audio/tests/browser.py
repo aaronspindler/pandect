@@ -6,7 +6,7 @@ from django.core.files.base import ContentFile
 from playwright.sync_api import expect
 
 from audio.models import AudioEvidence
-from audio.testing import m4a_bytes
+from audio.tests.testing import m4a_bytes
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 

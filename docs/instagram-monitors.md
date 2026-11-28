@@ -1,17 +1,14 @@
 # Instagram monitors
 
-The offline pilot exercises case approval, personal connections, scheduled
-checks, and evidence retention with generated follower and following lists.
-Collection is off by default. Live scheduling is disabled pending a qualified,
-Meta-authorized source of named rosters. Historical observations remain
-available to current case members.
+The optional offline pilot runs scheduled checks against generated follower
+and following lists. Live scheduling is disabled pending a qualified,
+Meta-authorized roster source. Case members retain access to saved observations.
 
 ## Enable the offline pilot
 
-Use a test installation. Set the following in its private Compose environment.
-Generate a dedicated random key of at least 32 characters. Legacy desktop
-settings can be retained temporarily for revoking an existing signed desktop
-connection. They have no effect on synthetic collection.
+On a test installation, set these in the private Compose environment. Use a
+dedicated random key of at least 32 characters. Keep legacy desktop settings
+only while needed to revoke a signed desktop connection.
 
 ```dotenv
 PANDECT_INSTAGRAM_PILOT_URL=http://instagram-pilot:8080
@@ -22,23 +19,17 @@ PANDECT_INSTAGRAM_PILOT_KEY=<dedicated-random-secret>
 COMPOSE_PROFILES=instagram-pilot make run
 ```
 
-Use the same profile on subsequent rebuilds so `make run` waits for both workers
-to finish active tasks before replacing their shared image. If the installation
-uses other profiles, include them in the comma-separated `COMPOSE_PROFILES`
-value. See [local startup](development.md#first-run).
+Keep the profile on rebuilds so `make run` waits for both workers before
+replacing the shared image. List additional profiles comma-separated in
+`COMPOSE_PROFILES`. See [local startup](development.md#first-run).
 
-The profile starts the fixture and `instagram-worker`. The dedicated worker
-uses the same application image, PostgreSQL database, and private evidence
-volume as the web and ordinary worker. It consumes the `instagram` queue so an
-in-progress roster check leaves ordinary evidence jobs able to run. The fixture
-has a private Compose network, no published port, and no database or evidence
-volume. It accepts an empty request and returns generated lists. Connection
-signing material stays with the application processes.
+The profile starts the private fixture and an `instagram-worker` that consumes
+the separate `instagram` queue. The fixture has no published port, database or
+evidence volume. Signing material stays with the application processes.
 
-On upgrade, the additive migration pauses earlier schedules and keeps their
-captures and comparisons. To resume a synthetic monitor, the case owner must
-approve the target. Resume from the monitor detail to establish a new baseline
-bound to the fixture account ID.
+The upgrade migration pauses earlier schedules and retains captures and comparisons.
+To resume, approve the target again and resume from the monitor detail to
+establish a fresh baseline.
 
 ## Use a synthetic monitor
 
@@ -66,12 +57,11 @@ Only a complete fixture list advances that direction's baseline.
 
 ## Recover or turn off monitoring
 
-The investigator who created a monitor can use **Schedule** to pause it, adjust
-the interval, or resume. An interval change applies after the next scheduled
-check. Disconnecting pauses the investigator's monitors across cases. Reconnect
-and resume to establish a fresh baseline. Case owners can stop individual
-monitors or revoke target approval in **Case Settings**. Revocation pauses the
-affected monitors. Reapproval allows the investigator to resume them.
+The monitor creator can pause, resume or change the interval in **Schedule**.
+Interval changes apply after the next scheduled check. Disconnecting pauses
+that investigator's monitors. Reconnect and resume for a fresh baseline.
+Case owners can stop individual monitors or revoke target approval in **Case
+settings**. Reapproval lets the creator resume affected schedules.
 
 **Processing** links to monitor history and recovery. If a check is overdue,
 ask the operator to verify that the worker stopped before requesting recovery.
@@ -127,10 +117,9 @@ comparison.
 
 ## Live release gate
 
-On November 17, 2026, a controlled check reached the end of both lists on one
-profile. The followers roster matched the displayed count. The following roster
-contained fewer distinct accounts than the displayed count. Each returned
-member had a numeric account ID. The discrepancy remains unexplained.
+On 17 November 2026, one controlled check reached both terminal pages and
+returned numeric account IDs. The followers roster matched the displayed
+count, while the following roster contained fewer distinct accounts than shown.
 
 Meta's Instagram API documents follower and following counts. We found no
 documented endpoint for the named rosters. Meta requires express permission for

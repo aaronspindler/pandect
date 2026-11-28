@@ -1,4 +1,4 @@
-"""Public-page browser checks: python manage.py test marketing.browser."""
+"""Public-page browser checks: python manage.py test marketing.tests.browser."""
 
 import os
 import sys

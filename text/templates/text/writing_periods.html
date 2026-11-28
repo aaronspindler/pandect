@@ -1,0 +1,5 @@
+{% if operation == 'style_change' %}
+  {{ scope.first_start }} to {{ scope.first_end }} and {{ scope.second_start }} to {{ scope.second_end }} ({{ scope.timezone }})
+{% elif scope.first_start or scope.first_end %}
+  {% if scope.first_start %}From {{ scope.first_start }}{% endif %}{% if scope.first_end %}{% if scope.first_start %} through{% else %}Through{% endif %} {{ scope.first_end }}{% endif %} ({{ scope.timezone }})
+{% else %}All active attributed messages at the time of the run{% endif %}

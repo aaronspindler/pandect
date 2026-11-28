@@ -15,7 +15,7 @@ from core.analysis.operations import get_operation
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.source_selection import snapshot_sources
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from people.models import Person
 from phone.conversation_instances import (
     get_session_instance,
@@ -23,7 +23,7 @@ from phone.conversation_instances import (
     result_instance_url,
 )
 from phone.conversation_sessions import attach_session_groups
-from phone.conversations import pair_messages
+from phone.conversations import MESSAGE_PREVIEW_LENGTH, pair_messages
 from phone.daily_chronology import attach_daily_message_previews, daily_message_rows
 from phone.grouping_jobs import grouping_scope, start_grouping
 from phone.models import ConversationGrouping, TextMessageEvidence
@@ -164,6 +164,26 @@ class ConversationInstanceTests(EvidenceViewTestMixin, TestCase):
             batch.status, CaseAnalysisBatch.Status.COMPLETE, batch.error_code
         )
         return batch.conversation_groupings.get()
+
+    def test_expanded_session_uses_clipped_messages_with_full_original_links(self):
+        ending = "This ending appears only in the retained original."
+        body = "é" * (MESSAGE_PREVIEW_LENGTH + 1) + ending
+        message = self.message(0, body=body)
+        session = self.group_pair().sessions.get()
+        reader = reverse(
+            "phone:conversation_detail",
+            args=(self.case.pk, *sorted((self.person.pk, self.other.pk))),
+            query={"tab": "instances", "instance": session.pk},
+        )
+        original = self.url("detail", message, kind="text-message")
+        self.login("viewer")
+        response = self.client.get(reader)
+        row = response.context["page_obj"].object_list[0]["messages"][0]
+        self.assertIn("body", row.get_deferred_fields())
+        self.assertEqual(row.body_preview, body[:MESSAGE_PREVIEW_LENGTH])
+        self.assertNotContains(response, ending)
+        self.assertContains(response, f'href="{original}">Read full original')
+        self.assertContains(self.client.get(original), ending)
 
     def test_long_exchange_pages_one_session_in_reader_and_chronology(self):
         originals = [self.message(n, body="x" * 2000) for n in range(501)]

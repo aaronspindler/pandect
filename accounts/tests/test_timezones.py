@@ -13,7 +13,7 @@ from django.utils import timezone
 from accounts.middleware import TimezoneMiddleware
 from core.analysis.forms import analysis_form, report_form
 from core.evidence.form_registry import evidence_form
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence, VehicleLocationEvidence
 from geo.trip_jobs import process_trips
 from geo.trip_processing import prepare_case_trips

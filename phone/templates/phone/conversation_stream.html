@@ -1,7 +1,7 @@
 {% load search_matches %}
 <ol class="conversation-messages" data-conversation-items data-page="{{ page_obj.number }}">
   {% for message in page_obj %}
-  {% ifchanged message.occurred_at|date:'Y-m-d' %}<li class="conversation-date" data-conversation-day="{{ message.occurred_at|date:'Y-m-d'|default:'unknown' }}"{% if day_message.pk == message.pk %} id="conversation-day-result" tabindex="-1"{% endif %}>{% if message.occurred_at %}<h3>{{ message.occurred_at|date:'l, j F Y' }}</h3>{% else %}<h3>Time not recorded</h3>{% endif %}</li>{% endifchanged %}
+  {% ifchanged message.recorded_day %}<li class="conversation-date" data-conversation-day="{{ message.recorded_day|date:'Y-m-d'|default:'unknown' }}"{% if day_message.pk == message.pk %} id="conversation-day-result" tabindex="-1"{% endif %}>{% if message.recorded_day %}<h3>{{ message.recorded_day|date:'l, j F Y' }}</h3>{% else %}<h3>Time not recorded</h3>{% endif %}</li>{% endifchanged %}
   <li class="conversation-message{% if message.sender_id == second_person.pk and first_person.pk != second_person.pk %} conversation-message-second{% endif %}" id="message-{{ message.pk }}" data-message-key="{{ message.timeline_id }}" tabindex="-1" data-analysis-page="{{ message.analysis.page_obj.number|default:'' }}"{% if message.analysis.load_on_open %} data-load-panel-on-open{% endif %}{% if selected_message.pk == message.pk %} data-selected-message{% endif %}{% if message.session_tint %} data-session-tint="{{ message.session_tint }}"{% endif %}>
     {% if match_message.pk == message.timeline_id %}
     {% include 'phone/conversation_matches.html' %}
@@ -10,14 +10,15 @@
     <article class="conversation-bubble" aria-labelledby="message-sender-{{ message.pk }}">
       <header class="conversation-message-header">
         <strong id="message-sender-{{ message.pk }}">{{ message.sender }}</strong>
-        {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'H:i:s T' }}</time>{% else %}<span>Time not recorded</span>{% endif %}
+        {% if message.occurred_at and not message.date_only %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'H:i:s T' }}</time>{% else %}<span>Time not recorded</span>{% endif %}
         <span class="conversation-selected-label">Selected</span>
         <a data-workspace-link class="conversation-select" data-message-select data-tooltip="Message details" title="Message details" href="{% querystring transcript_query message=message.pk page=None analysis_page=message.analysis.page_obj.number|default:None %}#message-{{ message.pk }}"{% if selected_message.pk == message.pk %} aria-current="true"{% endif %}>
-          <span class="sr-only">Message details for {{ message.sender }}{% if message.occurred_at %}, {{ message.occurred_at|date:'j M Y, H:i:s T' }}{% else %}, {{ message.title }}{% endif %}</span>
+          <span class="sr-only">Message details for {{ message.sender }}{% if message.date_only %}{% if message.recorded_day %}, {{ message.recorded_day|date:'j M Y' }}{% endif %}{% elif message.occurred_at %}, {{ message.occurred_at|date:'j M Y, H:i:s T' }}{% else %}, {{ message.title }}{% endif %}</span>
           {% include 'ui/components/icon.html' with name='chevron-right' %}
         </a>
       </header>
-      <div class="conversation-message-body">{% if message.matches_search %}{{ message.body|highlight_first_match:search_query }}{% else %}{{ message.body }}{% endif %}</div>
+      <div class="conversation-message-body">{% if message.matches_search %}{{ message.body_preview|highlight_first_match:search_query }}{% else %}{{ message.body_preview }}{% endif %}</div>
+      {% if message.body_is_excerpt %}<a class="small" data-workspace-link href="{{ message.evidence_url }}">Read full original</a>{% endif %}
       <small class="conversation-message-source">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %}</small>
     </article>
     {% if message.copy_count > 1 %}

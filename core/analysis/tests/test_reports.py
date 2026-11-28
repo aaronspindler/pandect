@@ -11,7 +11,7 @@ from django.utils.html import strip_tags
 
 from audio.models import AudioEvidence
 from core.analysis.reports import report
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
 from image.models import ImageEvidence

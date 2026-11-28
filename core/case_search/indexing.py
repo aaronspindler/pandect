@@ -21,7 +21,7 @@ def add_sources(case_id, source, ids):
 
 def evidence_archive_changed(case, actor, kind, item_id, *, archived):
     # A source can support extractions and findings with multiple dependencies.
-    reconcile(case.pk)
+    reconcile(case.pk, archived_source=(kind, item_id) if archived else None)
 
 
 def result_published(result):

@@ -19,15 +19,15 @@ from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.services import start_run
 from core.analysis.source_selection import snapshot_sources
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_openai_gateway import OPENAI, openai_reply
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, AnalysisRun
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from image.models import ImageEvidence
-from image.testing import printed_layout
+from image.tests.testing import printed_layout
 
 
 def synthetic_page():

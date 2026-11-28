@@ -16,8 +16,8 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
 from core.analysis.sources import source_id
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisRun, CaseAnalysisBatch

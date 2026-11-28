@@ -212,7 +212,7 @@
   </div>
 </details>
 
-<div id="processing-other-history" data-live-region data-live-saved="{% if monitor_history or trip_history or import_history or batches %}true{% else %}false{% endif %}">
+<div id="processing-other-history" data-live-region data-live-saved="{% if monitor_history or trip_history or import_history or call_import_history or batches %}true{% else %}false{% endif %}">
 {% if monitor_history.paginator.count %}
 <details data-workspace-region class="disclosure processing-disclosure" id="instagram-history"{% if request.GET.instagram_page %} open{% endif %}>
   <summary>Instagram monitor history · {{ monitor_history.paginator.count }}</summary>

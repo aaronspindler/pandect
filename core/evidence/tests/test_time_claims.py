@@ -12,7 +12,7 @@ from core.analysis.source_selection import snapshot_sources
 from core.analysis.worker import process_run
 from core.evidence.time_claims import time_claims_page
 from core.models import AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
 

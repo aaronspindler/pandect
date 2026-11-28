@@ -7,7 +7,7 @@ from django.http import Http404
 from django.test import TestCase
 
 from core.analysis.reports import report
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from people.models import Person
 from phone.models import FaceTimeEvidence, PhoneCallEvidence
 

@@ -16,10 +16,10 @@ from core.analysis.errors import AnalysisError
 from core.analysis.gateway import GatewayClient, gateway_configured
 from core.analysis.http import NoRedirect
 from core.analysis.services import start_run
-from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import authorize_run
 from core.models import GatewayRequest
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
 CONFIG = {

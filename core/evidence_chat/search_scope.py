@@ -1,9 +1,11 @@
 """Apply unambiguous investigator-specified type and date filters on every pass."""
 
 import re
+from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from core.evidence.source_clocks import is_date_only_message
 from core.evidence.types import KINDS
 from core.models import ChatTurn
 
@@ -26,7 +28,7 @@ FULL_REVIEW = re.compile(
     r"(?P<messages>(?:text\s+)?messages?)\b)?",
     re.I,
 )
-FULL_REVIEW_VERSION = 2
+FULL_REVIEW_VERSION = 3
 
 
 def review_population(question, *, direct_only=False):
@@ -104,6 +106,19 @@ def review_restart_code(turn):
     version = turn.plan.get("review_version")
     if turn.mode != "full" or version == FULL_REVIEW_VERSION:
         return ""
+    if version == 2:
+        # Keep published replies inspectable. An interrupted scan must not
+        # combine prior matches with the new scope or literal rules.
+        if turn.status == "complete":
+            return ""
+        if turn.plan.get("literal"):
+            return "chat_literal_review_retired"
+        counts = turn.plan.get("filters", {})
+        if question_filters(turn) or (
+            "day" in counts and "text-message" in counts.get("kinds", ())
+        ):
+            return "chat_review_scope_retired"
+        return ""
     if review_population(turn.question) == "text-message":
         if version != 1 or question_filters(turn).get("record_type") != "text-message":
             return "chat_review_scope_retired"
@@ -126,20 +141,25 @@ def review_restart_code(turn):
     return ""
 
 
+def dated_originals(case, kind, filters):
+    from core.case_search.sources import dated, sources
+
+    start, end = filters.get("start"), filters.get("end")
+    matches = dated(sources(case, kind), start, end)
+    if kind == "text-message" and (start or end):
+        matches = matches.filter(~is_date_only_message(case))
+    return matches
+
+
 def scope_rows(queryset, case, surface, kind, filters, *, include_recordings=False):
     if not filters:
         return queryset
     from core.case_search.scoped_sources import source_queryset
-    from core.case_search.sources import dated, sources
 
     if surface in ("original", "attachment"):
         if filters.get("record_type", kind) != kind:
             return queryset.none()
-        matches = (
-            dated(sources(case, kind), filters.get("start"), filters.get("end"))
-            .order_by()
-            .values("pk")
-        )
+        matches = dated_originals(case, kind, filters).order_by().values("pk")
         if surface == "original":
             return queryset.filter(pk__in=matches)
         parent = "phone_call" if kind == "phone-call" else "facetime"
@@ -147,3 +167,51 @@ def scope_rows(queryset, case, surface, kind, filters, *, include_recordings=Fal
         return queryset if include_recordings else queryset.exclude(transcript="")
     matches = source_queryset(case, FIELDS[surface], **filters).order_by().values("pk")
     return queryset.filter(pk__in=matches)
+
+
+def dependencies_in_scope(case, locator, filters):
+    """Require derived context to respect the scope of its contributing originals."""
+    surface = locator["surface"]
+    if surface not in ("finding", "passage"):
+        return True
+    dates = {key: filters[key] for key in ("start", "end") if filters.get(key)}
+    record_type = filters.get("record_type") if surface == "passage" else None
+    if not (dates or record_type):
+        return True
+    inputs = defaultdict(set)
+    for dep in locator["dependencies"]:
+        kind = dep["kind"]
+        if kind not in KINDS or record_type and kind != record_type:
+            return False
+        inputs[kind].add(dep["id"])
+    return bool(inputs) and all(
+        dated_originals(case, kind, dates).filter(pk__in=ids).count() == len(ids)
+        for kind, ids in inputs.items()
+    )
+
+
+def context_source_allowed(case, locator, filters):
+    """Check the active turn's scope before a locator can supply model context."""
+    surface = locator["surface"]
+    if (
+        surface == "record"
+        and locator.get("record_surface") == "record"
+        and locator.get("omit_notes") is not True
+    ):
+        return False
+    if not filters:
+        return True
+
+    from . import corpus
+
+    kind = locator["kind"] if surface in ("original", "attachment") else ""
+    if (surface, kind) not in corpus.surfaces():
+        # Aggregate reports, trips and mutable records cannot certify an
+        # explicit evidence filter from the bounded locator alone.
+        return False
+    rows = corpus.rows(case, surface, kind, False, retained=True)
+    return dependencies_in_scope(case, locator, filters) and (
+        scope_rows(rows, case, surface, kind, filters, include_recordings=True)
+        .filter(pk=locator["pk"])
+        .exists()
+    )

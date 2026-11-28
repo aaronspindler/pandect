@@ -8,7 +8,7 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.daily_chronology import format_trips
 from geo.models import LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence
 from geo.trip_jobs import process_trips

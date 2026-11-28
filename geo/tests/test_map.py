@@ -18,7 +18,7 @@ from core.case_search.tests.fixtures import indexed
 from core.models import AnalysisResult, AnalysisRun
 from geo.models import PointOfInterest, VehicleLocationEvidence
 from geo.poi_forms import PointOfInterestForm
-from geo.testing import MapCaseFixtures
+from geo.tests.testing import MapCaseFixtures
 from geo.trip_jobs import _snapshot
 from geo.trip_models import (
     VehicleTrip,

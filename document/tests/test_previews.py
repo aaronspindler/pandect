@@ -13,7 +13,7 @@ from PIL import Image
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.parsers import MAX_BYTES, run_parser
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from document.tests.test_analysis import pdf_bytes
 

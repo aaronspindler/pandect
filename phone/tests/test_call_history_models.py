@@ -14,7 +14,7 @@ from cases.models import CaseMembership
 from core.evidence.deletion import execute_deletion, plan_deletion
 from core.evidence.queries import person_evidence, scoped_evidence
 from core.storage import canonical_bytes
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import (

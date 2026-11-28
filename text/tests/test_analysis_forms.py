@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from core.analysis.forms import analysis_form
 from core.analysis.sources import source_id
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 
 
 class WritingAnalysisFormTests(EvidenceTestMixin, TestCase):

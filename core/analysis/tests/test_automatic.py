@@ -22,15 +22,15 @@ from core.analysis.automatic import (
 from core.analysis.bulk import prepare_case_analysis_batch, resume_case_analysis
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import start_run
-from core.analysis.testing import external_grant_kwargs, image_bytes, wav_bytes
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs, image_bytes, wav_bytes
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, GatewayRequest
 from core.storage import retain_uploaded_originals
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
-from geo.testing import LOCAL_GEOCODER
+from geo.tests.testing import LOCAL_GEOCODER
 from image.models import ImageEvidence
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
 from text.models import TextEvidence

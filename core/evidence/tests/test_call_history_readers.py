@@ -11,7 +11,7 @@ from core.analysis.source_selection import snapshot_sources
 from core.analysis.sources import Source
 from core.evidence.queries import person_evidence, scoped_evidence
 from core.evidence_chat.corpus import original_metadata
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.conversations import cross_channel_links

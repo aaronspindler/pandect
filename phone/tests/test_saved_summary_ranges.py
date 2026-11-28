@@ -12,11 +12,11 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import transfer_scope
 from core.analysis.source_resolution import resolve_inputs
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from core.models import CaseAnalysisBatch
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from phone.grouping_jobs import grouping_scope, start_grouping
 from phone.models import ConversationSession, TextMessageEvidence
 from phone.saved_summary_ranges import coverage_url

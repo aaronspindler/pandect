@@ -22,7 +22,7 @@ from core.analysis.tasks import prepare_case_analysis
 from core.analysis.worker import process_run
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, FILE_KINDS, KINDS
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from people.models import Person
 from phone.models import CallEvidenceAttachment
 

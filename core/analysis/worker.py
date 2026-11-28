@@ -138,6 +138,8 @@ def process_run(run_id):
             kwargs["authorize"] = authorize
         if purpose == "text":
             kwargs["infer"] = client.infer
+        if run.operation == "style_change" and not writing:
+            kwargs["case"] = case
         parameters = dict(run.parameters)
         if specification.geographic:
             parameters["external_processing"] = run.external_processing
@@ -214,7 +216,9 @@ def process_run(run_id):
                     .get()
                 )
                 if current_revision != evidence_revision:
-                    raise AnalysisError("writing_evidence_changed")
+                    # An unrelated write only invalidates the previous proof. Scan
+                    # the exact selection once more while its revision is locked.
+                    verify_membership(case, writing, run.inputs)
             if (
                 run.operation == "imessage_import"
                 and run.parameters.get("phase") == "import"

@@ -13,7 +13,7 @@ from core.analysis.operations import get_operation
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.source_selection import snapshot_sources
 from core.models import AnalysisFindingSource, AnalysisResult, AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.conversation_sessions import attach_session_groups

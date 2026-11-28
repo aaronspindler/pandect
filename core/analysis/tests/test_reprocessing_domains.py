@@ -12,14 +12,14 @@ from django.utils import timezone
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.execution import configured_external_executions
 from core.analysis.reprocessing import start_reprocessing
-from core.analysis.testing import approve_case_execution, image_bytes, wav_bytes
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.tests.testing import approve_case_execution, image_bytes, wav_bytes
 from core.analysis.worker import process_run
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
-from core.testing import EvidenceViewTestMixin
-from geo.testing import LOCAL_GEOCODER
+from core.tests.testing import EvidenceViewTestMixin
 from geo.tests.test_geographic_context import MAP_SETTINGS
+from geo.tests.testing import LOCAL_GEOCODER
 from phone.models import CallEvidenceAttachment
 
 

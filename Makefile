@@ -1,7 +1,7 @@
 UV ?= uv
 RUN = $(UV) run --locked
-TEST_SETTINGS ?= config.test_settings
-INSTAGRAM_COLLECTOR_TESTS = socialmedia.pilot_browser socialmedia.live_roster_browser socialmedia.endpoint_profile_browser socialmedia.endpoint_roster_browser
+TEST_SETTINGS ?= config.tests.settings
+INSTAGRAM_COLLECTOR_TESTS = socialmedia.tests.pilot_browser socialmedia.tests.live_roster_browser socialmedia.tests.endpoint_profile_browser socialmedia.tests.endpoint_roster_browser
 ifeq ($(PANDECT_BROWSER_ENGINES),webkit)
 INSTAGRAM_COLLECTOR_TESTS =
 endif
@@ -33,7 +33,7 @@ test:
 	$(RUN) python manage.py test --settings=$(TEST_SETTINGS)
 
 browser-check:
-	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser core.analysis.workflow_browser core.analysis.sighting_browser core.analysis.reprocessing_browser core.case_search.browser core.evidence_chat.browser core.evidence.bulk_admin_browser core.evidence.packet_browser core.important_browser image.browser document.browser audio.browser phone.imessage_browser phone.call_history_browser phone.conversation_browser text.claim_comparison_browser text.writing_browser geo.map_browser geo.journey_claim_browser socialmedia.monitor_browser $(INSTAGRAM_COLLECTOR_TESTS) ui.live_browser ui.workspace_browser ui.dialog_browser --noinput --settings=$(TEST_SETTINGS)
+	$(RUN) python manage.py test config.tests.browser marketing.tests.browser core.analysis.tests.browser core.analysis.tests.context_browser core.analysis.tests.workflow_browser core.analysis.tests.sighting_browser core.analysis.tests.reprocessing_browser core.case_search.tests.browser core.evidence_chat.tests.browser core.evidence.tests.bulk_admin_browser core.evidence.tests.packet_browser core.tests.important_browser image.tests.browser document.tests.browser audio.tests.browser phone.tests.imessage_browser phone.tests.call_history_browser phone.tests.conversation_browser text.tests.claim_comparison_browser text.tests.writing_browser geo.tests.map_browser geo.tests.journey_claim_browser socialmedia.tests.monitor_browser $(INSTAGRAM_COLLECTOR_TESTS) ui.tests.live_browser ui.tests.workspace_browser ui.tests.dialog_browser --noinput --settings=$(TEST_SETTINGS)
 
 configuration-check:
 	$(UV) lock --check

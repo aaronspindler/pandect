@@ -1,5 +1,6 @@
 """Retain and reopen the exact originals of a person's writing analysis."""
 
+from hashlib import sha256
 from itertools import batched
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from core.analysis.errors import AnalysisError
 from core.analysis.source_limits import payload_bytes
 from core.analysis.sources import source_id
 from core.evidence.queries import scoped_evidence
+from core.storage import canonical_bytes
 
 MAX_WRITING_MESSAGES = 10_000
 
@@ -133,6 +135,80 @@ def verify_membership(case, scope, inputs):
     """Recheck attributed membership and the exact retained bytes."""
     for _ in source_batches(case, scope, inputs):
         pass
+
+
+def verify_saved_membership(case, scope, inputs, result_id):
+    """Reuse a full original-byte check only at the same committed evidence revision."""
+    from core.models import AnalysisReportIndex
+
+    index = AnalysisReportIndex.objects.filter(
+        result_id=result_id, result__case=case, result__run__case=case
+    )
+    digest = sha256(canonical_bytes([scope["person_id"], inputs])).hexdigest()
+    for _ in range(2):
+        row = index.values_list(
+            "result__case__activity__evidence", "verified_messages"
+        ).first()
+        if row is None:
+            verify_membership(case, scope, inputs)
+            return
+        revision, prior = row
+        stamp = {
+            "version": prior.get("version", 0) if isinstance(prior, dict) else 0,
+            "revision": revision,
+            "writing_inputs": digest,
+        }
+        if revision is not None and stamp == prior:
+            return
+        verify_membership(case, scope, inputs)
+        if index.filter(
+            result__case__activity__evidence=revision, verified_messages=prior
+        ).update(verified_messages=stamp):
+            return
+        # A writer or another verifier changed the row during the byte scan.
+        # Reopen its current revision before publishing any saved measurements.
+    raise AnalysisError("writing_evidence_changed")
+
+
+def restore_excluded_source_links(case, scope, inputs, data):
+    """Project citation links for earlier coverage rows with only nested offsets."""
+    pending = [
+        (item, example)
+        for item in data.get("items", [])
+        if item["label"] in ("Group A coverage", "Group B coverage")
+        for example in item["values"].get("excluded_span_examples", [])
+        if isinstance(example, dict)
+        and isinstance(example.get("source_id"), str)
+        and example["source_id"] not in item["source_ids"]
+    ]
+    if not pending:
+        return
+    refs = {example["source_id"] for _, example in pending}
+    by_ref = {
+        row["id"]: UUID(row["evidence_id"]) for row in inputs if row["id"] in refs
+    }
+    lengths = dict(
+        scoped_evidence(case, "text-message")
+        .filter(pk__in=by_ref.values(), is_archived=False, sender_id=scope["person_id"])
+        .annotate(characters=Length("body"))
+        .values_list("pk", "characters")
+    )
+    for item, example in pending:
+        ref = example["source_id"]
+        start, end = example.get("start"), example.get("end")
+        length = lengths.get(by_ref.get(ref), -1)
+        if (
+            type(start) is not int
+            or type(end) is not int
+            or not 0 <= start < end <= length
+        ):
+            example.pop("source_id")
+            continue
+        if ref not in item["source_ids"]:
+            item["source_ids"].append(ref)
+        item.setdefault("anchors", []).append(
+            {"source_id": ref, "start": start, "end": end}
+        )
 
 
 def result_batches(case, scope, inputs, data, *, with_content):

@@ -3,7 +3,7 @@ from django.test import TestCase
 
 from audio.models import AudioEvidence
 from cases.models import Case, CaseMembership
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from image.models import ImageEvidence
 

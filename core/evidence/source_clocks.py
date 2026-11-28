@@ -5,13 +5,18 @@ from datetime import date
 from hashlib import sha256
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Case, DateTimeField, Exists, F, OuterRef, Q, When
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from core.evidence.queries import scoped_evidence
+from core.evidence.queries import local_date_range, scoped_evidence
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, LOCATION_KINDS
 from phone.conversations import imported_contexts
+
+DATE_ONLY_MESSAGE_PATTERN = (
+    r"^(?:[0-9]{8}|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{4}-?W[0-9]{2}(-?[1-7])?)$"
+)
 
 
 def timestamp_fields(kind, category):
@@ -61,10 +66,7 @@ def _date_only_contexts(case):
     # ISO calendar and week dates accepted by the message importer without
     # a time component. Its stored midnight is a parsing convention.
     return _message_contexts(case).filter(
-        raw_timestamp__regex=(
-            r"^(?:[0-9]{8}|[0-9]{4}-[0-9]{2}-[0-9]{2}|"
-            r"[0-9]{4}-?W[0-9]{2}(-?[1-7])?)$"
-        )
+        raw_timestamp__regex=DATE_ONLY_MESSAGE_PATTERN
     )
 
 
@@ -77,6 +79,51 @@ def is_date_only_message(case, *, through=None):
     if through is not None:
         contexts = contexts.filter(created_at__lte=through)
     return Exists(contexts)
+
+
+def message_event_clock(case, *, through=None):
+    """Treat an imported calendar date as an unknown instant in queries."""
+    return Case(
+        When(is_date_only_message(case, through=through), then=None),
+        default=F("occurred_at"),
+        output_field=DateTimeField(),
+    )
+
+
+def message_event_time(message):
+    if "reported_at" in message.__dict__:
+        return message.reported_at
+    context = getattr(message, "communication_context", None)
+    if (
+        context
+        and getattr(context, "case_id", None) == getattr(message, "case_id", None)
+        and re.fullmatch(
+            DATE_ONLY_MESSAGE_PATTERN, getattr(context, "raw_timestamp", "")
+        )
+    ):
+        return None
+    return getattr(message, "occurred_at", None)
+
+
+def messages_on_recorded_day(queryset, case, day):
+    # Imported date-only messages follow the source calendar day. Other
+    # messages follow their reported time in the reader's selected timezone.
+    year, week, weekday = day.isocalendar()
+    dashed_week = f"{year:04d}-W{week:02d}"
+    compact_week = f"{year:04d}W{week:02d}"
+    spellings = [
+        day.isoformat(),
+        day.isoformat().replace("-", ""),
+        f"{dashed_week}-{weekday}",
+        f"{compact_week}{weekday}",
+    ]
+    if weekday == 1:
+        spellings.extend((dashed_week, compact_week))
+    date_only = _date_only_contexts(case).filter(message_id=OuterRef("pk"))
+    return queryset.filter(
+        Q(**local_date_range("occurred_at", start=day, end=day)) & ~Exists(date_only)
+        | Exists(date_only.filter(raw_timestamp__in=spellings))
+    )
 
 
 def date_only_message_dates(case, message_ids):
@@ -92,6 +139,18 @@ def date_only_message_dates(case, message_ids):
         except ValueError:
             dates[message_id] = None
     return dates
+
+
+def attach_message_dates(case, messages):
+    dates = date_only_message_dates(case, [message.pk for message in messages])
+    for message in messages:
+        message.date_only = message.pk in dates
+        if message.date_only:
+            message.recorded_day = dates[message.pk]
+        else:
+            message.recorded_day = (
+                timezone.localdate(message.occurred_at) if message.occurred_at else None
+            )
 
 
 def attach_unplaced_dates(case, rows):

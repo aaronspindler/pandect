@@ -16,7 +16,7 @@ from core.analysis.source_resolution import resolve_active_inputs
 from core.evidence.time_claims import unavailable_time_claim
 from core.models import AnalysisArtifact, AnalysisResult
 from core.storage import private_file
-from text.analysis.attributed_sources import verify_membership, writing_scope
+from text.analysis.attributed_sources import verify_saved_membership, writing_scope
 
 
 @product_login_required
@@ -27,7 +27,7 @@ def download(request, case_id, run_id):
     try:
         result = AnalysisResult.objects.get(case=case, run=run)
         if scope := writing_scope(run.operation, run.parameters):
-            verify_membership(case, scope, run.inputs)
+            verify_saved_membership(case, scope, run.inputs, result.pk)
             sources = ()
         else:
             sources = resolve_active_inputs(run, case, require_current_review=False)

@@ -12,11 +12,11 @@ from playwright.sync_api import expect
 
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.tests.testing import external_grant_kwargs
 from core.analysis.worker import process_run
 from image.models import ImageEvidence
-from image.testing import plate_scene
+from image.tests.testing import plate_scene
 
 
 @override_settings(PANDECT_AI_GATEWAY=OPENAI)

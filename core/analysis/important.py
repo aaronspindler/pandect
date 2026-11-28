@@ -19,7 +19,7 @@ from core.analysis.source_resolution import SourceResolutionCache, resolve_input
 from core.evidence.time_claims import unavailable_time_claim
 from text.analysis.attributed_sources import (
     result_batches,
-    verify_membership,
+    verify_saved_membership,
     writing_scope,
 )
 
@@ -72,7 +72,7 @@ def finding_target(case, result, item_index, *, finding=None, cache=None):
         if run.operation == "sighting_group":
             _, sighting, sources = saved_group(case, run, cache=cache)
         elif scope := writing_scope(run.operation, run.parameters):
-            verify_membership(case, scope, run.inputs)
+            verify_saved_membership(case, scope, run.inputs, result.pk)
             sources = [
                 source
                 for batch in result_batches(

@@ -11,8 +11,8 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.analysis.retries import retry_analysis
 from core.analysis.worker import process_run
-from core.models import AnalysisRun
-from core.testing import EvidenceViewTestMixin
+from core.models import AnalysisResult, AnalysisRun
+from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import CommunicationContext, TextMessageEvidence
@@ -236,6 +236,16 @@ class PersonWritingViewTests(EvidenceViewTestMixin, TestCase):
             [str(earlier.pk), str(later.pk)],
         )
 
+        process_run(run.pk)
+        self.client.cookies["pandect_timezone"] = "America/Los_Angeles"
+        details = self.client.get(response.url)
+        self.assertContains(details, "Selected periods")
+        self.assertContains(
+            details, "2026-04-01 to 2026-04-01 and 2026-04-03 to 2026-04-03"
+        )
+        self.assertContains(details, "(America/Toronto)")
+
+        self.client.cookies["pandect_timezone"] = "America/Toronto"
         bounded = self.post(first_end=self.periods["first_end"])
         self.assertEqual(bounded.status_code, 302)
         profile = AnalysisRun.objects.get(operation="style_profiles")
@@ -262,37 +272,107 @@ class PersonWritingViewTests(EvidenceViewTestMixin, TestCase):
                 )
         self.assertFalse(AnalysisRun.objects.exists())
 
-    def test_publication_rechecks_evidence_revision_after_streaming_verification(self):
+    def test_unrelated_change_during_verification_does_not_block_publication(self):
         self.login("owner")
         original = self.message()
-        response = self.post()
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.post().status_code, 302)
         run = AnalysisRun.objects.get(operation="style_profiles")
+        verified = []
 
         def insert_after_verification(case, scope, snapshots):
             verify_membership(case, scope, snapshots)
-            self.message(title="Later original")
+            verified.append(snapshots)
+            if len(verified) == 1:
+                self.message(title="Later original")
 
         with patch(
             "core.analysis.worker.verify_membership",
             side_effect=insert_after_verification,
         ):
-            self.assertEqual(process_run(run.pk), "writing_evidence_changed")
+            process_run(run.pk)
         run.refresh_from_db()
-        self.assertEqual(run.status, "failed")
-        self.assertFalse(hasattr(run, "result"))
-        self.assertContains(self.client.get(response.url), "Case evidence changed")
+        self.assertEqual(verified, [run.inputs, run.inputs])
+        self.assertEqual(run.status, "complete", run.error_code)
+        self.assertEqual(run.inputs[0]["evidence_id"], str(original.pk))
+        self.assertEqual(run.result.data["metrics"]["sources_selected"], 1)
 
-        retry, created, issue = retry_analysis(
-            self.users["owner"], self.case.pk, run.pk
+    def test_selected_archive_during_verification_still_stops_publication(self):
+        self.login("owner")
+        original = self.message()
+        self.assertEqual(self.post().status_code, 302)
+        run = AnalysisRun.objects.get(operation="style_profiles")
+
+        def archive_after_verification(case, scope, snapshots):
+            verify_membership(case, scope, snapshots)
+            TextMessageEvidence.objects.filter(pk=original.pk).update(
+                is_archived=True,
+                archive_changed_by=self.users["owner"],
+                archive_changed_at=timezone.now(),
+            )
+
+        with patch(
+            "core.analysis.worker.verify_membership",
+            side_effect=archive_after_verification,
+        ):
+            self.assertEqual(process_run(run.pk), "source_archived")
+        self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
+
+    def test_result_missing_at_first_lookup_waits_for_a_new_request(self):
+        self.login("owner")
+        self.message()
+        self.assertEqual(self.post().status_code, 302)
+        run = AnalysisRun.objects.get(operation="style_profiles")
+        process_run(run.pk)
+        detail = reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+
+        # Publication committed after this request took its first result snapshot.
+        with (
+            patch("core.analysis.run_views.case_run", return_value=run),
+            patch("core.analysis.run_views.AnalysisResult") as results,
+        ):
+            results.objects.filter.return_value.first.return_value = None
+            response = self.client.get(detail)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("data", response.context)
+        self.assertIn("data", self.client.get(detail).context)
+
+    def test_earlier_saved_exclusions_restore_links_without_rewriting_result(self):
+        self.login("owner")
+        self.client.cookies["pandect_timezone"] = "UTC"
+        earlier = datetime(2026, 4, 1, 12, tzinfo=UTC)
+        self.message(occurred_at=earlier)
+        excluded = self.message(occurred_at=earlier, body='"This was quoted."')
+        self.message(occurred_at=datetime(2026, 4, 3, 12, tzinfo=UTC))
+        response = self.post(compare=True, **self.periods)
+        self.assertEqual(response.status_code, 302)
+        run = AnalysisRun.objects.get(operation="style_change")
+        process_run(run.pk)
+        data = run.result.data
+        coverage = next(
+            item for item in data["items"] if item["label"] == "Group A coverage"
         )
-        self.assertTrue(created, issue)
-        self.assertEqual(retry.inputs, run.inputs)
-        self.assertEqual(retry.inputs[0]["evidence_id"], str(original.pk))
-        process_run(retry.pk)
-        retry.refresh_from_db()
-        self.assertEqual(retry.status, "complete", retry.error_code)
-        self.assertEqual(retry.result.data["metrics"]["sources_selected"], 1)
+        example = coverage["values"]["excluded_span_examples"][0]
+        source_key = example["source_id"]
+        coverage["source_ids"].remove(source_key)
+        coverage["anchors"] = [
+            anchor
+            for anchor in coverage["anchors"]
+            if anchor["source_id"] != source_key
+        ]
+        AnalysisResult.objects.filter(pk=run.result.pk).update(data=data)
+        page = self.client.get(response.url)
+        item = next(
+            item
+            for item in page.context["items"]
+            if item["label"] == "Group A coverage"
+        )
+        self.assertEqual(
+            [link["anchors"] for link in item["sources"] if link["id"] == source_key],
+            [[{"source_id": source_key, "start": 0, "end": len(excluded.body)}]],
+        )
+        run.result.refresh_from_db()
+        self.assertEqual(run.result.data, data)
 
     def test_full_uneven_periods_are_retained_and_retried_with_exact_coverage(self):
         self.login("owner")
@@ -409,11 +489,15 @@ class PersonWritingViewTests(EvidenceViewTestMixin, TestCase):
         )
         result_url = reverse("core:analysis:detail", args=[self.case.pk, retry.pk])
         self.assertContains(self.client.get(result_url), "1207 messages examined")
-        self.assertContains(
-            self.client.get(result_url, {"source_page": 25}), rows[-1].title
-        )
         download_url = reverse("core:analysis:download", args=[self.case.pk, retry.pk])
-        self.assertContains(self.client.get(download_url), str(rows[-1].pk))
+        with patch(
+            "text.analysis.attributed_sources.verify_membership",
+            side_effect=AssertionError("Warm reads must not scan all message bodies."),
+        ):
+            self.assertContains(
+                self.client.get(result_url, {"source_page": 25}), rows[-1].title
+            )
+            self.assertContains(self.client.get(download_url), str(rows[-1].pk))
         evidence_url = reverse(
             "core:evidence:detail", args=[self.case.pk, "text-message", changed.pk]
         )

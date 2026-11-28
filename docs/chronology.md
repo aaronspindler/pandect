@@ -1,14 +1,12 @@
 # Chronology
 
 **Case Tools → Chronology** opens the **Daily timeline** on the latest date with
-activity in the case. Scroll down for older dates or up for newer dates.
-Scrolling skips days without entries. Choose a **Date** to open that exact day,
-including days without entries. You can also press Enter or select **Go to date**.
-If scroll loading is unavailable, use **Older dates** or **Newer dates**.
+activity. Scroll down for older dates or up for newer dates, skipping empty days.
+**Go to date** opens the exact date, even if empty. **Older dates** and
+**Newer dates** also work without scroll loading.
 
-Days follow the account or browser timezone, including changes for daylight
-saving time. **Show UTC times** changes the displayed clock and keeps the
-selected local day.
+Days follow the account or browser timezone and its daylight-saving transitions.
+**Show UTC times** changes the clock while keeping the selected local day.
 
 ## Reading a day
 
@@ -30,11 +28,10 @@ reported identifier, or **Unknown caller** when a party has no person link.
 People filters use the explicit investigator links. Calls held in import review
 for an unresolved timestamp do not appear in the dated timeline.
 
-Browsing uses existing [conversation instances](evidence.md#reading-conversations)
-and [possible trips](analysis-locations.md#automatic-vehicle-trips). It starts no
-analysis. Only timed originals and their source-backed groupings can place
-activity on a day. Upload times and extracted date strings cannot establish an
-event time.
+Only timed originals and their saved [conversation
+instances](evidence.md#reading-conversations) or [possible
+trips](analysis-locations.md#automatic-vehicle-trips) place events on the timeline.
+Upload times and extracted date strings cannot establish when an event occurred.
 
 ## Recorded chronology and date references
 
@@ -43,11 +40,9 @@ Recorded events use communications' `occurred_at` and locations' `observed_at`.
 **Acquisition times** uses `collected_at`. **Events and acquisitions** shows
 both as separate rows. Open an original to inspect its reported time and source.
 
-Filter by source type, explicit person/vehicle relationship, and inclusive dates.
-Date filters use the account/browser timezone. **Show UTC times** switches the
-clock and keeps the filters and page. Results paginate at 25. The database uses
-stable tie-breakers for paging. Equal readings and overlapping intervals can
-leave the sequence of events unknown.
+Filter by source type, explicit person or vehicle link, and inclusive local dates.
+**Show UTC times** keeps the filters and page. Results paginate at 25. Equal
+readings and overlapping intervals can leave event order unknown.
 
 Open **Source clock details** for the imported row, parser version, interpreted
 export timezone and original wording when available. Message delivery, read or
@@ -87,7 +82,6 @@ keep their original method and coverage. Any later run follows the normal
 processing workflow.
 
 The lists use the latest eligible equivalent result, label partial coverage,
-and link to the exact finding and active original. Missing
-or invalid citations withhold the interpretation. Every timeline, finding and
-source request requires current case access. Reading a timeline starts no
-processing and sends no evidence to an external service.
+and link to the exact finding and active original. Missing or invalid citations
+withhold the interpretation. Timeline browsing requires current case access
+and runs locally without initiating processing.

@@ -10,11 +10,11 @@ from django.test import SimpleTestCase
 from PIL import Image, ImageDraw
 
 from core.analysis.errors import AnalysisError
-from core.analysis.testing import file_source
+from core.analysis.tests.testing import file_source
 from image.analysis.plate_parser import MAX_CANDIDATES, candidate_quads, plate_likeness
 from image.analysis.plate_parser import parse as parse_plates
 from image.analysis.plates import plate_ocr as hosted_plate_ocr
-from image.testing import plate_scene
+from image.tests.testing import plate_scene
 
 
 def plate_ocr(sources, parameters, *, authorize):
@@ -180,7 +180,7 @@ class PlateTests(SimpleTestCase):
         self.assertTrue(any("omitted" in x for x in result["warnings"]))
 
     def test_multi_picture_jpeg_uses_primary_image_and_discloses_omissions(self):
-        from image.testing import jpeg_bytes
+        from image.tests.testing import jpeg_bytes
 
         result = plate_ocr(
             [file_source(jpeg_bytes(multiple_pictures=True), "image")],

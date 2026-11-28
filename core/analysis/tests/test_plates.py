@@ -18,8 +18,8 @@ from core.analysis.forms import analysis_form
 from core.analysis.services import start_run
 from core.analysis.source_resolution import resolve_inputs
 from core.analysis.sources import output
-from core.analysis.testing import external_grant_kwargs, preview_image_bytes
 from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.tests.testing import external_grant_kwargs, preview_image_bytes
 from core.analysis.worker import process_run
 from core.case_search.tests.fixtures import indexed
 from core.models import (
@@ -30,9 +30,9 @@ from core.models import (
     GatewayRequest,
 )
 from core.parsers import run_parser
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence
-from image.testing import plate_scene
+from image.tests.testing import plate_scene
 
 
 @override_settings(PANDECT_AI_GATEWAY=OPENAI)

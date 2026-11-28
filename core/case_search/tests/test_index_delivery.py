@@ -15,6 +15,7 @@ from django_tasks_db.models import DBTaskResult
 from cases.models import Case
 from core.case_search import cloudflare, lifecycle, material
 from core.case_search.tests.fixtures import CONFIG
+from core.evidence.retention import set_evidence_archive
 from core.models import HostedSearchIndex, HostedSearchItem, HostedSearchSource
 from text.models import TextEvidence
 
@@ -69,6 +70,75 @@ class HostedIndexDeliveryTests(TransactionTestCase):
     @staticmethod
     def response(item, status="completed"):
         return {"key": item.filename, "id": item.remote_id, "status": status}
+
+    @patch("core.case_search.cloudflare.request")
+    def test_archive_resumes_failed_index_and_removes_receipt_first(self, request):
+        archived, pending = self.stage_passages(2)
+        archived.status, archived.remote_id = "completed", "archived-item"
+        archived.save(update_fields=["status", "remote_id"])
+        self.index.status, self.index.error_code = "failed", "search_unavailable"
+        self.index.failures = 4
+        self.index.save(update_fields=["status", "error_code", "failures"])
+        old_token = self.index.token
+
+        set_evidence_archive(
+            self.owner, self.case.pk, "text", archived.source.source_key, archived=True
+        )
+        self.index.refresh_from_db()
+        archived.refresh_from_db()
+        self.assertNotEqual(self.index.token, old_token)
+        self.assertEqual((self.index.status, self.index.failures), ("queued", 0))
+        self.assertEqual(archived.status, "delete")
+        self.deliver()
+
+        request.assert_called_once()
+        self.assertEqual(request.call_args.args[1:], ("DELETE", "/items/archived-item"))
+        self.assertFalse(self.items.filter(pk=archived.pk).exists())
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, "queued")
+
+    @patch("core.case_search.cloudflare.request")
+    def test_archive_during_last_upload_retry_has_its_own_cleanup_attempts(
+        self, request
+    ):
+        (archived,) = self.stage_passages(1)
+        archived.status, archived.remote_id = "completed", "archived-item"
+        archived.save(update_fields=["status", "remote_id"])
+        self.index.error_code = "search_unavailable"
+        self.index.failures = 3
+        lifecycle.enqueue(self.index, run_after=timezone.now() + timedelta(minutes=4))
+        pending_token = self.index.token
+
+        set_evidence_archive(
+            self.owner, self.case.pk, "text", archived.source.source_key, archived=True
+        )
+        self.index.refresh_from_db()
+        self.assertEqual(self.index.token, pending_token)
+        self.assertEqual(self.index.failures, 0)
+
+        request.side_effect = [cloudflare.HostedSearchError("search_unavailable"), None]
+        self.deliver()
+        self.assertEqual((self.index.status, self.index.failures), ("queued", 1))
+        self.assertTrue(self.items.filter(pk=archived.pk, status="delete").exists())
+
+        self.deliver()
+        self.assertFalse(self.items.filter(pk=archived.pk).exists())
+        self.assertEqual(request.call_count, 2)
+
+    @patch("core.case_search.cloudflare.request")
+    def test_non_string_status_uses_delivery_recovery(self, request):
+        (item,) = self.stage_passages(1)
+        item.status, item.remote_id = "check", "malformed-status"
+        item.save(update_fields=["status", "remote_id"])
+        old_token = self.index.token
+        request.return_value = self.response(item, status=[])
+
+        self.deliver()
+
+        self.assertNotEqual(self.index.token, old_token)
+        self.assertEqual(self.index.status, "queued")
+        self.assertEqual(self.index.error_code, "search_response_invalid")
+        self.assertEqual(self.index.failures, 1)
 
     def test_delivery_prepares_passages_and_overlaps_four_private_uploads(self):
         self.create_sources(5)

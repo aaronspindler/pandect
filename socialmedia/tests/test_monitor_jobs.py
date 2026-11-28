@@ -12,7 +12,7 @@ from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
 from cases.models import Case, CaseMembership
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from socialmedia import instagram_connector as connector
 from socialmedia import monitor_jobs as jobs
 from socialmedia.models import InstagramCapture, InstagramCheck

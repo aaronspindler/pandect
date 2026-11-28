@@ -14,6 +14,7 @@ from django.db.models.functions import (
 )
 
 from core.analysis.errors import AnalysisError
+from core.evidence.source_clocks import is_date_only_message
 from core.storage import canonical_bytes
 from phone.conversations import active_pair_messages
 from phone.models import CommunicationContext
@@ -43,6 +44,7 @@ def matching_originals(originals):
             "communication_context__source_document__case_id",
             "communication_context__source_document__sha256",
             "communication_context__source_sha256",
+            "communication_context__raw_timestamp",
             "communication_context__participants",
             "communication_context__native_message_id",
             "communication_context__native_thread_id",
@@ -123,6 +125,7 @@ def delayed_reply_peers(case, batch, anchors, minutes, available_characters):
     """Find delayed, adjacent answers and replies for bounded historical comparisons."""
 
     messages = active_pair_messages(case).filter(
+        ~is_date_only_message(case),
         created_at__lte=batch.created_at,
         occurred_at__isnull=False,
     )

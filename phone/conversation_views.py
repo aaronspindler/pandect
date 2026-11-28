@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max
 from django.db.models.functions import Greatest, Least
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,7 +13,8 @@ from django.views.decorators.http import require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.evidence.queries import local_date_range, scoped_evidence
+from core.evidence.queries import scoped_evidence
+from core.evidence.source_clocks import attach_message_dates, messages_on_recorded_day
 from people.models import Person
 from phone.conversation_analysis import (
     CONTEXT_PARAMETERS,
@@ -24,7 +25,10 @@ from phone.conversations import (
     conversation_list_page,
     imported_contexts,
     matching_copy_groups,
+    message_match_position,
+    message_previews,
     pair_messages,
+    pair_revision,
     preceding_messages,
     timeline_messages,
 )
@@ -119,15 +123,20 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
     query = search_form.cleaned_data["q"] if search_form.is_valid() else ""
 
     pair = (first, second)
+    revision = pair_revision(case, *pair)
     messages = pair_messages(case, *pair)
     contexts = imported_contexts(case, pair=pair)
     groups = matching_copy_groups(contexts)
     timeline = timeline_messages(messages, contexts, groups)
-    visible_timeline = timeline.select_related("sender", "recipient")
+    visible_timeline = message_previews(
+        timeline.select_related("sender", "recipient"), query
+    )
     if query:
-        match_body = Q(body__icontains=query)
-        hits = timeline.filter(match_body).only("occurred_at")
-        visible_timeline = visible_timeline.annotate(matches_search=match_body)
+        hits = (
+            timeline.alias(match_position=message_match_position(query))
+            .filter(match_position__gt=0)
+            .only("occurred_at")
+        )
     selected = None
     selected_value = request.GET.get("message")
     target_value = selected_value or request.GET.get("focus")
@@ -137,7 +146,8 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         except ValueError:
             raise Http404("Message not found.") from None
         selected = get_object_or_404(
-            messages.select_related("sender", "recipient"), pk=message_id
+            message_previews(messages.select_related("sender", "recipient"), query),
+            pk=message_id,
         )
 
     day_message = None
@@ -171,7 +181,7 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
             )
         elif day is not None:
             day_message = (
-                timeline.filter(**local_date_range("occurred_at", start=day, end=day))
+                messages_on_recorded_day(timeline, case, day)
                 .only("occurred_at")
                 .first()
             )
@@ -268,6 +278,7 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
                     request.GET.get("copy_page")
                 )
 
+    attach_message_dates(case, rows)
     page.object_list = rows
     params = request.GET.copy()
     params.pop("q", None)
@@ -316,4 +327,7 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         )
     )
     attach_session_groups(case, rows)
+    context["conversation_revision"] = (
+        revision if revision == pair_revision(case, *pair) else ""
+    )
     return render(request, "phone/conversation_detail.html", context)

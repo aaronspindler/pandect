@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.evidence.deletion import execute_deletion, plan_deletion
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import (
     VehicleLocationEvidence,
     VehicleTripGeneration,

@@ -15,7 +15,7 @@ from core.models import (
     NarrativeRelationship,
 )
 from core.relationships import follow_leads, publish_relationships
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from text.analysis.relationships import extract_relationships
 
 

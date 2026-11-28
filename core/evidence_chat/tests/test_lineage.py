@@ -2,7 +2,7 @@ from django.test import TestCase
 
 from core.evidence_chat import corpus
 from core.evidence_chat.lineage import corroboration, forwarded_origins
-from core.testing import EvidenceTestMixin
+from core.tests.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
 from phone.models import CommunicationContext, TextMessageEvidence
 

@@ -23,9 +23,9 @@ Sources: [Django downloads](https://www.djangoproject.com/download/),
 
 When upgrading Python, update `.python-version`, `requires-python`, `mise.toml`,
 and the Docker base together, regenerate `uv.lock`, and validate both CI
-architectures. uv's required version, mise version, Docker stage, and workflow
-version must also agree. Docker disables Python downloads: an incompatible base
-fails immediately rather than installing a second interpreter into the image.
+architectures. Keep the mise, Docker, and CI uv pins within the project's
+`required-version` range. Docker disables Python downloads, so an incompatible
+base fails immediately.
 
 Headless OpenCV provides bounded geometric plate detection using NumPy, without a
 GUI, trained model, or network service. It runs only in the isolated file parser,

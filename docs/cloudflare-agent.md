@@ -39,13 +39,19 @@ or failed. The saved answer keeps that coverage notice after indexing recovers.
 
 An ordinary turn may perform five material lookups. It searches, opens exact
 passage offsets, follows cited originals or checks narrative relationships.
+Explicit type and date filters apply to ordinary turns' context, lookups and
+citations. A filtered turn leaves out prior reply prose and aggregate reports
+whose full scope cannot be verified. Legacy entity notes stay out of new Chat
+context. Previously published replies retain their saved provenance.
 Each claim is checked against its quoted passage and assessed separately for
 support. Claims that fail verification are withheld. Usage and search limits
 produce a coverage-limited reply. A population review freezes the source
 manifest and processes bounded batches. For an explicit quoted-term review,
 the Agent searches eligible values in each authorized window. Pandect validates
 the returned Unicode offsets against the frozen source and discloses unreadable
-entries. Structured counts use case-scoped record fields. A proposed PDF extraction requires
+entries. New Chat context identifies a date-only message by its source calendar
+date and shows that no time was supplied. Structured counts include it in
+undated totals and disclose uncertainty when a count requires an event time. A proposed PDF extraction requires
 investigator approval and resumes the same question using the original
 cutoff plus that separately dated result.
 

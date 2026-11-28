@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from socialmedia import monitor_jobs
 from socialmedia.instagram_connector import (
     PILOT_TARGET_ID,

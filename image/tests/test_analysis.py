@@ -7,9 +7,9 @@ from django.test import SimpleTestCase
 from PIL import Image
 
 from core.analysis.errors import AnalysisError
-from core.analysis.testing import file_source, image_bytes
+from core.analysis.tests.testing import file_source, image_bytes
 from image.analysis.metadata import image_metadata
-from image.testing import jpeg_bytes
+from image.tests.testing import jpeg_bytes
 
 
 class ImageAnalysisTests(SimpleTestCase):

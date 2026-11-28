@@ -12,11 +12,11 @@ from django.test import TestCase
 
 from core.analysis.errors import AnalysisError
 from core.analysis.sources import Source
-from core.analysis.testing import preview_image_bytes
+from core.analysis.tests.testing import preview_image_bytes
 from core.models import PendingFileDeletion
 from core.parsers import read_source
 from core.storage import _measure_file, staged_file_upload
-from core.testing import FILE_MODELS, EvidenceTestMixin, EvidenceViewTestMixin
+from core.tests.testing import FILE_MODELS, EvidenceTestMixin, EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from image.models import ImageEvidence
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence

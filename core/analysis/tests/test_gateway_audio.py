@@ -11,7 +11,7 @@ from django.test import SimpleTestCase
 from audio.analysis.ai import _segments, transcription
 from core.analysis.errors import AnalysisError
 from core.analysis.gateway_audio import build_audio_request, decode_audio_response
-from core.analysis.testing import file_source, wav_bytes
+from core.analysis.tests.testing import file_source, wav_bytes
 
 
 class GatewayAudioTests(SimpleTestCase):

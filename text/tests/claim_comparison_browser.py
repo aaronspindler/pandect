@@ -7,8 +7,8 @@ from playwright.sync_api import expect
 
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
-from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
+from core.analysis.tests.testing import external_grant_kwargs
 from people.models import Person
 from phone.models import TextMessageEvidence
 from text.models import TextEvidence

@@ -10,7 +10,7 @@ from cases.models import CaseMembership
 from core.analysis.services import start_run
 from core.analysis.worker import process_run
 from core.models import AnalysisResult, ImportantItem, ImportantNote
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
 

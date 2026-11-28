@@ -16,13 +16,19 @@ from core.analysis.execution import selected_ai_executions
 from people.models import Person
 from phone.analysis_forms import ConversationGroupingForm
 from phone.conversation_instances import instance_page, instance_url
-from phone.conversations import conversation_list_page, conversation_url, pair_messages
+from phone.conversations import (
+    conversation_list_page,
+    conversation_url,
+    pair_messages,
+    pair_revision,
+)
 from phone.grouping_jobs import grouping_scope, start_grouping
 from phone.saved_sessions import valid_sessions
 
 
 def conversation_instances(request, case, first, second, day_form, day):
     list_page = conversation_list_page(request.GET.get("list_page"))
+    revision = pair_revision(case, first, second)
     containing = request.GET.get("contains")
     page = instance_page(
         case,
@@ -40,6 +46,13 @@ def conversation_instances(request, case, first, second, day_form, day):
         day_message = instance.get("day_message") or day_message
         if instance.get("messages") is not None:
             for message in instance["messages"]:
+                message.evidence_url = reverse(
+                    "core:evidence:detail",
+                    args=(case.pk, "text-message", message.pk),
+                    query={"conversation_list_page": list_page}
+                    if list_page > 1
+                    else {},
+                )
                 message.transcript_url = conversation_url(
                     case, message, list_page=list_page
                 )
@@ -56,6 +69,9 @@ def conversation_instances(request, case, first, second, day_form, day):
             "first_person": first,
             "second_person": second,
             "instances_tab": True,
+            "conversation_revision": (
+                revision if revision == pair_revision(case, first, second) else ""
+            ),
             "day_form": day_form,
             "day_message": day_message,
             "day_not_found": day is not None

@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from core.evidence_chat import corpus
 from core.evidence_chat.trips import trip_materials
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationEvidence
 from geo.trip_jobs import process_trips
 from geo.trip_models import VehicleTripSource

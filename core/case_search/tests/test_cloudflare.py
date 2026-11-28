@@ -1,10 +1,13 @@
 from datetime import timedelta
-from unittest.mock import patch
+from threading import Event
+from time import monotonic
+from unittest.mock import MagicMock, patch
+from urllib.request import Request
 from uuid import uuid4
 
 from django.db import transaction
 from django.http import Http404
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -14,10 +17,50 @@ from core.case_search.discovery import discover
 from core.case_search.indexing import prepare_case_search
 from core.case_search.tests.fixtures import CONFIG, indexed
 from core.models import HostedSearchIndex, HostedSearchItem, HostedSearchSource
-from core.testing import EvidenceViewTestMixin
+from core.tests.testing import EvidenceViewTestMixin
 from geo.models import PointOfInterest
 from socialmedia.models import SocialAccount
 from text.models import TextEvidence
+
+
+class SearchTransportDeadlineTests(SimpleTestCase):
+    def test_stalled_headers_and_body_cannot_hold_the_page_open(self):
+        for phase in ("headers", "body"):
+            with self.subTest(phase=phase):
+                self.assert_stalled_exchange_times_out(phase)
+
+    def assert_stalled_exchange_times_out(self, phase):
+        with patch.object(cloudflare, "build_opener") as builder:
+            entered, release, closed = Event(), Event(), Event()
+            builder.return_value.open.return_value = response = MagicMock()
+            body = response.__enter__.return_value
+
+            def wait(*args, **kwargs):
+                entered.set()
+                release.wait(3)
+                return response if phase == "headers" else b'{"success": true}'
+
+            if phase == "headers":
+                builder.return_value.open.side_effect = wait
+            else:
+                body.read1.side_effect = wait
+            response.__exit__.side_effect = lambda *_: closed.set()
+
+            try:
+                with self.assertRaisesMessage(
+                    cloudflare.HostedSearchError, "search_deadline"
+                ):
+                    cloudflare.exchange(
+                        Request("https://example.invalid"),
+                        False,
+                        False,
+                        deadline=monotonic() + 0.25,
+                    )
+                self.assertTrue(entered.is_set())
+                self.assertFalse(closed.is_set())
+            finally:
+                release.set()
+                self.assertTrue(closed.wait(3))
 
 
 @override_settings(PANDECT_CLOUDFLARE_SEARCH=CONFIG)
@@ -475,6 +518,52 @@ class HostedCaseSearchTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, self.other_case.name)
         self.assertEqual(request.call_count, 1)
         self.assertEqual(request.call_args.args[0].case_key, self.case.pk)
+
+    @patch("core.case_search.views.result_rows")
+    @patch("core.case_search.views.monotonic", return_value=10)
+    @patch("core.case_search.cloudflare.monotonic", side_effect=[10, 19])
+    def test_global_search_uses_one_time_budget_for_the_page(
+        self, clock, start, result_rows
+    ):
+        self.toggle()
+        self.toggle(case=self.other_case)
+        CaseMembership.objects.create(
+            case=self.other_case, user=self.users["viewer"], role="viewer"
+        )
+        result_rows.return_value = []
+        self.login("viewer")
+
+        response = self.client.get(reverse("cases:search_evidence"), {"q": "notes"})
+
+        result_rows.assert_called_once()
+        self.assertEqual(result_rows.call_args.kwargs["deadline"], 18)
+        self.assertEqual(len(response.context["groups"]), 2)
+        self.assertContains(
+            response,
+            "Search time ran out. Open this case to search it directly.",
+            count=1,
+        )
+
+    @patch("core.case_search.cloudflare.exchange")
+    def test_deadline_expires_between_privacy_checks_and_search(self, exchange):
+        self.setup_item()
+
+        def privacy_response(req, missing_ok, allow_conflict, *, deadline):
+            self.assertEqual(deadline, 20)
+            self.assertEqual(req.get_method(), "GET")
+            if req.full_url.endswith(self.index.namespace):
+                return {"name": self.index.namespace}, 50
+            clock.return_value = 20
+            return {
+                "id": self.index.instance,
+                "public_endpoint_params": {"enabled": False},
+            }, 50
+
+        exchange.side_effect = privacy_response
+        with patch.object(cloudflare, "monotonic", return_value=10) as clock:
+            with self.assertRaisesMessage(hosted.HostedSearchError, "search_deadline"):
+                hosted.hits(self.case, self.users["viewer"], "notes", deadline=20)
+        self.assertEqual(exchange.call_count, 2)
 
     def test_deletion_manifest_includes_removal_receipt_and_keeps_work_on_deletion(
         self,

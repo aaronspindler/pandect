@@ -11,7 +11,7 @@ from django.test import SimpleTestCase
 from audio.analysis.ai import transcription
 from audio.analysis.metadata import audio_metadata
 from core.analysis.errors import AnalysisError
-from core.analysis.testing import file_source, wav_bytes
+from core.analysis.tests.testing import file_source, wav_bytes
 
 
 class AudioAnalysisTests(SimpleTestCase):

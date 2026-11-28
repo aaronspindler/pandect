@@ -1,7 +1,7 @@
 """Isolated tests: fast password fixtures and source assets without a manifest."""
 
-from .settings import *  # noqa: F403
-from .settings import INSTALLED_APPS, MIDDLEWARE, PANDECT_AI_GATEWAY, STORAGES
+from ..settings import *  # noqa: F403
+from ..settings import INSTALLED_APPS, MIDDLEWARE, PANDECT_AI_GATEWAY, STORAGES
 
 DEBUG = False
 INSTALLED_APPS = [app for app in INSTALLED_APPS if app != "debug_toolbar"]
