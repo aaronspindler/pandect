@@ -12,7 +12,8 @@ P1 indicates a broad workflow failure, significant evidence handling issue, or
 material shared-service impact. P2 indicates a workflow, reliability, or evidence
 fidelity defect under a bounded condition. P3 indicates a narrower usability or
 maintenance defect. All findings below have high source confidence unless a
-qualification is stated. Source line links refer to the reviewed snapshot.
+qualification is stated. Source links open the current files at the line
+numbers recorded during review. Later edits and test moves can shift locations.
 
 ## P1
 
