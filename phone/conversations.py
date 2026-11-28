@@ -64,7 +64,7 @@ def message_previews(queryset, query=""):
             Greatest(Value(1), position - (MESSAGE_PREVIEW_LENGTH // 2)),
             Greatest(Value(1), length - MESSAGE_PREVIEW_LENGTH + 1),
         )
-        queryset = queryset.annotate(matches_search=GreaterThan(position, Value(0)))
+        queryset = queryset.annotate(body_match_offset=NullIf(position, 0) - start)
     return queryset.defer("body").annotate(
         body_preview=Substr("body", start, MESSAGE_PREVIEW_LENGTH),
         body_is_excerpt=GreaterThan(length, Value(MESSAGE_PREVIEW_LENGTH)),

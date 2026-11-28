@@ -26,7 +26,7 @@
     <button class="button button-secondary" type="submit">Search</button>
   </div>
   {% if search_form.q.errors %}
-  <div id="conversation-search-result" tabindex="-1">{{ search_form.q.errors }}</div>
+  <div id="conversation-search-result" tabindex="-1" data-workspace-anchor-focus>{{ search_form.q.errors }}</div>
   {% elif search_query and not match_in_page %}
   {% include 'phone/conversation_matches.html' %}
   {% endif %}

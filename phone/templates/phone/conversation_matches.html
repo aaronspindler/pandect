@@ -1,4 +1,4 @@
-<nav class="conversation-matches" aria-label="Message search results" id="conversation-search-result" tabindex="-1">
+<nav class="conversation-matches" aria-label="Message search results"{% if not fragment_on_match %} id="conversation-search-result" tabindex="-1" data-workspace-anchor-focus{% endif %}>
   {% if match_message %}
   <strong>Match {{ match_page.number }} of {{ match_page.paginator.count }}</strong>
   {% if match_page.has_previous %}<a data-workspace-link class="record-link" href="{% querystring search_params match=match_page.previous_page_number %}#conversation-search-result">Previous match</a>{% endif %}

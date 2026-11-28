@@ -96,11 +96,12 @@
     const main = document.getElementById("main-content");
     const list = main.querySelector(".evidence-records");
     if (list && point.list !== undefined) list.scrollTop = point.list;
+    const anchor = url.hash && !restore && !preserve && document.getElementById(url.hash.slice(1));
     const focus = restore?.focus && document.getElementById(restore.focus);
     if (focus) focus.focus({preventScroll: true});
+    else if (anchor && anchor.hasAttribute("data-workspace-anchor-focus")) anchor.focus({preventScroll: true});
     else if (!preserve) headingFocus(main);
-    const anchor = url.hash && document.getElementById(url.hash.slice(1));
-    if (anchor && !restore && !preserve) anchor.scrollIntoView();
+    if (anchor) anchor.scrollIntoView();
     else window.scrollTo(0, point.scroll || 0);
     driver.textContent = document.title;
     return true;

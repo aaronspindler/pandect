@@ -115,6 +115,7 @@ window.PandectPage((signal) => {
     const pageParam = reader.dataset.pageParam || "page";
     const revision = reader.dataset.conversationRevision;
     const edges = reader.querySelectorAll(":scope > [data-conversation-edge]");
+    const searchHit = reader.querySelector("mark#conversation-search-result");
     let needsReload = false;
 
     function markChanged() {
@@ -238,7 +239,16 @@ window.PandectPage((signal) => {
           load(true);
         }
       }, {signal});
-      observer.observe(edge);
+      if (searchHit) {
+        // The search response already supplies context. Keep the hit steady
+        // until the reader scrolls away or explicitly opens an adjacent page.
+        window.addEventListener("scroll", function resumePaging() {
+          const {top, bottom} = searchHit.getBoundingClientRect();
+          if (top < window.innerHeight && bottom > 0) return;
+          window.removeEventListener("scroll", resumePaging);
+          observer.observe(edge);
+        }, {passive: true, signal});
+      } else observer.observe(edge);
     });
   }
 

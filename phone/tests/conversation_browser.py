@@ -1,6 +1,7 @@
 """Conversation inspection and exact evidence navigation with native links."""
 
 import re
+import sys
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -935,6 +936,96 @@ class ConversationBrowserTests(BrowserTestCase):
                     self.assertEqual(
                         parse_qs(urlsplit(page.url).query).get("list_page"), ["2"]
                     )
+
+    def test_search_messages_lands_on_distant_text_in_the_first_response(self):
+        phrase = "North gate"
+        start = self.messages[-1].occurred_at + timedelta(days=1)
+        first_on_page_three = 100 - len(self.messages)
+        matching_bodies = {
+            first_on_page_three: f"{phrase}\n\n{phrase}\n" + "Later line\n" * 220,
+            280: "Earlier line\n" * 180 + f"{phrase}\n\n{phrase}\n",
+        }
+        messages = [
+            TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                sender=self.alex,
+                recipient=self.blair,
+                occurred_at=start + timedelta(minutes=index),
+                title=f"Synthetic transcript message {index}",
+                body=matching_bodies.get(index, f"Filler message {index}"),
+            )
+            for index in range(300)
+        ]
+
+        for engine in self.engines:
+            for javascript in (True, False):
+                with (
+                    self.subTest(engine=engine, javascript=javascript),
+                    self.browser_page(engine, java_script_enabled=javascript) as (
+                        _,
+                        page,
+                    ),
+                ):
+                    self.sign_in(page, self.viewer)
+                    page.set_viewport_size({"width": 390, "height": 844})
+                    page.goto(self.live_server_url + self.reader_path)
+                    search = page.get_by_label("Search messages", exact=True)
+                    reader = page.get_by_role("region", name="Messages", exact=True)
+                    for index in matching_bodies:
+                        expect(
+                            reader.locator(f"#message-{messages[index].pk}")
+                        ).to_have_count(0)
+
+                    requests = []
+
+                    def track_reader_request(request, observed=requests):
+                        if urlsplit(request.url).path == self.reader_path:
+                            observed.append(request.url)
+
+                    page.on("request", track_reader_request)
+                    next_match = page.get_by_role("link", name="Next match", exact=True)
+                    search.fill(phrase.lower())
+                    for number, index in enumerate(matching_bodies, start=1):
+                        requests.clear()
+                        with page.expect_response(
+                            lambda response: (
+                                urlsplit(response.url).path == self.reader_path
+                            )
+                        ) as loaded:
+                            (search if number == 1 else next_match).press("Enter")
+                        response = loaded.value
+                        self.assertTrue(response.ok)
+                        target_id = f"message-{messages[index].pk}"
+                        self.assertIn(f'id="{target_id}"', response.text())
+
+                        highlight = reader.locator(f"#{target_id} mark")
+                        expect(highlight).to_have_text(phrase)
+                        expect(highlight).to_be_in_viewport(ratio=1)
+                        expect(
+                            page.get_by_text(f"Match {number} of 2", exact=True)
+                        ).to_be_visible()
+                        if number == 1:
+                            expect(
+                                reader.get_by_role("link", name="Earlier messages")
+                            ).to_be_in_viewport()
+                        self.assertEqual(requests, [response.url])
+                        if javascript:
+                            expect(highlight).to_be_focused()
+                            if number == 1:
+                                tab_key = (
+                                    "Alt+Tab"
+                                    if engine == "webkit" and sys.platform == "darwin"
+                                    else "Tab"
+                                )
+                                page.keyboard.press(tab_key)
+                                expect(
+                                    reader.locator(f"#{target_id}").get_by_role(
+                                        "link", name="Read full original", exact=True
+                                    )
+                                ).to_be_focused()
+                                page.keyboard.press(tab_key)
+                                expect(next_match).to_be_focused()
 
     def test_instance_summaries_and_exact_members_without_javascript(self):
         grouped = self.messages[:52]

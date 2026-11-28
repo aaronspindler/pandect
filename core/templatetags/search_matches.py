@@ -36,3 +36,23 @@ def highlight_first_match(value, term):
     return format_html(
         "{}<mark>{}</mark>{}", value[: match.start()], match[0], value[match.end() :]
     )
+
+
+@register.simple_tag
+def highlight_match(value, offset, term, anchor_id=None):
+    """Highlight the literal match that the database located in the preview."""
+    if not isinstance(offset, int):
+        return value
+    end = offset + len(term)
+    attributes = (
+        format_html(' id="{}" tabindex="-1" data-workspace-anchor-focus', anchor_id)
+        if anchor_id
+        else ""
+    )
+    return format_html(
+        "{}<mark{}>{}</mark>{}",
+        value[:offset],
+        attributes,
+        value[offset:end],
+        value[end:],
+    )

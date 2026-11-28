@@ -111,7 +111,9 @@ messages for boundary labels, even across transcript pages. Show conversation
 findings when present and keep their pagination independent. Scroll loading
 adds adjacent pages and preserves focus and position when prepending. Use
 ordinary GET links for tabs, paging, expansion and recovery, deduplicate date
-headings and keep the search terms and highlighted matches when paging. See
+headings and keep the search terms and highlighted matches when paging. For a
+search jump, bring the active highlighted phrase into view and let keyboard focus
+continue to the match controls below the message. See
 [reading conversations](evidence.md#reading-conversations).
 
 ## Evidence creation and batch uploads

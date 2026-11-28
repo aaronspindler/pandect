@@ -218,8 +218,6 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
                 if not current or current["representative"] != representative:
                     continue
                 selected.timeline_id = representative
-                if query:
-                    selected.matches_search = rows[target].matches_search
                 rows[target] = selected
             break
     else:
@@ -306,6 +304,7 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         "search_params": search_params,
         "match_page": match_page,
         "match_message": match_message,
+        "jump_to_match": jump_to_match,
         "match_in_page": match_message is not None
         and any(row.timeline_id == match_message.pk for row in rows),
         "conversation_list_url": list_url,

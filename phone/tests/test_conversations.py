@@ -20,7 +20,11 @@ from core.analysis.services import start_run
 from core.tests.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.conversations import MESSAGE_PREVIEW_LENGTH, conversation_url
+from phone.conversations import (
+    MESSAGE_PREVIEW_LENGTH,
+    conversation_url,
+    message_match_position,
+)
 from phone.message_csv import IMESSAGE_PARSER_VERSION, WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext, TextMessageEvidence
 
@@ -351,9 +355,10 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         reader = self.reader_url()
         first_match = self.client.get(reader, {"q": f"  {query}  "})
         self.assertContains(first_match, "Match 1 of 1")
-        self.assertContains(first_match, "<mark>CRATE%_&lt;b&gt;</mark>")
-        self.assertNotContains(first_match, "<mark>CRATE%_<b></mark>")
-        self.assertContains(first_match, "<mark>", count=1)
+        self.assertContains(first_match, '<mark id="conversation-search-result"')
+        self.assertContains(first_match, ">CRATE%_&lt;b&gt;</mark>")
+        self.assertNotContains(first_match, ">CRATE%_<b></mark>")
+        self.assertContains(first_match, "<mark", count=1)
         self.assertIsNone(first_match.context["selected_message"])
         self.assertEqual(
             list(first_match.context["page_obj"]),
@@ -362,8 +367,30 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(first_match, "Retained crate")
         self.assertContains(first_match, '#conversation-search-result"')
 
+        selected_copy = self.client.get(reader, {"q": query, "message": copy.pk})
+        self.assertEqual(selected_copy.context["selected_message"].pk, copy.pk)
+        self.assertContains(selected_copy, "<mark>CRATE%_&lt;b&gt;</mark>")
+        self.assertContains(selected_copy, "Match 1 of 1")
+
         self.login("outsider")
         self.assertEqual(self.client.get(reader, {"q": query}).status_code, 404)
+
+    def test_search_highlights_the_occurrence_matched_by_postgresql(self):
+        message = self.message(body="K first, K second.")
+        # Collation can change which letter matches. Use the same occurrence as
+        # PostgreSQL even when Python's case folding would highlight another.
+        position = (
+            TextMessageEvidence.objects.filter(pk=message.pk)
+            .annotate(position=message_match_position("K"))
+            .values_list("position", flat=True)
+            .get()
+        )
+        self.login("viewer")
+
+        response = self.client.get(self.reader_url(), {"q": "K"})
+
+        self.assertContains(response, '<mark id="conversation-search-result"')
+        self.assertContains(response, f">{message.body[position - 1]}</mark>")
 
     def test_search_reaches_later_unindexed_matches_with_external_ai_enabled(self):
         self.case.external_ai_enabled = True
@@ -384,7 +411,7 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
             )
         hosted_hits.assert_not_called()
         self.assertContains(response, "Match 51 of 51")
-        self.assertContains(response, "<mark>north gate</mark>")
+        self.assertContains(response, ">north gate</mark>")
         self.assertEqual(response.context["match_message"].pk, messages[-1].pk)
         self.assertEqual(response.context["page_obj"].number, 2)
 
@@ -820,7 +847,7 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.context["match_page"].paginator.count, 1)
         self.assertEqual(len(inspected.body_preview), MESSAGE_PREVIEW_LENGTH)
         self.assertIn(phrase, inspected.body_preview)
-        self.assertContains(response, f"<mark>{phrase}</mark>")
+        self.assertContains(response, f">{phrase}</mark>")
         self.assertContains(response, "Message excerpt")
         self.assertNotContains(response, tail)
         self.assertContains(self.client.get(original), tail)

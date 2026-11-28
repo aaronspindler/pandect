@@ -227,9 +227,13 @@ shows the retained CSV, source row and sender details.
 
 **Search messages** finds literal text in active message bodies across pages,
 ignoring case and counting each matching timeline row once. It works with
-external AI disabled. **Previous match** and **Next match** jump among highlights.
-A long matching message shows the excerpt around its match.
-**Clear search** keeps your place.
+external AI disabled. The search opens directly at the first highlighted match.
+**Previous match** and **Next match** jump to the highlighted text in another
+matching message, with nearby messages available for context. A long matching
+message shows the excerpt around its match. **Clear search** keeps your place.
+Use the earlier and later links for more context, or scroll away from the match
+to resume automatic loading.
+Ctrl+F and Cmd+F still open your browser's Find tool.
 
 **Jump to date** opens the first message on that local day. An import that
 supplies only a date uses its original calendar day and is labeled as having no
